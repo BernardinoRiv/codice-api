@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: sra_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: codice_admin
+      POSTGRES_PASSWORD: codice_password
+      POSTGRES_DB: sra_uma_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_sra_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_sra_data:
