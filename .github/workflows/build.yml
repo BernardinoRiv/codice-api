@@ -1,39 +1,49 @@
-name: SonarQube
+name: Build and Analyze Backend
+
 on:
   push:
     branches:
       - test
   pull_request:
     types: [opened, synchronize, reopened]
-    branches:
-      - test
-      - main
+
 jobs:
-  build:
-    name: Build and analyze
+  sonarcloud:
+    name: Build and Analyze
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+
       - name: Set up JDK 17
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
+        uses: actions/setup-java@v4
         with:
           java-version: 17
-          distribution: 'zulu' # Alternative distribution options are available.
-      - name: Cache SonarQube packages
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar
-          restore-keys: ${{ runner.os }}-sonar
-      - name: Cache Maven packages
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
-      - name: Build and analyze
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build and analyze with SonarCloud
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=BernardinoRiv_codice-api
+        run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+
+      - name: Notificar resultado al equipo
+        if: always() # Se ejecuta siempre al terminar, falle o pase
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.CORREO_GMAIL }}
+          password: ${{ secrets.CLAVE_GMAIL }}
+          subject: ${{ job.status == 'success' && '✅ Código Aceptado - Pipeline Exitoso (Backend)' || '❌ Código Rechazado - Falló el Quality Gate (Backend)' }}
+          to: mv815455@gmail..com # Cambia por el correo de destino o de tu equipo
+          from: Automatización Códice
+          body: |
+            El último Pull Request del Backend ha finalizado con estado: ${{ job.status }}.
+            
+            Para revisar los errores detallados:
+            - Ver logs de la ejecución en GitHub: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - Revisar issues y líneas exactas en SonarCloud: https://sonarcloud.io/project/issues?id=${{ github.event.repository.name }}
