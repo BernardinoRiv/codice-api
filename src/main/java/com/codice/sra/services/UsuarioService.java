@@ -14,6 +14,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.codice.sra.models.EstadoRegistroPersona; // Nuevo import
+import com.codice.sra.repositories.EstadoRegistroPersonaRepository; // Nuevo import
+
 
 import java.security.SecureRandom;
 
@@ -26,6 +29,8 @@ public class UsuarioService {
     private final EstadoUsuarioRepository estadoUsuarioRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
+    private final EstadoRegistroPersonaRepository estadoRegistroRepository; // modificacion aca
+
 
     @Autowired
     public UsuarioService(UsuarioRepository usuarioRepository,
@@ -33,13 +38,15 @@ public class UsuarioService {
                           RolRepository rolRepository,
                           EstadoUsuarioRepository estadoUsuarioRepository,
                           PasswordEncoder passwordEncoder,
-                          EmailService emailService) {
+                          EmailService emailService,
+                          EstadoRegistroPersonaRepository estadoRegistroRepository) { //Moficacion aca
         this.usuarioRepository = usuarioRepository;
         this.personaRepository = personaRepository;
         this.rolRepository = rolRepository;
         this.estadoUsuarioRepository = estadoUsuarioRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
+        this.estadoRegistroRepository = estadoRegistroRepository; // modificacion aca
     }
 
     @Transactional
