@@ -36,4 +36,9 @@ public class Persona {
 
     @Column(name = "direccion", columnDefinition = "TEXT")
     private String direccion;
+
+    // Relación con la tabla de estados
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_estado_registro", nullable = false)
+    private EstadoRegistroPersona estadoRegistro;
 }
