@@ -4,15 +4,14 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.math.BigInteger;
-
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class UsuarioRegistroResponseDTO {
-    private Long idUsuario;
-    private String nombreCompleto;
+public class DocenteRegistroResponseDTO {
+    private Long idDocente;
+    private String codigoDocente;
+    private String nombres;
+    private String apellidos;
     private String correoInstitucional;
-    private String rol;
     private String mensaje;
 }

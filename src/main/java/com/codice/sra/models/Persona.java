@@ -3,6 +3,7 @@ package com.codice.sra.models;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 
 @Data
 @NoArgsConstructor
@@ -10,14 +11,17 @@ import java.time.LocalDate;
 @Entity
 @Table(name = "personas")
 public class Persona {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id_persona")
     private Long idPersona;
 
-    @Column(name = "documento", unique = true, length = 20)
-    private String documento;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_tipo_documento", nullable = false)
+    private TipoDocumento tipoDocumento;
+
+    @Column(name = "numero_documento", nullable = false, unique = true, length = 30)
+    private String numeroDocumento;
 
     @Column(name = "nombres", nullable = false, length = 100)
     private String nombres;
@@ -25,7 +29,7 @@ public class Persona {
     @Column(name = "apellidos", nullable = false, length = 100)
     private String apellidos;
 
-    @Column(name = "fecha_nacimiento")
+    @Column(name = "fecha_nacimiento", nullable = false)
     private LocalDate fechaNacimiento;
 
     @Column(name = "telefono", length = 25)
@@ -34,11 +38,13 @@ public class Persona {
     @Column(name = "correo_personal", unique = true, length = 150)
     private String correoPersonal;
 
-    @Column(name = "direccion", columnDefinition = "TEXT")
+    @Column(name = "direccion", nullable = false, columnDefinition = "TEXT")
     private String direccion;
 
-    // Relación con la tabla de estados
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_estado_registro", nullable = false)
     private EstadoRegistroPersona estadoRegistro;
+
+    @Column(name = "fecha_registro", nullable = false, updatable = false)
+    private OffsetDateTime fechaRegistro;
 }
