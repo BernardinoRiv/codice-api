@@ -10,18 +10,16 @@ import com.codice.sra.repositories.EstadoUsuarioRepository;
 import com.codice.sra.repositories.PersonaRepository;
 import com.codice.sra.repositories.RolRepository;
 import com.codice.sra.repositories.UsuarioRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.codice.sra.utils.UserUtils;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.codice.sra.models.EstadoRegistroPersona; // Nuevo import
-import com.codice.sra.repositories.EstadoRegistroPersonaRepository; // Nuevo import
-
-
-import java.security.SecureRandom;
 
 @Service
 public class UsuarioService {
+
+    public static final String ESTADO_ACTIVO = "ACTIVO";
+    private static final int LONGITUD_PASSWORD_DEFAULT = 8;
 
     private final UsuarioRepository usuarioRepository;
     private final PersonaRepository personaRepository;
@@ -29,59 +27,79 @@ public class UsuarioService {
     private final EstadoUsuarioRepository estadoUsuarioRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
-    private final EstadoRegistroPersonaRepository estadoRegistroRepository; // modificacion aca
 
-
-    @Autowired
     public UsuarioService(UsuarioRepository usuarioRepository,
                           PersonaRepository personaRepository,
                           RolRepository rolRepository,
                           EstadoUsuarioRepository estadoUsuarioRepository,
                           PasswordEncoder passwordEncoder,
-                          EmailService emailService,
-                          EstadoRegistroPersonaRepository estadoRegistroRepository) { //Moficacion aca
+                          EmailService emailService) {
         this.usuarioRepository = usuarioRepository;
         this.personaRepository = personaRepository;
         this.rolRepository = rolRepository;
         this.estadoUsuarioRepository = estadoUsuarioRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
-        this.estadoRegistroRepository = estadoRegistroRepository; // modificacion aca
     }
 
+    /**
+     * Endpoint administrativo: Crea y asigna una cuenta de acceso a una persona ya registrada.
+     * Consumido directamente por UsuarioController.
+     */
     @Transactional
     public UsuarioRegistroResponseDTO registrarUsuario(UsuarioRegistroRequestDTO request) {
+        Persona persona = personaRepository.findById(request.getIdPersona())
+                .orElseThrow(() -> new IllegalArgumentException("No existe ninguna persona registrada con ID: " + request.getIdPersona()));
+
         Rol rol = rolRepository.findById(request.getIdRol())
-                .orElseThrow(() -> new IllegalArgumentException("El rol seleccionado no existe"));
+                .orElseThrow(() -> new IllegalArgumentException("El rol seleccionado no existe con ID: " + request.getIdRol()));
 
-        EstadoUsuario estadoActivo = estadoUsuarioRepository.findByEstadoUsuario("Activo")
-                .orElseThrow(() -> new IllegalStateException("Estado Activo no configurado en el sistema"));
+        Usuario usuario = crearCuentaUsuario(persona, rol, LONGITUD_PASSWORD_DEFAULT);
 
-        if (personaRepository.existsByDocumento(request.getDocumento())) {
-            throw new IllegalArgumentException("Ya existe una persona registrada con este documento");
+        return new UsuarioRegistroResponseDTO(
+                usuario.getIdUsuario(),
+                persona.getNombres() + " " + persona.getApellidos(),
+                usuario.getCorreoInstitucional(),
+                rol.getRol(),
+                "Cuenta de usuario creada exitosamente. Las credenciales han sido enviadas."
+        );
+    }
+
+    /**
+     * Método de integración interna: Consumido por DocenteService y EmpleadoService
+     * para aprovisionar credenciales a partir de una entidad Persona procesada.
+     */
+    @Transactional
+    public Usuario aprovisionarUsuario(Persona persona, String nombreRol, int longitudPassword) {
+        Rol rol = rolRepository.findByRol(nombreRol)
+                .orElseThrow(() -> new IllegalArgumentException("Rol no encontrado en el sistema: " + nombreRol));
+
+        return crearCuentaUsuario(persona, rol, longitudPassword);
+    }
+
+    /**
+     * Lógica atómica de aprovisionamiento de credenciales y persistencia.
+     */
+    private Usuario crearCuentaUsuario(Persona persona, Rol rol, int longitudPassword) {
+        if (usuarioRepository.existsByPersona_IdPersonaAndRol_IdRol(persona.getIdPersona(), rol.getIdRol())) {
+            throw new IllegalArgumentException("La persona ya tiene asignada una cuenta activa con el rol: " + rol.getRol());
         }
 
-        if (request.getCorreoPersonal() != null && personaRepository.existsByCorreoPersonal(request.getCorreoPersonal())) {
-            throw new IllegalArgumentException("Ya existe una persona registrada con este correo personal");
-        }
+        EstadoUsuario estadoActivo = estadoUsuarioRepository.findByEstadoUsuario(ESTADO_ACTIVO)
+                .orElseThrow(() -> new IllegalStateException("El estado '" + ESTADO_ACTIVO + "' no está configurado en la base de datos"));
 
-        String correoInstitucional = generarCorreoInstitucional(request.getNombres(), request.getApellidos(), rol.getRol());
-
+        // Generar correo institucional único usando UserUtils
+        String correoInstitucional = UserUtils.generarCorreoInstitucional(persona.getNombres(), persona.getApellidos(), rol.getRol());
         if (usuarioRepository.existsByCorreoInstitucional(correoInstitucional)) {
-            correoInstitucional = generarCorreoUnico(request.getNombres(), request.getApellidos(), rol.getRol());
+            correoInstitucional = UserUtils.generarCorreoUnico(
+                    persona.getNombres(),
+                    persona.getApellidos(),
+                    rol.getRol(),
+                    usuarioRepository::existsByCorreoInstitucional
+            );
         }
 
-        Persona persona = new Persona();
-        persona.setDocumento(request.getDocumento());
-        persona.setNombres(request.getNombres());
-        persona.setApellidos(request.getApellidos());
-        persona.setFechaNacimiento(request.getFechaNacimiento());
-        persona.setTelefono(request.getTelefono());
-        persona.setCorreoPersonal(request.getCorreoPersonal());
-        persona.setDireccion(request.getDireccion());
-        persona = personaRepository.save(persona);
-
-        String passwordPlano = generarPasswordAleatorio(10);
+        String passwordPlano = UserUtils.generarPasswordAleatorio(longitudPassword);
 
         Usuario usuario = new Usuario();
         usuario.setPersona(persona);
@@ -92,8 +110,8 @@ public class UsuarioService {
         usuario.setIntentosFallidos(0);
         usuario = usuarioRepository.save(usuario);
 
-        // Envío de credenciales por correo electrónico de forma segura
-        if (persona.getCorreoPersonal() != null && !persona.getCorreoPersonal().isEmpty()) {
+        // Envío de credenciales si la persona tiene correo registrado
+        if (persona.getCorreoPersonal() != null && !persona.getCorreoPersonal().isBlank()) {
             emailService.enviarCredenciales(
                     persona.getCorreoPersonal(),
                     persona.getNombres() + " " + persona.getApellidos(),
@@ -102,60 +120,6 @@ public class UsuarioService {
             );
         }
 
-        String nombreCompleto = persona.getNombres() + " " + persona.getApellidos();
-
-        return new UsuarioRegistroResponseDTO(
-                usuario.getIdUsuario(),
-                nombreCompleto,
-                correoInstitucional,
-                rol.getRol(),
-                "Cuenta creada exitosamente. Las credenciales han sido enviadas al correo personal."
-        );
-    }
-
-    private String generarPasswordAleatorio(int longitud) {
-        String caracteres = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*";
-        SecureRandom random = new SecureRandom();
-        StringBuilder sb = new StringBuilder(longitud);
-        for (int i = 0; i < longitud; i++) {
-            sb.append(caracteres.charAt(random.nextInt(caracteres.length())));
-        }
-        return sb.toString();
-    }
-
-    private String generarCorreoInstitucional(String nombres, String apellidos, String rol) {
-        String iniciales = extraerIniciales(nombres);
-        String primerApellido = apellidos.split("\\s+")[0].toLowerCase().replaceAll("[^a-z]", "");
-        String sufijoRol = switch (rol.toUpperCase()) {
-            case "DOCENTE" -> "docente";
-            case "ESTUDIANTE", "ALUMNO" -> "alumno";
-            case "ADMINISTRADOR", "ADMIN" -> "admin";
-            default -> "usuario";
-        };
-        return String.format("%s.%s@%s.uma.edu.svvv", iniciales, primerApellido, sufijoRol);
-    }
-
-    private String generarCorreoUnico(String nombres, String apellidos, String rol) {
-        String base = generarCorreoInstitucional(nombres, apellidos, rol);
-        String localPart = base.substring(0, base.indexOf('@'));
-        String domain = base.substring(base.indexOf('@') + 1);
-        int contador = 1;
-        String candidato;
-        do {
-            candidato = String.format("%s%d@%s", localPart, contador, domain);
-            contador++;
-        } while (usuarioRepository.existsByCorreoInstitucional(candidato));
-        return candidato;
-    }
-
-    private String extraerIniciales(String nombres) {
-        String[] partes = nombres.trim().split("\\s+");
-        StringBuilder iniciales = new StringBuilder();
-        for (String parte : partes) {
-            if (!parte.isEmpty()) {
-                iniciales.append(Character.toLowerCase(parte.charAt(0)));
-            }
-        }
-        return iniciales.toString();
+        return usuario;
     }
 }

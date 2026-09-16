@@ -12,13 +12,20 @@ import java.util.Optional;
 
 @Repository
 public interface PersonaRepository extends JpaRepository<Persona, Long> {
-    boolean existsByDocumento(String documento);
+
+    boolean existsByNumeroDocumento(String numeroDocumento);
+
     boolean existsByCorreoPersonal(String correoPersonal);
 
-    Optional<Persona> findByDocumento(String documento);
+    Optional<Persona> findByNumeroDocumento(String numeroDocumento);
 
-    // Bloquea la fila en la BD para evitar concurrencia
+    // Bloqueo Pesimista por ID (SELECT ... FOR UPDATE)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Persona p WHERE p.idPersona = :idPersona")
     Optional<Persona> findByIdForUpdate(@Param("idPersona") Long idPersona);
+
+    // Bloqueo Pesimista por Número de Documento (Crítico para serializar modificaciones sobre la misma persona)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Persona p WHERE p.numeroDocumento = :numeroDocumento")
+    Optional<Persona> findByNumeroDocumentoForUpdate(@Param("numeroDocumento") String numeroDocumento);
 }
