@@ -4,14 +4,23 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.OffsetDateTime;
+
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 public class AuthLoginResponseDTO {
 
-    //Este objeto definirá la estructura de la respuesta exitosa, entregando el token JWT (que configuraremos más adelante) y los datos básicos de la sesión, pero manteniendo oculta toda la información sensible de la entidad Usuario.
-
+    // Datos de sesión (serán nulos si el login falla)
     private String token;
     private String nombreCompleto;
     private String rol;
+
+    // Nuevos campos para intentos y bloqueos
+    private Integer intentosFallidos;
+    private OffsetDateTime bloqueadoHasta;
+
+    // Campos de control para saber el resultado de la petición
+    private String mensaje;
+    private boolean exito;
 }

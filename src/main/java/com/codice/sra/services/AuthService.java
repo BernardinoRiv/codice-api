@@ -17,7 +17,7 @@ public class AuthService {
 
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtService jwtService; // Inyectamos nuestro generador de tokens
+    private final JwtService jwtService;
 
     @Autowired
     public AuthService(UsuarioRepository usuarioRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
@@ -31,20 +31,37 @@ public class AuthService {
         Optional<Usuario> usuarioOpt = usuarioRepository.findByCorreoInstitucional(request.getCorreoInstitucional());
 
         if (usuarioOpt.isEmpty()) {
-            throw new RuntimeException("Credenciales inválidas");
+            return new AuthLoginResponseDTO(null, null, null, 0, null, "Credenciales inválidas", false);
         }
 
         Usuario usuario = usuarioOpt.get();
 
         // 2. Verificar si el usuario está bloqueado
         if (usuario.getBloqueadoHasta() != null && usuario.getBloqueadoHasta().isAfter(OffsetDateTime.now())) {
-            throw new RuntimeException("Usuario bloqueado por múltiples intentos fallidos. Intente más tarde.");
+            return new AuthLoginResponseDTO(
+                    null, null, null,
+                    usuario.getIntentosFallidos(),
+                    usuario.getBloqueadoHasta(),
+                    "Usuario bloqueado por múltiples intentos fallidos. Intente más tarde.",
+                    false
+            );
         }
 
         // 3. Verificar contraseña encriptada
         if (!passwordEncoder.matches(request.getPassword(), usuario.getPasswordHash())) {
             manejarIntentoFallido(usuario);
-            throw new RuntimeException("Credenciales inválidas");
+
+            // Calculamos el estado actualizado para devolverlo en la respuesta
+            int nuevosIntentos = usuario.getIntentosFallidos();
+            OffsetDateTime nuevoBloqueo = nuevosIntentos >= 3 ? OffsetDateTime.now().plusMinutes(15) : null;
+
+            return new AuthLoginResponseDTO(
+                    null, null, null,
+                    nuevosIntentos,
+                    nuevoBloqueo,
+                    "Credenciales inválidas",
+                    false
+            );
         }
 
         // 4. Si el login es exitoso, reiniciar intentos fallidos
@@ -53,14 +70,18 @@ public class AuthService {
         usuario.setUltimoAcceso(OffsetDateTime.now());
         usuarioRepository.save(usuario);
 
-        // 5. Generar el token real usando la clave secreta
-        String jwtToken = jwtService.generateToken(usuario.getCorreoInstitucional(), usuario.getRol().getRol());
+        // 5. Generar el token real
+        String jwtToken = jwtService.generateToken(usuario);
         String nombreCompleto = usuario.getPersona().getNombres() + " " + usuario.getPersona().getApellidos();
 
         return new AuthLoginResponseDTO(
-                jwtToken, // Ahora devolvemos el token matemáticamente firmado
+                jwtToken,
                 nombreCompleto,
-                usuario.getRol().getRol()
+                usuario.getRol().getRol(),
+                0, // 0 intentos fallidos porque fue exitoso
+                null, // No está bloqueado
+                "Login exitoso",
+                true
         );
     }
 

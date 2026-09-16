@@ -14,11 +14,11 @@ public class Sede {
     @Column(name = "id_sede")
     private Long idSede;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_tipo_sede", nullable = false)
     private TipoSede tipoSede;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_estado_sede", nullable = false)
     private EstadoSede estadoSede;
 

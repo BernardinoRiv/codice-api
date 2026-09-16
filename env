@@ -1,0 +1,8 @@
+spring.datasource.url=jdbc:postgresql://aws-0-ca-central-1.pooler.supabase.com:5432/postgres
+spring.datasource.username=postgres.tpkonvfzagdmywbtugho
+spring.datasource.password=uma_sra2026
+
+security.jwt.secret-key=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+
+spring.mail.username=va224100093@uma.edu.sv
+spring.mail.password=zjra ymqm lhvy agcj

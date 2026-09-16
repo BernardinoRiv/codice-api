@@ -39,7 +39,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         final String jwt;
         final String userEmail;
 
-        // 1. Verificar si el encabezado contiene el token Bearer
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
@@ -48,24 +47,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         jwt = authHeader.substring(7);
         userEmail = jwtService.extractUsername(jwt);
 
-        // 2. Si hay un usuario en el token y no está autenticado en el contexto actual
         if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
 
             if (jwtService.isTokenValid(jwt, userEmail)) {
-                // Extraer el rol del token para asignarle los permisos
                 String rol = jwtService.extractClaim(jwt, claims -> claims.get("rol", String.class));
+                Long idUsuario = jwtService.extractClaim(jwt, claims -> claims.get("idUsuario", Long.class));
+
                 List<GrantedAuthority> authorities = Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + rol));
 
-                // Crear el objeto de autenticación
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        userEmail,
+                        idUsuario,  // <-- Ahora el principal es el id_usuario (Long)
                         null,
                         authorities
                 );
 
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-                // Guardar la autenticación en el contexto de Spring Security
                 SecurityContextHolder.getContext().setAuthentication(authToken);
             }
         }

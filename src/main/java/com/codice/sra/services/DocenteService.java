@@ -2,7 +2,9 @@ package com.codice.sra.services;
 
 import com.codice.sra.dtos.DocenteRegistroRequestDTO;
 import com.codice.sra.dtos.DocenteRegistroResponseDTO;
+import com.codice.sra.dtos.GrupoResponseDTO;
 import com.codice.sra.models.*;
+import com.codice.sra.repositories.*;
 import com.codice.sra.repositories.DocenteRepository;
 import com.codice.sra.repositories.EstadoDocenteRepository;
 import com.codice.sra.repositories.SedeRepository;
@@ -11,8 +13,12 @@ import com.codice.sra.utils.UserUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 @Service
 public class DocenteService {
+
 
     public static final String ROL_DOCENTE = "DOCENTE";
     public static final String ESTADO_ACTIVO = "ACTIVO";
@@ -25,19 +31,25 @@ public class DocenteService {
     private final EstadoDocenteRepository estadoDocenteRepository;
     private final PersonaService personaService;
     private final UsuarioService usuarioService;
+    private final GrupoRepository grupoRepository;
+    private final UsuarioRepository usuarioRepository;
 
     public DocenteService(DocenteRepository docenteRepository,
                           SedeRepository sedeRepository,
                           TipoContratacionDocenteRepository tipoContratacionRepository,
                           EstadoDocenteRepository estadoDocenteRepository,
                           PersonaService personaService,
-                          UsuarioService usuarioService) {
+                          UsuarioService usuarioService,
+                          GrupoRepository grupoRepository,
+                          UsuarioRepository usuarioRepository) {
         this.docenteRepository = docenteRepository;
         this.sedeRepository = sedeRepository;
         this.tipoContratacionRepository = tipoContratacionRepository;
         this.estadoDocenteRepository = estadoDocenteRepository;
         this.personaService = personaService;
         this.usuarioService = usuarioService;
+        this.grupoRepository = grupoRepository;
+        this.usuarioRepository = usuarioRepository;
     }
 
     @Transactional
@@ -82,5 +94,33 @@ public class DocenteService {
                 usuario.getCorreoInstitucional(),
                 "Docente registrado exitosamente. Credenciales enviadas."
         );
+    }
+    public List<Grupo> obtenerGruposPorDocente(Long idUsuario) {
+        Docente docente = docenteRepository.findByUsuarioIdUsuario(idUsuario)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Docente no encontrado para el usuario con ID: " + idUsuario));
+
+        return grupoRepository.findByDocenteIdDocente(docente.getIdDocente());
+    }
+
+    // AGREGA ESTE MÉTODO NUEVO
+    public List<GrupoResponseDTO> obtenerGruposPorDocenteDTO(Long idUsuario) {
+        List<Grupo> grupos = obtenerGruposPorDocente(idUsuario);
+
+        return grupos.stream().map(grupo -> {
+            String nombreDocente = grupo.getDocente().getPersona().getNombres() + " " +
+                    grupo.getDocente().getPersona().getApellidos();
+
+            return new GrupoResponseDTO(
+                    grupo.getIdGrupo(),
+                    grupo.getCodigoGrupo(),
+                    grupo.getMateria().getNombreMateria(),
+                    grupo.getMateria().getCodigoMateria(),
+                    grupo.getCiclo().getCodigoCiclo(),
+                    grupo.getSede().getNombreSede(),
+                    grupo.getDocente().getPersona().getNombres(),
+                    grupo.getDocente().getPersona().getApellidos()
+            );
+        }).collect(Collectors.toList());
     }
 }

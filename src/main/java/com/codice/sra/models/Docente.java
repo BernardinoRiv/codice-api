@@ -18,19 +18,19 @@ public class Docente {
     @JoinColumn(name = "id_persona", nullable = false)
     private Persona persona;
 
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "id_usuario")
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_usuario", unique = true)
     private Usuario usuario;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_sede", nullable = false)
     private Sede sede;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_tipo_contratacion", nullable = false)
     private TipoContratacionDocente tipoContratacion;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_estado_docente", nullable = false)
     private EstadoDocente estadoDocente;
 
