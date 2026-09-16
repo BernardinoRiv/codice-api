@@ -1,5 +1,6 @@
 package com.codice.sra.controllers;
 
+import com.codice.sra.dtos.DocenteListaResponseDTO;
 import com.codice.sra.dtos.DocenteRegistroRequestDTO;
 import com.codice.sra.dtos.DocenteRegistroResponseDTO;
 import com.codice.sra.dtos.GrupoResponseDTO;
@@ -38,6 +39,14 @@ public class DocenteController {
         Long idUsuario = obtenerIdUsuarioAutenticado();
         List<GrupoResponseDTO> grupos = docenteService.obtenerGruposPorDocenteDTO(idUsuario);
         return ResponseEntity.ok(grupos);
+    }
+
+    @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'DOCENTE')")
+    @Operation(summary = "Obtener lista de todos los docentes registrados")
+    public ResponseEntity<List<DocenteListaResponseDTO>> obtenerTodosLosDocentes() {
+        List<DocenteListaResponseDTO> docentes = docenteService.obtenerTodosLosDocentes();
+        return ResponseEntity.ok(docentes);
     }
 
     private Long obtenerIdUsuarioAutenticado() {
