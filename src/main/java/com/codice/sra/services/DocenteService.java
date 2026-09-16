@@ -1,5 +1,6 @@
 package com.codice.sra.services;
 
+import com.codice.sra.dtos.DocenteListaResponseDTO;
 import com.codice.sra.dtos.DocenteRegistroRequestDTO;
 import com.codice.sra.dtos.DocenteRegistroResponseDTO;
 import com.codice.sra.dtos.GrupoResponseDTO;
@@ -120,6 +121,24 @@ public class DocenteService {
                     grupo.getSede().getNombreSede(),
                     grupo.getDocente().getPersona().getNombres(),
                     grupo.getDocente().getPersona().getApellidos()
+            );
+        }).collect(Collectors.toList());
+    }
+
+    public List<DocenteListaResponseDTO> obtenerTodosLosDocentes() {
+        List<Docente> docentes = docenteRepository.findAll();
+
+        return docentes.stream().map(docente -> {
+            return new DocenteListaResponseDTO(
+                    docente.getIdDocente(),
+                    docente.getCodigoDocente(),
+                    docente.getPersona().getNombres(),
+                    docente.getPersona().getApellidos(),
+                    docente.getUsuario().getCorreoInstitucional(),
+                    docente.getEspecialidad(),
+                    docente.getSede().getNombreSede(),
+                    docente.getTipoContratacion().getTipoContratacion(),
+                    docente.getEstadoDocente().getEstadoDocente()
             );
         }).collect(Collectors.toList());
     }
