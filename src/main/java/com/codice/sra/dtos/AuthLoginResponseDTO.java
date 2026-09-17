@@ -15,6 +15,7 @@ public class AuthLoginResponseDTO {
     private String token;
     private String nombreCompleto;
     private String rol;
+    private OffsetDateTime ultimoAcceso;
 
     // Nuevos campos para intentos y bloqueos
     private Integer intentosFallidos;
