@@ -1,5 +1,6 @@
 package com.codice.sra.services;
 
+import com.codice.sra.dtos.PersonaConsultaResponseDTO;
 import com.codice.sra.dtos.PersonaInputDTO;
 import com.codice.sra.dtos.PersonaRegistroRequestDTO;
 import com.codice.sra.dtos.PersonaResponseDTO;
@@ -9,10 +10,12 @@ import com.codice.sra.models.TipoDocumento;
 import com.codice.sra.repositories.EstadoRegistroPersonaRepository;
 import com.codice.sra.repositories.PersonaRepository;
 import com.codice.sra.repositories.TipoDocumentoRepository;
+import com.codice.sra.repositories.UsuarioRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -24,19 +27,37 @@ public class PersonaService {
     private final PersonaRepository personaRepository;
     private final EstadoRegistroPersonaRepository estadoRegistroRepository;
     private final TipoDocumentoRepository tipoDocumentoRepository;
+    private final UsuarioRepository usuarioRepository;
 
     public PersonaService(PersonaRepository personaRepository,
                           EstadoRegistroPersonaRepository estadoRegistroRepository,
-                          TipoDocumentoRepository tipoDocumentoRepository) {
+                          TipoDocumentoRepository tipoDocumentoRepository,
+                          UsuarioRepository usuarioRepository) {
         this.personaRepository = personaRepository;
         this.estadoRegistroRepository = estadoRegistroRepository;
         this.tipoDocumentoRepository = tipoDocumentoRepository;
+        this.usuarioRepository = usuarioRepository;
     }
 
+
     @Transactional(readOnly = true)
-    public Optional<PersonaResponseDTO> buscarPorDocumento(String numeroDocumento) {
+    public Optional<PersonaConsultaResponseDTO> buscarPorDocumento(String numeroDocumento) {
         return personaRepository.findByNumeroDocumento(numeroDocumento)
-                .map(this::mapToResponseDTO);
+                .map(persona -> {
+                    List<String> roles = usuarioRepository.findRolesByPersonaId(persona.getIdPersona());
+                    return PersonaConsultaResponseDTO.builder()
+                            .idPersona(persona.getIdPersona())
+                            .idTipoDocumento(persona.getTipoDocumento().getIdTipoDocumento())
+                            .numeroDocumento(persona.getNumeroDocumento())
+                            .nombres(persona.getNombres())
+                            .apellidos(persona.getApellidos())
+                            .fechaNacimiento(persona.getFechaNacimiento())
+                            .telefono(persona.getTelefono())
+                            .correoPersonal(persona.getCorreoPersonal())
+                            .direccion(persona.getDireccion())
+                            .rolesActivos(roles)
+                            .build();
+                });
     }
 
     @Transactional
