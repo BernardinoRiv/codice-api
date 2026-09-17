@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UsuarioService {
 
     public static final String ESTADO_ACTIVO = "ACTIVO";
+    public static final String ROL_ADMINISTRADOR = "ADMINISTRADOR";
     private static final int LONGITUD_PASSWORD_DEFAULT = 8;
 
     private final UsuarioRepository usuarioRepository;
@@ -71,6 +72,11 @@ public class UsuarioService {
      */
     @Transactional
     public Usuario aprovisionarUsuario(Persona persona, String nombreRol, int longitudPassword) {
+        // Bloqueo directo si se intenta aprovisionar rol de Administrador desde flujos operativos
+        if (ROL_ADMINISTRADOR.equalsIgnoreCase(nombreRol)) {
+            throw new IllegalArgumentException("Operación no permitida: El rol no puede aprovisionarse desde flujos operativos.");
+        }
+
         Rol rol = rolRepository.findByRol(nombreRol)
                 .orElseThrow(() -> new IllegalArgumentException("Rol no encontrado en el sistema: " + nombreRol));
 
@@ -81,14 +87,35 @@ public class UsuarioService {
      * Lógica atómica de aprovisionamiento de credenciales y persistencia.
      */
     private Usuario crearCuentaUsuario(Persona persona, Rol rol, int longitudPassword) {
+        // 1. REGLA SoD: Si la persona física ya es Administrador, no puede recibir roles operativos
+        boolean esAdminActual = usuarioRepository.existsByPersona_IdPersonaAndRol_Rol(
+                persona.getIdPersona(),
+                ROL_ADMINISTRADOR
+        );
+
+        if (esAdminActual && !ROL_ADMINISTRADOR.equalsIgnoreCase(rol.getRol())) {
+            throw new IllegalArgumentException(
+                    "Incompatibilidad de seguridad: Esta persona no puede recibir cuentas operativas."
+            );
+        }
+
+        // 2. REGLA SoD INVERSA: Si tiene roles operativos y se le intenta asignar rol ADMINISTRADOR
+        if (ROL_ADMINISTRADOR.equalsIgnoreCase(rol.getRol())
+                && usuarioRepository.existsByPersona_IdPersona(persona.getIdPersona())
+                && !esAdminActual) {
+            throw new IllegalArgumentException(
+                    "Incompatibilidad de seguridad: Cuentas con roles operativos incompatibles."
+            );
+        }
+
+        // 3. IDEMPOTENCIA: Verificar duplicidad del mismo rol
         if (usuarioRepository.existsByPersona_IdPersonaAndRol_IdRol(persona.getIdPersona(), rol.getIdRol())) {
-            throw new IllegalArgumentException("La persona ya tiene asignada una cuenta activa con el rol: " + rol.getRol());
+            throw new IllegalArgumentException("La persona ya tiene asignada una cuenta activa con ese rol");
         }
 
         EstadoUsuario estadoActivo = estadoUsuarioRepository.findByEstadoUsuario(ESTADO_ACTIVO)
                 .orElseThrow(() -> new IllegalStateException("El estado '" + ESTADO_ACTIVO + "' no está configurado en la base de datos"));
 
-        // Generar correo institucional único usando UserUtils
         String correoInstitucional = UserUtils.generarCorreoInstitucional(persona.getNombres(), persona.getApellidos(), rol.getRol());
         if (usuarioRepository.existsByCorreoInstitucional(correoInstitucional)) {
             correoInstitucional = UserUtils.generarCorreoUnico(
@@ -110,7 +137,6 @@ public class UsuarioService {
         usuario.setIntentosFallidos(0);
         usuario = usuarioRepository.save(usuario);
 
-        // Envío de credenciales si la persona tiene correo registrado
         if (persona.getCorreoPersonal() != null && !persona.getCorreoPersonal().isBlank()) {
             emailService.enviarCredenciales(
                     persona.getCorreoPersonal(),
