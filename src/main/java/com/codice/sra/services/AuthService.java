@@ -39,8 +39,8 @@ public class AuthService {
 
         Usuario usuario = usuarioOpt.get();
 
-        // Guardar el último acceso ANTES de actualizarlo
-        OffsetDateTime ultimoAccesoAntes = usuario.getUltimoAcceso();
+        // Guardar el último acceso para mandarlo al frontend
+        OffsetDateTime ultimoAccesoActual = usuario.getUltimoAcceso();
 
         // 2. Verificar si el usuario está bloqueado
         if (usuario.getBloqueadoHasta() != null && usuario.getBloqueadoHasta().isAfter(OffsetDateTime.now())) {
@@ -69,11 +69,9 @@ public class AuthService {
             );
         }
 
-        // 4. Si el login es exitoso, reiniciar intentos fallidos y actualizar último acceso
+        // 4. Si el login es exitoso, reiniciar intentos fallidos (PERO NO ACTUALIZAR ULTIMO ACCESO AQUI)
         usuario.setIntentosFallidos(0);
         usuario.setBloqueadoHasta(null);
-        OffsetDateTime ahora = OffsetDateTime.now();
-        usuario.setUltimoAcceso(ahora);
         usuarioRepository.save(usuario);
 
         // 5. Generar el token
@@ -84,7 +82,7 @@ public class AuthService {
                 jwtToken,
                 nombreCompleto,
                 usuario.getRol().getRol(),
-                ultimoAccesoAntes,  // Devolvemos el último acceso ANTES de este login
+                ultimoAccesoActual,  // Mandamos el valor real de la base de datos (que puede ser null)
                 0,
                 null,
                 "Login exitoso",
@@ -115,7 +113,7 @@ public class AuthService {
                     "La nueva contraseña debe ser diferente a la actual");
         }
 
-        // 5. Validar fortaleza de la contraseña (opcional pero recomendado)
+        // 5. Validar fortaleza de la contraseña
         if (request.getNuevaContrasena().length() < 8) {
             return new CambiarContrasenaResponseDTO(false,
                     "La contraseña debe tener al menos 8 caracteres");
@@ -124,6 +122,11 @@ public class AuthService {
         // 6. Encriptar y guardar la nueva contraseña
         String nuevaContrasenaHash = passwordEncoder.encode(request.getNuevaContrasena());
         usuario.setPasswordHash(nuevaContrasenaHash);
+
+        // ¡ESTA ES LA LÍNEA MÁGICA QUE FALTABA!
+        // Al cambiar la contraseña exitosamente, dejamos constancia de su primer acceso real
+        usuario.setUltimoAcceso(OffsetDateTime.now());
+
         usuarioRepository.save(usuario);
 
         return new CambiarContrasenaResponseDTO(true, "Contraseña cambiada exitosamente");
