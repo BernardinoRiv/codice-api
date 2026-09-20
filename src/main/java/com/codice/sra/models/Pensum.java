@@ -3,6 +3,9 @@ package com.codice.sra.models;
 import jakarta.persistence.*;
 import lombok.Data;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Entity
 @Table(name = "pensum", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"id_carrera", "version"})
@@ -31,4 +34,7 @@ public class Pensum {
 
     @Column(name = "anio_fin")
     private Integer anioFin;
+
+    @OneToMany(mappedBy = "pensum", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PensumMateria> pensumMaterias = new ArrayList<>();
 }

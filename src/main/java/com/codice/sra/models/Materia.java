@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "materias")
@@ -26,4 +28,7 @@ public class Materia {
 
     @Column(name = "estado_materia", nullable = false)
     private Boolean estadoMateria = true;
+
+    @OneToMany(mappedBy = "materia", fetch = FetchType.LAZY)
+    private List<PensumMateria> pensumMaterias = new ArrayList<>();
 }
