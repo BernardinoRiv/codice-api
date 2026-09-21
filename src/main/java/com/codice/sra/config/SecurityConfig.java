@@ -39,12 +39,10 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    // 1. Definimos la fuente de configuración de CORS como un Bean
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // 1. Declarar orígenes explícitos (sin comodines ciegos cuando hay credenciales activas)
         configuration.setAllowedOriginPatterns(Arrays.asList(
                 "http://localhost:5173",
                 "http://localhost:5174",
@@ -54,25 +52,10 @@ public class SecurityConfig {
                 allowedOrigin != null && !allowedOrigin.isBlank() ? allowedOrigin : "http://localhost:5173"
         ));
 
-        // 2. Métodos HTTP soportados para APIs REST
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-
-        // 3. Cabeceras HTTP permitidas en las peticiones
-        configuration.setAllowedHeaders(Arrays.asList(
-                "Authorization",
-                "Content-Type",
-                "Accept",
-                "Origin",
-                "X-Requested-With"
-        ));
-
-        // 4. Permitir transporte de credenciales / cabeceras de autorización
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"));
         configuration.setAllowCredentials(true);
-
-        // 5. Cabeceras de respuesta que el frontend puede inspeccionar (Location para HTTP 201)
         configuration.setExposedHeaders(Arrays.asList("Authorization", "Location"));
-
-        // 6. Cachear el preflight OPTIONS durante 1 hora
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -83,8 +66,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                // 2. Vinculamos explícitamente la configuración de CORS a la cadena de seguridad
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .cors(cors -> cors.configurationSource(corsConfigurationSource())) // <-- AQUÍ SE APLICA
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
