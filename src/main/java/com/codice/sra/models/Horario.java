@@ -1,13 +1,18 @@
 package com.codice.sra.models;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.*;
 
 import java.time.LocalTime;
 
+
 @Entity
-@Table(name = "horarios")
-@Data
+@Table(name = "horarios", schema = "public")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Horario {
 
     @Id

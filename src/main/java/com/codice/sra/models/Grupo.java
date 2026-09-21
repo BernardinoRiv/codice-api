@@ -1,11 +1,16 @@
 package com.codice.sra.models;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.*;
+
 
 @Entity
-@Table(name = "grupos")
-@Data
+@Table(name = "grupos", schema = "public")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Grupo {
 
     @Id
@@ -35,4 +40,11 @@ public class Grupo {
 
     @Column(name = "codigo_grupo", nullable = false, length = 50)
     private String codigoGrupo;
+
+    @Column(name = "cupo_maximo", nullable = false)
+    private Integer cupoMaximo;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_plantilla")
+    private PlantillaHorario plantilla;
 }
