@@ -20,7 +20,7 @@ public class EmpleadoController {
     private EmpleadoService empleadoService;
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR')")
     @Operation(summary = "Registrar nuevo empleado")
     public ResponseEntity<EmpleadoRegistroResponseDTO> crearEmpleado(@Valid @RequestBody EmpleadoRegistroRequestDTO request) {
         return ResponseEntity.ok(empleadoService.registrarEmpleado(request));

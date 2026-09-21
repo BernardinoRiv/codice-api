@@ -27,7 +27,7 @@ public class DocenteController {
     private DocenteService docenteService;
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR')")
     @Operation(summary = "Registrar nuevo docente")
     public ResponseEntity<DocenteRegistroResponseDTO> crearDocente(@Valid @RequestBody DocenteRegistroRequestDTO request) {
         return ResponseEntity.ok(docenteService.registrarDocente(request));
@@ -42,7 +42,7 @@ public class DocenteController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'DOCENTE')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR')")
     @Operation(summary = "Obtener lista de todos los docentes registrados")
     public ResponseEntity<List<DocenteListaResponseDTO>> obtenerTodosLosDocentes() {
         List<DocenteListaResponseDTO> docentes = docenteService.obtenerTodosLosDocentes();
