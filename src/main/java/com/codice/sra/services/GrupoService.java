@@ -59,6 +59,7 @@ public class GrupoService {
                     ev.getTipoEvaluacion().getTipoEvaluacion(),
                     ev.getNumeroEvaluacion(),
                     ev.getFechaInicio(),
+                    ev.getFechaFin(),
                     periodo
             );
         }).collect(Collectors.toList());

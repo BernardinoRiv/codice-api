@@ -13,5 +13,6 @@ public class EvaluacionResponseDTO {
     private String tipoEvaluacion;
     private Integer numeroEvaluacion;
     private LocalDateTime fechaInicio;
+    private LocalDateTime fechaFin;
     private Integer periodo; // Del PeriodoEvaluacion
 }

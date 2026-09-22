@@ -10,10 +10,11 @@ import com.codice.sra.repositories.CalificacionRepository;
 import com.codice.sra.repositories.EstadoCalificacionRepository;
 import com.codice.sra.repositories.EvaluacionRepository;
 import com.codice.sra.repositories.InscripcionRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -24,9 +25,6 @@ public class CalificacionService {
     private final EvaluacionRepository evaluacionRepository;
     private final InscripcionRepository inscripcionRepository;
     private final EstadoCalificacionRepository estadoCalificacionRepository;
-
-    @Autowired
-    private SolvenciaService solvenciaService;
 
     public CalificacionService(
             CalificacionRepository calificacionRepository,
@@ -42,16 +40,13 @@ public class CalificacionService {
     @Transactional
     public CalificacionResponseDTO registrarCalificacion(CalificacionRegistroRequestDTO request, Long idUsuarioDocente) {
 
+        validarNotaIndividual(request.getNota());
+
         Evaluacion evaluacion = evaluacionRepository.findById(request.getIdEvaluacion())
                 .orElseThrow(() -> new RuntimeException("La evaluación no existe."));
 
         Inscripcion inscripcion = inscripcionRepository.findById(request.getIdInscripcion())
                 .orElseThrow(() -> new RuntimeException("La inscripción no existe."));
-
-        Boolean esSolvente = solvenciaService.verificarSolvencia(request.getIdInscripcion());
-        if (!esSolvente) {
-            throw new RuntimeException("El estudiante no está solvente. No se puede registrar la calificación hasta que complete sus pagos.");
-        }
 
         validarPropiedadGrupo(evaluacion, idUsuarioDocente);
         validarVentanaTiempo(evaluacion);
@@ -87,6 +82,20 @@ public class CalificacionService {
         Calificacion calificacionGuardada = calificacionRepository.save(calificacion);
 
         return mapearAResponse(calificacionGuardada);
+    }
+
+    private void validarNotaIndividual(BigDecimal nota) {
+        if (nota == null) {
+            throw new IllegalArgumentException("La nota no puede ser nula.");
+        }
+
+        if (nota.compareTo(BigDecimal.ZERO) < 0 || nota.compareTo(new BigDecimal("10.00")) > 0) {
+            throw new IllegalArgumentException("La nota debe estar en el rango de 0.00 a 10.00.");
+        }
+
+        if (nota.stripTrailingZeros().scale() > 2) {
+            throw new IllegalArgumentException("La nota no puede tener más de 2 decimales. Valor recibido: " + nota);
+        }
     }
 
     private void validarPropiedadGrupo(Evaluacion evaluacion, Long idUsuarioDocente) {
