@@ -6,7 +6,14 @@ import java.math.BigDecimal;
 
 @Data @NoArgsConstructor @AllArgsConstructor
 public class CalificacionRegistroRequestDTO {
-    @NotNull private Long idInscripcion;
-    @NotNull private Long idEvaluacion;
-    @DecimalMin("0.0") @DecimalMax("10.0") private BigDecimal nota;
+
+    @NotNull(message = "El ID de la inscripción es requerido")
+    private Long idInscripcion;
+
+    @NotNull(message = "El ID de la evaluación es requerido")
+    private Long idEvaluacion;
+
+    @DecimalMin(value = "0.00", message = "La nota mínima es 0.00")
+    @DecimalMax(value = "10.00", message = "La nota máxima es 10.00")
+    private BigDecimal nota;
 }
