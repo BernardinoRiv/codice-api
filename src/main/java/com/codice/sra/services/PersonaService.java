@@ -4,13 +4,11 @@ import com.codice.sra.dtos.PersonaConsultaResponseDTO;
 import com.codice.sra.dtos.PersonaInputDTO;
 import com.codice.sra.dtos.PersonaRegistroRequestDTO;
 import com.codice.sra.dtos.PersonaResponseDTO;
+import com.codice.sra.models.Docente;
 import com.codice.sra.models.EstadoRegistroPersona;
 import com.codice.sra.models.Persona;
 import com.codice.sra.models.TipoDocumento;
-import com.codice.sra.repositories.EstadoRegistroPersonaRepository;
-import com.codice.sra.repositories.PersonaRepository;
-import com.codice.sra.repositories.TipoDocumentoRepository;
-import com.codice.sra.repositories.UsuarioRepository;
+import com.codice.sra.repositories.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,15 +26,18 @@ public class PersonaService {
     private final EstadoRegistroPersonaRepository estadoRegistroRepository;
     private final TipoDocumentoRepository tipoDocumentoRepository;
     private final UsuarioRepository usuarioRepository;
+    private final DocenteRepository docenteRepository;
 
     public PersonaService(PersonaRepository personaRepository,
                           EstadoRegistroPersonaRepository estadoRegistroRepository,
                           TipoDocumentoRepository tipoDocumentoRepository,
-                          UsuarioRepository usuarioRepository) {
+                          UsuarioRepository usuarioRepository,
+                          DocenteRepository docenteRepository) {
         this.personaRepository = personaRepository;
         this.estadoRegistroRepository = estadoRegistroRepository;
         this.tipoDocumentoRepository = tipoDocumentoRepository;
         this.usuarioRepository = usuarioRepository;
+        this.docenteRepository = docenteRepository;
     }
 
 
@@ -45,9 +46,15 @@ public class PersonaService {
         return personaRepository.findByNumeroDocumento(numeroDocumento)
                 .map(persona -> {
                     List<String> roles = usuarioRepository.findRolesByPersonaId(persona.getIdPersona());
+
+                    // Trae el docente, la sede y el tipo de contratación en una sola sentencia SQL
+                    Optional<Docente> docenteOpt = docenteRepository.findByPersonaIdConRelaciones(persona.getIdPersona());
+
                     return PersonaConsultaResponseDTO.builder()
                             .idPersona(persona.getIdPersona())
-                            .idTipoDocumento(persona.getTipoDocumento().getIdTipoDocumento())
+                            .idTipoDocumento(persona.getTipoDocumento() != null
+                                    ? persona.getTipoDocumento().getIdTipoDocumento()
+                                    : null)
                             .numeroDocumento(persona.getNumeroDocumento())
                             .nombres(persona.getNombres())
                             .apellidos(persona.getApellidos())
@@ -56,6 +63,13 @@ public class PersonaService {
                             .correoPersonal(persona.getCorreoPersonal())
                             .direccion(persona.getDireccion())
                             .rolesActivos(roles)
+                            // Atributos de enlace para el formulario del frontend
+                            .idSede(docenteOpt.map(d -> d.getSede() != null ? d.getSede().getIdSede() : null).orElse(null))
+                            .nombreSede(docenteOpt.map(d -> d.getSede() != null ? d.getSede().getNombreSede() : null).orElse(null))
+                            .idTipoContratacion(docenteOpt.map(d -> d.getTipoContratacion() != null ? d.getTipoContratacion().getIdTipoContratacion() : null).orElse(null))
+                            .tipoContratacion(docenteOpt.map(d -> d.getTipoContratacion() != null ? d.getTipoContratacion().getTipoContratacion() : null).orElse(null))
+                            .idEspecialidad(null)
+                            .especialidad(docenteOpt.map(Docente::getEspecialidad).orElse(null))
                             .build();
                 });
     }
