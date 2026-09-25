@@ -23,4 +23,11 @@ public class PersonaConsultaResponseDTO {
     private String correoPersonal;
     private String direccion;
     private List<String> rolesActivos; // Ej: ["ESTUDIANTE"]
+
+    private Long idSede;
+    private String nombreSede;
+    private Long idTipoContratacion;
+    private String tipoContratacion;
+    private Long idEspecialidad;
+    private String especialidad;
 }

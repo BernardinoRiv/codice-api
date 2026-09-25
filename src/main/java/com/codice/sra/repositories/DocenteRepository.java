@@ -15,6 +15,8 @@ public interface DocenteRepository extends JpaRepository<Docente, Long> {
     boolean existsByCodigoDocente(String codigoDocente);
     Optional<Docente> findByUsuarioIdUsuario(Long idUsuario);
 
+    Optional<Docente> findByPersona_IdPersona(Long idPersona);
+
     //Verificar limite de materias de un docente
     @Query("SELECT d FROM Docente d " +
             "JOIN FETCH d.tipoContratacion tc " +
@@ -31,4 +33,10 @@ public interface DocenteRepository extends JpaRepository<Docente, Long> {
             "WHERE UPPER(TRIM(ed.estadoDocente)) = 'ACTIVO' " +
             "ORDER BY p.apellidos ASC, p.nombres ASC")
     List<DocenteSeleccionDTO> findDocentesParaSeleccion();
+
+    @Query("SELECT d FROM Docente d " +
+            "LEFT JOIN FETCH d.sede " +
+            "LEFT JOIN FETCH d.tipoContratacion " +
+            "WHERE d.persona.idPersona = :idPersona")
+    Optional<Docente> findByPersonaIdConRelaciones(@Param("idPersona") Long idPersona);
 }
