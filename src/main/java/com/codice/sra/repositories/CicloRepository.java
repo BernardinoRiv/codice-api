@@ -21,4 +21,9 @@ public interface CicloRepository extends JpaRepository<Ciclo, Long> {
     // Consulta con join fetch del estado para evitar LazyInitializationException
     @Query("SELECT c FROM Ciclo c JOIN FETCH c.estadoCiclo WHERE c.idCiclo = :idCiclo")
     Optional<Ciclo> findByIdConEstado(@Param("idCiclo") Long idCiclo);
+
+    @Query("SELECT c FROM Ciclo c " +
+            "WHERE c.fechaInicio <= CURRENT_DATE " +
+            "AND c.fechaFin >= CURRENT_DATE")
+    Optional<Ciclo> findCicloActivo();
 }
