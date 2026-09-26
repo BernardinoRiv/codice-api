@@ -41,10 +41,17 @@ public class Persona {
     @Column(name = "direccion", nullable = false, columnDefinition = "TEXT")
     private String direccion;
 
+    @Column(name = "sexo", nullable = false, length = 1)
+    private String sexo; // 'M', 'F'
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_estado_registro", nullable = false)
     private EstadoRegistroPersona estadoRegistro;
 
     @Column(name = "fecha_registro", nullable = false, updatable = false)
     private OffsetDateTime fechaRegistro;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "id_distrito", nullable = false)
+    private Distrito distrito;
 }

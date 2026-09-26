@@ -11,4 +11,6 @@ public interface PersonaInputDTO {
     String getTelefono();
     String getCorreoPersonal();
     String getDireccion();
+    String getSexo();
+    Long getIdDistrito();
 }

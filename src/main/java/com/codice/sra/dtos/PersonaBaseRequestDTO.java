@@ -11,7 +11,7 @@ public class PersonaBaseRequestDTO implements PersonaInputDTO {
     private Long idTipoDocumento;
 
     @NotBlank(message = "El número de documento es obligatorio")
-    @Size(max = 30, message = "El número de documento no puede exceder 30 caracteres")
+    @Size(min = 7, max = 12, message = "El número de documento debe tener entre 7 y 12 caracteres.")
     private String numeroDocumento;
 
     @NotBlank(message = "Los nombres son obligatorios")
@@ -36,4 +36,11 @@ public class PersonaBaseRequestDTO implements PersonaInputDTO {
     @NotBlank(message = "La dirección es obligatoria")
     @Size(max = 500, message = "La dirección no puede exceder 500 caracteres")
     private String direccion;
+
+    @NotBlank(message = "El sexo es obligatorio.")
+    @Pattern(regexp = "^[MF]$", message = "El sexo debe ser 'M' (Masculino) o 'F' (Femenino).")
+    private String sexo;
+
+    @NotNull(message = "El distrito de residencia es obligatorio.")
+    private Long idDistrito;
 }

@@ -39,4 +39,7 @@ public class Empleado {
 
     @Column(name = "fecha_ingreso", nullable = false)
     private LocalDate fechaIngreso;
+
+    @Column(name = "fecha_fin")
+    private LocalDate fechaFin;
 }

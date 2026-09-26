@@ -4,11 +4,9 @@ import com.codice.sra.dtos.PersonaConsultaResponseDTO;
 import com.codice.sra.dtos.PersonaInputDTO;
 import com.codice.sra.dtos.PersonaRegistroRequestDTO;
 import com.codice.sra.dtos.PersonaResponseDTO;
-import com.codice.sra.models.Docente;
-import com.codice.sra.models.EstadoRegistroPersona;
-import com.codice.sra.models.Persona;
-import com.codice.sra.models.TipoDocumento;
+import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
+import com.codice.sra.utils.ValidadorDocumentoUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,17 +25,20 @@ public class PersonaService {
     private final TipoDocumentoRepository tipoDocumentoRepository;
     private final UsuarioRepository usuarioRepository;
     private final DocenteRepository docenteRepository;
+    private final DistritoRepository distritoRepository;
 
     public PersonaService(PersonaRepository personaRepository,
                           EstadoRegistroPersonaRepository estadoRegistroRepository,
                           TipoDocumentoRepository tipoDocumentoRepository,
                           UsuarioRepository usuarioRepository,
-                          DocenteRepository docenteRepository) {
+                          DocenteRepository docenteRepository,
+                          DistritoRepository distritoRepository) {
         this.personaRepository = personaRepository;
         this.estadoRegistroRepository = estadoRegistroRepository;
         this.tipoDocumentoRepository = tipoDocumentoRepository;
         this.usuarioRepository = usuarioRepository;
         this.docenteRepository = docenteRepository;
+        this.distritoRepository = distritoRepository;
     }
 
 
@@ -50,6 +51,9 @@ public class PersonaService {
                     // Trae el docente, la sede y el tipo de contratación en una sola sentencia SQL
                     Optional<Docente> docenteOpt = docenteRepository.findByPersonaIdConRelaciones(persona.getIdPersona());
 
+                    Distrito dist = persona.getDistrito();
+                    Departamento dep = (dist != null) ? dist.getDepartamento() : null;
+
                     return PersonaConsultaResponseDTO.builder()
                             .idPersona(persona.getIdPersona())
                             .idTipoDocumento(persona.getTipoDocumento() != null
@@ -59,10 +63,16 @@ public class PersonaService {
                             .nombres(persona.getNombres())
                             .apellidos(persona.getApellidos())
                             .fechaNacimiento(persona.getFechaNacimiento())
+                            .sexo(persona.getSexo())
                             .telefono(persona.getTelefono())
                             .correoPersonal(persona.getCorreoPersonal())
                             .direccion(persona.getDireccion())
                             .rolesActivos(roles)
+                            // Ubicación geográfica de El Salvador
+                            .idDepartamento(dep != null ? dep.getIdDepartamento() : null)
+                            .nombreDepartamento(dep != null ? dep.getNombre() : null)
+                            .idDistrito(dist != null ? dist.getIdDistrito() : null)
+                            .nombreDistrito(dist != null ? dist.getNombre() : null)
                             // Atributos de enlace para el formulario del frontend
                             .idSede(docenteOpt.map(d -> d.getSede() != null ? d.getSede().getIdSede() : null).orElse(null))
                             .nombreSede(docenteOpt.map(d -> d.getSede() != null ? d.getSede().getNombreSede() : null).orElse(null))
@@ -70,6 +80,8 @@ public class PersonaService {
                             .tipoContratacion(docenteOpt.map(d -> d.getTipoContratacion() != null ? d.getTipoContratacion().getTipoContratacion() : null).orElse(null))
                             .idEspecialidad(null)
                             .especialidad(docenteOpt.map(Docente::getEspecialidad).orElse(null))
+                            .fechaInicioContrato(docenteOpt.map(Docente::getFechaInicio).orElse(null))
+                            .fechaFinContrato(docenteOpt.map(Docente::getFechaFin).orElse(null))
                             .build();
                 });
     }
@@ -89,7 +101,10 @@ public class PersonaService {
      */
     @Transactional
     public Persona obtenerOCrearPersona(PersonaInputDTO input) {
-        return personaRepository.findByNumeroDocumentoForUpdate(input.getNumeroDocumento())
+        // Validación directa antes de cualquier operación
+        String documentoLimpio = ValidadorDocumentoUtil.normalizar(input.getNumeroDocumento());
+        ValidadorDocumentoUtil.validar(input.getIdTipoDocumento(), documentoLimpio);
+        return personaRepository.findByNumeroDocumentoForUpdate(documentoLimpio)
                 .orElseGet(() -> {
                     if (input.getCorreoPersonal() != null && !input.getCorreoPersonal().isBlank()
                             && personaRepository.existsByCorreoPersonal(input.getCorreoPersonal())) {
@@ -102,9 +117,12 @@ public class PersonaService {
                     EstadoRegistroPersona estadoPendiente = estadoRegistroRepository.findByEstadoRegistro(ESTADO_PENDIENTE)
                             .orElseThrow(() -> new IllegalStateException("El estado '" + ESTADO_PENDIENTE + "' no está configurado en la base de datos"));
 
+                    Distrito distrito = distritoRepository.findById(input.getIdDistrito())
+                            .orElseThrow(() -> new IllegalArgumentException("Distrito no válido con ID: " + input.getIdDistrito()));
+
                     Persona nuevaPersona = new Persona();
                     nuevaPersona.setTipoDocumento(tipoDoc);
-                    nuevaPersona.setNumeroDocumento(input.getNumeroDocumento());
+                    nuevaPersona.setNumeroDocumento(documentoLimpio);
                     nuevaPersona.setNombres(input.getNombres());
                     nuevaPersona.setApellidos(input.getApellidos());
                     nuevaPersona.setFechaNacimiento(input.getFechaNacimiento());
@@ -113,6 +131,8 @@ public class PersonaService {
                     nuevaPersona.setDireccion(input.getDireccion());
                     nuevaPersona.setEstadoRegistro(estadoPendiente);
                     nuevaPersona.setFechaRegistro(OffsetDateTime.now());
+                    nuevaPersona.setDistrito(distrito);
+                    nuevaPersona.setSexo(input.getSexo().trim().toUpperCase());
 
                     return personaRepository.save(nuevaPersona);
                 });
