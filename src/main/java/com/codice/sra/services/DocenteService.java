@@ -14,6 +14,7 @@ import com.codice.sra.utils.UserUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -73,6 +74,15 @@ public class DocenteService {
 
         // 4. Construir y persistir la entidad Docente
         String codigoDocente = UserUtils.generarCodigoUnico(PREFIJO_CODIGO);
+        LocalDate fechaIngresoActual = LocalDate.now();
+        LocalDate fechaFinContrato = request.getFechaFin();
+
+        if (fechaFinContrato != null && fechaFinContrato.isBefore(fechaIngresoActual)) {
+            throw new IllegalArgumentException(
+                    "La fecha de fin de contrato (" + fechaFinContrato +
+                            ") no puede ser anterior a la fecha de ingreso (" + fechaIngresoActual + ")."
+            );
+        }
 
         Docente docente = new Docente();
         docente.setPersona(persona);
@@ -82,6 +92,8 @@ public class DocenteService {
         docente.setEstadoDocente(estadoDocente);
         docente.setCodigoDocente(codigoDocente);
         docente.setEspecialidad(request.getEspecialidad());
+        docente.setFechaInicio(fechaIngresoActual);
+        docente.setFechaFin(fechaFinContrato);
         docente = docenteRepository.save(docente);
 
         // 5. Finalizar el ciclo de registro de la persona física

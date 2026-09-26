@@ -62,6 +62,15 @@ public class EmpleadoService {
 
         // 4. Construir y persistir la entidad Empleado
         String codigoEmpleado = UserUtils.generarCodigoUnico(PREFIJO_CODIGO);
+        LocalDate fechaIngresoActual = LocalDate.now();
+        LocalDate fechaFinContrato = request.getFechaFin();
+
+        if (fechaFinContrato != null && fechaFinContrato.isBefore(fechaIngresoActual)) {
+            throw new IllegalArgumentException(
+                    "La fecha de fin de contrato (" + fechaFinContrato +
+                            ") no puede ser anterior a la fecha de ingreso (" + fechaIngresoActual + ")."
+            );
+        }
 
         Empleado empleado = new Empleado();
         empleado.setPersona(persona);
@@ -70,7 +79,9 @@ public class EmpleadoService {
         empleado.setCargo(cargo);
         empleado.setEstadoEmpleado(estadoEmpleado);
         empleado.setCodigoEmpleado(codigoEmpleado);
-        empleado.setFechaIngreso(LocalDate.now());
+        empleado.setFechaIngreso(fechaIngresoActual);
+        empleado.setFechaFin(fechaFinContrato); // <-- Campo integrado
+
         empleado = empleadoRepository.save(empleado);
 
         // 5. Finalizar el ciclo de registro de la persona física

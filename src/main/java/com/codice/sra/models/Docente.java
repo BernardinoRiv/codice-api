@@ -3,6 +3,8 @@ package com.codice.sra.models;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDate;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -39,4 +41,10 @@ public class Docente {
 
     @Column(name = "especialidad")
     private String especialidad;
+
+    @Column(name = "fecha_inicio", nullable = false)
+    private LocalDate fechaInicio;
+
+    @Column(name = "fecha_fin")
+    private LocalDate fechaFin;
 }

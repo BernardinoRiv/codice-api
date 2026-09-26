@@ -17,14 +17,17 @@ public interface PersonaRepository extends JpaRepository<Persona, Long> {
 
     boolean existsByCorreoPersonal(String correoPersonal);
 
-    Optional<Persona> findByNumeroDocumento(String numeroDocumento);
+    @Query("SELECT p FROM Persona p " +
+            "LEFT JOIN FETCH p.tipoDocumento " +
+            "LEFT JOIN FETCH p.distrito d " +
+            "LEFT JOIN FETCH d.departamento " +
+            "WHERE p.numeroDocumento = :numeroDocumento")
+    Optional<Persona> findByNumeroDocumento(@Param("numeroDocumento") String numeroDocumento);
 
-    // Bloqueo Pesimista por ID (SELECT ... FOR UPDATE)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Persona p WHERE p.idPersona = :idPersona")
     Optional<Persona> findByIdForUpdate(@Param("idPersona") Long idPersona);
 
-    // Bloqueo Pesimista por Número de Documento (Crítico para serializar modificaciones sobre la misma persona)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Persona p WHERE p.numeroDocumento = :numeroDocumento")
     Optional<Persona> findByNumeroDocumentoForUpdate(@Param("numeroDocumento") String numeroDocumento);

@@ -19,10 +19,17 @@ public class PersonaConsultaResponseDTO {
     private String nombres;
     private String apellidos;
     private LocalDate fechaNacimiento;
+    private String sexo;
     private String telefono;
     private String correoPersonal;
     private String direccion;
     private List<String> rolesActivos; // Ej: ["ESTUDIANTE"]
+
+    // Ubicación geográfica
+    private Long idDepartamento;
+    private String nombreDepartamento;
+    private Long idDistrito;
+    private String nombreDistrito;
 
     private Long idSede;
     private String nombreSede;
@@ -30,4 +37,6 @@ public class PersonaConsultaResponseDTO {
     private String tipoContratacion;
     private Long idEspecialidad;
     private String especialidad;
+    private LocalDate fechaInicioContrato; // <-- NUEVO
+    private LocalDate fechaFinContrato;
 }

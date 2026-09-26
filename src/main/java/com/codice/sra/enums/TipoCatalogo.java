@@ -1,6 +1,10 @@
 package com.codice.sra.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum TipoCatalogo {
+    // Catálogos planos (raíz)
     ROLES("roles", "id_rol", "rol"),
     ESTADOS_REGISTRO_PERSONA("estados_registro_persona", "id_estado_registro", "estado_registro"),
     TIPOS_DOCUMENTO("tipos_documento", "id_tipo_documento", "tipo_documento"),
@@ -43,21 +47,33 @@ public enum TipoCatalogo {
     ESTADOS_FACTURA("estados_factura", "id_estado_factura", "estado_factura"),
     CICLOS("ciclos", "id_ciclo", "codigo_ciclo"),
     SEDES("sedes", "id_sede", "nombre_sede"),
-    CARRERAS("carreras", "id_carrera", "nombre_carrera");
+    CARRERAS("carreras", "id_carrera", "nombre_carrera"),
+
+    // División geográfica de El Salvador
+    DEPARTAMENTOS("departamentos", "id_departamento", "nombre"),
+    DISTRITOS("distritos", "id_distrito", "nombre", "id_departamento");
 
     private final String tabla;
     private final String columnaId;
     private final String columnaNombre;
+    private final String columnaPadre;
 
+    // Constructor para catálogos independientes
     TipoCatalogo(String tabla, String columnaId, String columnaNombre) {
+        this(tabla, columnaId, columnaNombre, null);
+    }
+
+    // Constructor para catálogos jerárquicos
+    TipoCatalogo(String tabla, String columnaId, String columnaNombre, String columnaPadre) {
         this.tabla = tabla;
         this.columnaId = columnaId;
         this.columnaNombre = columnaNombre;
+        this.columnaPadre = columnaPadre;
     }
 
-    public String getTabla() { return tabla; }
-    public String getColumnaId() { return columnaId; }
-    public String getColumnaNombre() { return columnaNombre; }
+    public boolean tienePadre() {
+        return this.columnaPadre != null;
+    }
 
     public static TipoCatalogo fromSlug(String slug) {
         if (slug == null || slug.isBlank()) {
@@ -69,7 +85,6 @@ public enum TipoCatalogo {
                 return tipo;
             }
         }
-        // Dispara la excepción que tu GlobalExceptionHandler ya sabe procesar
         throw new IllegalArgumentException("El catálogo '" + slug + "' no existe o no está registrado");
     }
 }
