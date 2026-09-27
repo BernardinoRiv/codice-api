@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface InscripcionRepository extends JpaRepository<Inscripcion, Long> {
@@ -18,4 +19,20 @@ public interface InscripcionRepository extends JpaRepository<Inscripcion, Long> 
             "WHERE i.grupo.idGrupo = :idGrupo " +
             "ORDER BY p.nombres, p.apellidos")
     List<Inscripcion> findByGrupoIdGrupo(@Param("idGrupo") Long idGrupo);
+
+    @Query("SELECT i FROM Inscripcion i " +
+            "JOIN i.matricula m " +
+            "JOIN m.estudiante e " +
+            "JOIN i.grupo g " +
+            "WHERE e.idEstudiante = :idEstudiante " +
+            "AND g.ciclo.idCiclo = :idCiclo")
+    List<Inscripcion> findByEstudianteAndCiclo(
+            @Param("idEstudiante") Long idEstudiante,
+            @Param("idCiclo") Long idCiclo
+    );
+
+    @Query("SELECT i FROM Inscripcion i JOIN i.matricula m JOIN m.estudiante e WHERE e.carnet = :carnet AND i.grupo.idGrupo = :idGrupo")
+    Optional<Inscripcion> findByCarnetAndGrupo(@Param("carnet") String carnet, @Param("idGrupo") Long idGrupo);
+
+
 }

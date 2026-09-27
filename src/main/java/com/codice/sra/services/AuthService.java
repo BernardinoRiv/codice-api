@@ -2,14 +2,16 @@ package com.codice.sra.services;
 
 import com.codice.sra.dtos.AuthLoginRequestDTO;
 import com.codice.sra.dtos.AuthLoginResponseDTO;
+import com.codice.sra.dtos.CambiarContrasenaRequestDTO;
+import com.codice.sra.dtos.CambiarContrasenaResponseDTO;
+import com.codice.sra.dtos.SesionUsuarioDTO;
 import com.codice.sra.models.Usuario;
 import com.codice.sra.repositories.UsuarioRepository;
 import com.codice.sra.security.JwtService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import com.codice.sra.dtos.CambiarContrasenaRequestDTO;
-import com.codice.sra.dtos.CambiarContrasenaResponseDTO;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
@@ -21,16 +23,20 @@ public class AuthService {
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final SesionUsuarioService sesionUsuarioService;
 
     @Autowired
-    public AuthService(UsuarioRepository usuarioRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+    public AuthService(UsuarioRepository usuarioRepository,
+                       PasswordEncoder passwordEncoder,
+                       JwtService jwtService,
+                       SesionUsuarioService sesionUsuarioService) {
         this.usuarioRepository = usuarioRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.sesionUsuarioService = sesionUsuarioService;
     }
 
-    public AuthLoginResponseDTO login(AuthLoginRequestDTO request) {
-        // 1. Buscar al usuario por correo
+    public AuthLoginResponseDTO login(AuthLoginRequestDTO request, HttpServletRequest httpRequest) {
         Optional<Usuario> usuarioOpt = usuarioRepository.findByCorreoInstitucional(request.getCorreoInstitucional());
 
         if (usuarioOpt.isEmpty()) {
@@ -39,10 +45,8 @@ public class AuthService {
 
         Usuario usuario = usuarioOpt.get();
 
-        // Guardar el último acceso para mandarlo al frontend
         OffsetDateTime ultimoAccesoActual = usuario.getUltimoAcceso();
 
-        // 2. Verificar si el usuario está bloqueado
         if (usuario.getBloqueadoHasta() != null && usuario.getBloqueadoHasta().isAfter(OffsetDateTime.now())) {
             return new AuthLoginResponseDTO(
                     null, null, null, null,
@@ -53,7 +57,6 @@ public class AuthService {
             );
         }
 
-        // 3. Verificar contraseña encriptada
         if (!passwordEncoder.matches(request.getPassword(), usuario.getPasswordHash())) {
             manejarIntentoFallido(usuario);
 
@@ -69,20 +72,22 @@ public class AuthService {
             );
         }
 
-        // 4. Si el login es exitoso, reiniciar intentos fallidos (PERO NO ACTUALIZAR ULTIMO ACCESO AQUI)
         usuario.setIntentosFallidos(0);
         usuario.setBloqueadoHasta(null);
-        usuarioRepository.save(usuario);
 
-        // 5. Generar el token
-        String jwtToken = jwtService.generateToken(usuario);
+        String ip = obtenerIpCliente(httpRequest);
+        String userAgent = httpRequest.getHeader("User-Agent");
+
+        SesionUsuarioDTO sesion = sesionUsuarioService.registrarSesion(usuario.getIdUsuario(), ip, userAgent, true);
+
+        String jwtToken = jwtService.generateToken(usuario, sesion.getIdSesion());
         String nombreCompleto = usuario.getPersona().getNombres() + " " + usuario.getPersona().getApellidos();
 
         return new AuthLoginResponseDTO(
                 jwtToken,
                 nombreCompleto,
                 usuario.getRol().getRol(),
-                ultimoAccesoActual,  // Mandamos el valor real de la base de datos (que puede ser null)
+                usuario.getUltimoAcceso(),
                 0,
                 null,
                 "Login exitoso",
@@ -92,39 +97,27 @@ public class AuthService {
 
     @Transactional
     public CambiarContrasenaResponseDTO cambiarContrasena(Long idUsuario, CambiarContrasenaRequestDTO request) {
-
-        // 1. Validar que las nuevas contraseñas coincidan
         if (!request.getNuevaContrasena().equals(request.getConfirmarNuevaContrasena())) {
             return new CambiarContrasenaResponseDTO(false, "Las nuevas contraseñas no coinciden");
         }
 
-        // 2. Buscar al usuario
         Usuario usuario = usuarioRepository.findById(idUsuario)
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
-        // 3. Validar contraseña actual
         if (!passwordEncoder.matches(request.getContrasenaActual(), usuario.getPasswordHash())) {
             return new CambiarContrasenaResponseDTO(false, "La contraseña actual es incorrecta");
         }
 
-        // 4. Validar que la nueva contraseña no sea igual a la actual
         if (passwordEncoder.matches(request.getNuevaContrasena(), usuario.getPasswordHash())) {
-            return new CambiarContrasenaResponseDTO(false,
-                    "La nueva contraseña debe ser diferente a la actual");
+            return new CambiarContrasenaResponseDTO(false, "La nueva contraseña debe ser diferente a la actual");
         }
 
-        // 5. Validar fortaleza de la contraseña
         if (request.getNuevaContrasena().length() < 8) {
-            return new CambiarContrasenaResponseDTO(false,
-                    "La contraseña debe tener al menos 8 caracteres");
+            return new CambiarContrasenaResponseDTO(false, "La contraseña debe tener al menos 8 caracteres");
         }
 
-        // 6. Encriptar y guardar la nueva contraseña
         String nuevaContrasenaHash = passwordEncoder.encode(request.getNuevaContrasena());
         usuario.setPasswordHash(nuevaContrasenaHash);
-
-        // ¡ESTA ES LA LÍNEA MÁGICA QUE FALTABA!
-        // Al cambiar la contraseña exitosamente, dejamos constancia de su primer acceso real
         usuario.setUltimoAcceso(OffsetDateTime.now());
 
         usuarioRepository.save(usuario);
@@ -140,5 +133,13 @@ public class AuthService {
             usuario.setBloqueadoHasta(OffsetDateTime.now().plusMinutes(15));
         }
         usuarioRepository.save(usuario);
+    }
+
+    private String obtenerIpCliente(HttpServletRequest request) {
+        String xfHeader = request.getHeader("X-Forwarded-For");
+        if (xfHeader != null) {
+            return xfHeader.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

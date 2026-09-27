@@ -6,6 +6,7 @@ import com.codice.sra.dtos.CambiarContrasenaRequestDTO;
 import com.codice.sra.dtos.CambiarContrasenaResponseDTO;
 import com.codice.sra.services.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -26,8 +27,11 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthLoginResponseDTO> login(@Valid @RequestBody AuthLoginRequestDTO request) {
-        AuthLoginResponseDTO response = authService.login(request);
+    public ResponseEntity<AuthLoginResponseDTO> login(
+            @Valid @RequestBody AuthLoginRequestDTO request,
+            HttpServletRequest httpRequest) {
+
+        AuthLoginResponseDTO response = authService.login(request, httpRequest);
         return ResponseEntity.ok(response);
     }
 

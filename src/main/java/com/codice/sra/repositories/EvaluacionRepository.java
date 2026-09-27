@@ -17,4 +17,8 @@ public interface EvaluacionRepository extends JpaRepository<Evaluacion, Long> {
             "WHERE e.grupo.idGrupo = :idGrupo " +
             "ORDER BY pe.periodo, te.tipoEvaluacion, e.numeroEvaluacion")
     List<Evaluacion> findByGrupoIdGrupo(@Param("idGrupo") Long idGrupo);
+
+    @Query("SELECT e FROM Evaluacion e WHERE e.grupo.idGrupo = :idGrupo ORDER BY e.periodoEvaluacion.periodo, e.tipoEvaluacion.tipoEvaluacion, e.numeroEvaluacion")
+    List<Evaluacion> findByIdGrupoOrderByPeriodo(@Param("idGrupo") Long idGrupo);
+
 }

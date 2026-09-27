@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface GrupoRepository extends JpaRepository<Grupo, Long> {
@@ -35,4 +36,7 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
             "AND g.sede.idSede = :idSede")
     List<Grupo> findOfertaPorCicloYSede(@Param("idCiclo") Long idCiclo,
                                         @Param("idSede") Long idSede);
+
+
+    Optional<Grupo> findById(Long id);
 }

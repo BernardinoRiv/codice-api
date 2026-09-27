@@ -2,12 +2,12 @@ package com.codice.sra.security;
 
 import com.codice.sra.models.Usuario;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import java.security.Key;
@@ -21,6 +21,7 @@ public class JwtService {
 
     @Value("${security.jwt.secret-key}")
     private String secretKey;
+
     @Value("${security.jwt.expiration-time}")
     private long jwtExpiration;
 
@@ -28,7 +29,14 @@ public class JwtService {
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("idUsuario", usuario.getIdUsuario());
         extraClaims.put("rol", usuario.getRol().getRol());
+        return generateToken(extraClaims, usuario.getCorreoInstitucional());
+    }
 
+    public String generateToken(Usuario usuario, Long idSesion) {
+        Map<String, Object> extraClaims = new HashMap<>();
+        extraClaims.put("idUsuario", usuario.getIdUsuario());
+        extraClaims.put("rol", usuario.getRol().getRol());
+        extraClaims.put("idSesion", idSesion);
         return generateToken(extraClaims, usuario.getCorreoInstitucional());
     }
 
@@ -59,9 +67,21 @@ public class JwtService {
         return extractClaim(token, claims -> claims.get("rol", String.class));
     }
 
+    public Long extractIdSesion(String token) {
+        return extractClaim(token, claims -> claims.get("idSesion", Long.class));
+    }
+
     public boolean isTokenValid(String token, String username) {
-        final String tokenUsername = extractUsername(token);
-        return (tokenUsername.equals(username)) && !isTokenExpired(token);
+        try {
+            final String tokenUsername = extractUsername(token);
+            return (tokenUsername.equals(username)) && !isTokenExpired(token);
+        } catch (ExpiredJwtException e) {
+            // El token expiró, por lo tanto no es válido (evita el Error 500)
+            return false;
+        } catch (Exception e) {
+            // Cualquier otro error (firma inválida, formato malformado)
+            return false;
+        }
     }
 
     private boolean isTokenExpired(String token) {

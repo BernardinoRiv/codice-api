@@ -24,4 +24,11 @@ public interface CalificacionRepository extends JpaRepository<Calificacion, Long
     // Consulta personalizada con JOIN
     @Query("SELECT c FROM Calificacion c WHERE c.evaluacion.grupo.idGrupo = :idGrupo")
     List<Calificacion> findByEvaluacionGrupoIdGrupo(@Param("idGrupo") Long idGrupo);
+
+    @Query("SELECT c FROM Calificacion c " +
+            "JOIN FETCH c.evaluacion e " +
+            "JOIN FETCH e.tipoEvaluacion te " +
+            "WHERE c.inscripcion.idInscripcion = :idInscripcion")
+    List<Calificacion> findByInscripcionIdInscripcion(@Param("idInscripcion") Long idInscripcion);
+
 }

@@ -1,5 +1,6 @@
 package com.codice.sra.services;
 
+import com.codice.sra.dtos.AlertaSeguridadDTO;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -73,6 +74,83 @@ public class EmailService {
 
         } catch (MessagingException e) {
             throw new RuntimeException("Error al enviar el correo electrónico con HTML", e);
+        }
+    }
+
+    public void enviarAlertaSeguridad(AlertaSeguridadDTO alerta) {
+        try {
+            MimeMessage mimeMessage = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+
+            helper.setTo(alerta.getCorreoDestinatario());
+            helper.setSubject("⚠️ Alerta de Seguridad: Nuevo inicio de sesión en SRA");
+
+            String htmlContent = String.format("""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        body { font-family: Arial, sans-serif; background-color: #f4f4f7; margin: 0; padding: 0; }
+                        .email-container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+                        .email-header { background-color: #b30000; text-align: center; padding: 25px; color: white; }
+                        .email-body { padding: 30px; color: #333333; line-height: 1.6; }
+                        .alert-box { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px; }
+                        .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+                        .detail-label { font-weight: bold; color: #555; }
+                        .email-footer { background-color: #f4f4f7; text-align: center; padding: 15px; font-size: 12px; color: #777777; border-top: 1px solid #e0e0e0; }
+                    </style>
+                </head>
+                <body>
+                    <div class="email-container">
+                        <div class="email-header">
+                            <h2>⚠️ Alerta de seguridad</h2>
+                        </div>
+                        <div class="email-body">
+                            <p>Estimado/a <strong>%s</strong>,</p>
+                            <p>Hemos detectado un inicio de sesión en su cuenta del Sistema de Registro Académico (SRA) desde un dispositivo o ubicación que no reconocemos.</p>
+                            
+                            <div class="alert-box">
+                                <div class="detail-row">
+                                    <span class="detail-label">Fecha y Hora:</span>
+                                    <span>%s</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Dirección IP:</span>
+                                    <span style="font-family: monospace;">%s</span>
+                                </div>
+                                <div class="detail-row" style="border-bottom: none;">
+                                    <span class="detail-label">Dispositivo:</span>
+                                    <span>%s</span>
+                                </div>
+                            </div>
+                            
+                            <p><strong>¿Fue usted?</strong><br>
+                            Si usted realizó este inicio de sesión, puede ignorar este correo. Su cuenta está segura.</p>
+                            
+                            <p><strong>¿No fue usted?</strong><br>
+                            Le recomendamos cambiar su contraseña inmediatamente y contactar a la Dirección de Tecnologías.</p>
+                            
+                            <p>Atentamente,<br><strong>Dirección de Tecnologías - UMA</strong></p>
+                        </div>
+                        <div class="email-footer">
+                            <p>&copy; 2026 Universidad Modular Abierta (UMA). Todos los derechos reservados.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """,
+                    alerta.getNombreDestinatario(),
+                    alerta.getFechaEvento().toString().replace('T', ' '),
+                    alerta.getDireccionIpSospechosa(),
+                    alerta.getDispositivoSospechoso()
+            );
+
+            helper.setText(htmlContent, true);
+            mailSender.send(mimeMessage);
+
+        } catch (MessagingException e) {
+            throw new RuntimeException("Error al enviar la alerta de seguridad", e);
         }
     }
 }
