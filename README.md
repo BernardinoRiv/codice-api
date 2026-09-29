@@ -52,11 +52,17 @@ src/main/java/com/codice/sra/
 * **Carga masiva de calificaciones:** Importación de notas mediante plantillas Excel con validaciones estrictas de formato.
 * **Modificación de notas:** Edición de calificaciones previamente registradas antes del cierre oficial del período.
 * **Evaluaciones:** Soporte para laboratorios y parciales con períodos de apertura y cierre configurables.
+* **Creación de grupos:** Asignación de materias docentes y aulas a un grupo.
+* **Validaciones de solapamiento:** Validar que no exista conflictos de horarios, docentes y aulas.
+
 
 ### 4. Gestión de usuarios
 * **Registro de docentes:** Alta de nuevos docentes con datos personales, sede, tipo de contratación y especialidad.
 * **Registro de empleados:** Alta de personal administrativo con área y cargo asignado.
 * **Roles disponibles:** DOCENTE, ESTUDIANTE, ADMINISTRADOR, FINANZAS, REGISTRO_ACADEMICO.
+* **Busquedas Avanzadas:** Consulta previa de datos biográficos por número de documento con bloqueo pesimista.
+* **Aprovisionamiento de cuentas:** Aprovisionar de una cuenta para usuario del sistema a docentes y empleados.
+
 
 ## Endpoints principales
 
