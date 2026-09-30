@@ -16,6 +16,7 @@ public enum TipoCatalogo {
     TIPOS_AULA("tipos_aula", "id_tipo_aula", "tipo_aula"),
     ESTADOS_AULA("estados_aula", "id_estado_aula", "estado_aula"),
     CARGOS("cargos", "id_cargo", "cargo"),
+    AREAS("areas", "id_area", "area", "id_area_padre"),
     ESTADOS_EMPLEADO("estados_empleado", "id_estado_empleado", "estado_empleado"),
     NIVELES_ACADEMICOS("niveles_academicos", "id_nivel", "nivel"),
     ESTADOS_CARRERA("estados_carrera", "id_estado_carrera", "estado_carrera"),
