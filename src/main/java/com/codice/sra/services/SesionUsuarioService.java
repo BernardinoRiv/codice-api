@@ -58,7 +58,11 @@ public class SesionUsuarioService {
         }
 
         if (exitosa) {
-            usuario.setUltimoAcceso(OffsetDateTime.now());
+            // 👇 PARCHE DE SEGURIDAD: Solo actualizamos la fecha si el usuario ya no es "nuevo"
+            if (usuario.getUltimoAcceso() != null) {
+                usuario.setUltimoAcceso(OffsetDateTime.now());
+            }
+
             usuario.setIntentosFallidos(0);
 
             boolean esAnomalia = detectarAnomalia(idUsuario, direccionIp, agenteUsuario);

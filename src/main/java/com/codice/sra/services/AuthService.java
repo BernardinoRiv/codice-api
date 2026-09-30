@@ -87,7 +87,7 @@ public class AuthService {
                 jwtToken,
                 nombreCompleto,
                 usuario.getRol().getRol(),
-                usuario.getUltimoAcceso(),
+                ultimoAccesoActual,
                 0,
                 null,
                 "Login exitoso",
