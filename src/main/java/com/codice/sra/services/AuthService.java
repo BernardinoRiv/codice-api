@@ -2,12 +2,17 @@ package com.codice.sra.services;
 
 import com.codice.sra.dtos.AuthLoginRequestDTO;
 import com.codice.sra.dtos.AuthLoginResponseDTO;
+import com.codice.sra.dtos.CambiarContrasenaRequestDTO;
+import com.codice.sra.dtos.CambiarContrasenaResponseDTO;
+import com.codice.sra.dtos.SesionUsuarioDTO;
 import com.codice.sra.models.Usuario;
 import com.codice.sra.repositories.UsuarioRepository;
 import com.codice.sra.security.JwtService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.Optional;
@@ -17,51 +22,107 @@ public class AuthService {
 
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtService jwtService; // Inyectamos nuestro generador de tokens
+    private final JwtService jwtService;
+    private final SesionUsuarioService sesionUsuarioService;
 
     @Autowired
-    public AuthService(UsuarioRepository usuarioRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+    public AuthService(UsuarioRepository usuarioRepository,
+                       PasswordEncoder passwordEncoder,
+                       JwtService jwtService,
+                       SesionUsuarioService sesionUsuarioService) {
         this.usuarioRepository = usuarioRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.sesionUsuarioService = sesionUsuarioService;
     }
 
-    public AuthLoginResponseDTO login(AuthLoginRequestDTO request) {
-        // 1. Buscar al usuario por correo
+    public AuthLoginResponseDTO login(AuthLoginRequestDTO request, HttpServletRequest httpRequest) {
         Optional<Usuario> usuarioOpt = usuarioRepository.findByCorreoInstitucional(request.getCorreoInstitucional());
 
         if (usuarioOpt.isEmpty()) {
-            throw new RuntimeException("Credenciales inválidas");
+            return new AuthLoginResponseDTO(null, null, null, null, 0, null, "Credenciales inválidas", false);
         }
 
         Usuario usuario = usuarioOpt.get();
 
-        // 2. Verificar si el usuario está bloqueado
+        OffsetDateTime ultimoAccesoActual = usuario.getUltimoAcceso();
+
         if (usuario.getBloqueadoHasta() != null && usuario.getBloqueadoHasta().isAfter(OffsetDateTime.now())) {
-            throw new RuntimeException("Usuario bloqueado por múltiples intentos fallidos. Intente más tarde.");
+            return new AuthLoginResponseDTO(
+                    null, null, null, null,
+                    usuario.getIntentosFallidos(),
+                    usuario.getBloqueadoHasta(),
+                    "Usuario bloqueado por múltiples intentos fallidos. Intente más tarde.",
+                    false
+            );
         }
 
-        // 3. Verificar contraseña encriptada
         if (!passwordEncoder.matches(request.getPassword(), usuario.getPasswordHash())) {
             manejarIntentoFallido(usuario);
-            throw new RuntimeException("Credenciales inválidas");
+
+            int nuevosIntentos = usuario.getIntentosFallidos();
+            OffsetDateTime nuevoBloqueo = nuevosIntentos >= 3 ? OffsetDateTime.now().plusMinutes(15) : null;
+
+            return new AuthLoginResponseDTO(
+                    null, null, null, null,
+                    nuevosIntentos,
+                    nuevoBloqueo,
+                    "Credenciales inválidas",
+                    false
+            );
         }
 
-        // 4. Si el login es exitoso, reiniciar intentos fallidos
         usuario.setIntentosFallidos(0);
         usuario.setBloqueadoHasta(null);
-        usuario.setUltimoAcceso(OffsetDateTime.now());
-        usuarioRepository.save(usuario);
 
-        // 5. Generar el token real usando la clave secreta
-        String jwtToken = jwtService.generateToken(usuario.getCorreoInstitucional(), usuario.getRol().getRol());
+        String ip = obtenerIpCliente(httpRequest);
+        String userAgent = httpRequest.getHeader("User-Agent");
+
+        SesionUsuarioDTO sesion = sesionUsuarioService.registrarSesion(usuario.getIdUsuario(), ip, userAgent, true);
+
+        String jwtToken = jwtService.generateToken(usuario, sesion.getIdSesion());
         String nombreCompleto = usuario.getPersona().getNombres() + " " + usuario.getPersona().getApellidos();
 
         return new AuthLoginResponseDTO(
-                jwtToken, // Ahora devolvemos el token matemáticamente firmado
+                jwtToken,
                 nombreCompleto,
-                usuario.getRol().getRol()
+                usuario.getRol().getRol(),
+                usuario.getUltimoAcceso(),
+                0,
+                null,
+                "Login exitoso",
+                true
         );
+    }
+
+    @Transactional
+    public CambiarContrasenaResponseDTO cambiarContrasena(Long idUsuario, CambiarContrasenaRequestDTO request) {
+        if (!request.getNuevaContrasena().equals(request.getConfirmarNuevaContrasena())) {
+            return new CambiarContrasenaResponseDTO(false, "Las nuevas contraseñas no coinciden");
+        }
+
+        Usuario usuario = usuarioRepository.findById(idUsuario)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (!passwordEncoder.matches(request.getContrasenaActual(), usuario.getPasswordHash())) {
+            return new CambiarContrasenaResponseDTO(false, "La contraseña actual es incorrecta");
+        }
+
+        if (passwordEncoder.matches(request.getNuevaContrasena(), usuario.getPasswordHash())) {
+            return new CambiarContrasenaResponseDTO(false, "La nueva contraseña debe ser diferente a la actual");
+        }
+
+        if (request.getNuevaContrasena().length() < 8) {
+            return new CambiarContrasenaResponseDTO(false, "La contraseña debe tener al menos 8 caracteres");
+        }
+
+        String nuevaContrasenaHash = passwordEncoder.encode(request.getNuevaContrasena());
+        usuario.setPasswordHash(nuevaContrasenaHash);
+        usuario.setUltimoAcceso(OffsetDateTime.now());
+
+        usuarioRepository.save(usuario);
+
+        return new CambiarContrasenaResponseDTO(true, "Contraseña cambiada exitosamente");
     }
 
     private void manejarIntentoFallido(Usuario usuario) {
@@ -72,5 +133,13 @@ public class AuthService {
             usuario.setBloqueadoHasta(OffsetDateTime.now().plusMinutes(15));
         }
         usuarioRepository.save(usuario);
+    }
+
+    private String obtenerIpCliente(HttpServletRequest request) {
+        String xfHeader = request.getHeader("X-Forwarded-For");
+        if (xfHeader != null) {
+            return xfHeader.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

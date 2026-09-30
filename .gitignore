@@ -14,6 +14,7 @@ buildNumber.properties
 HELP.md
 
 # Variables de entorno, logs y sistema operativo
+env
 .env
 *.log
 .DS_Store

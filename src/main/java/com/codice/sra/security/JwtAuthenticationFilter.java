@@ -1,5 +1,8 @@
 package com.codice.sra.security;
 
+import com.codice.sra.models.SesionUsuario;
+import com.codice.sra.repositories.SesionUsuarioRepository;
+import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,15 +20,19 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
+    private final SesionUsuarioRepository sesionUsuarioRepository;
 
     @Autowired
-    public JwtAuthenticationFilter(JwtService jwtService) {
+    public JwtAuthenticationFilter(JwtService jwtService,
+                                   SesionUsuarioRepository sesionUsuarioRepository) {
         this.jwtService = jwtService;
+        this.sesionUsuarioRepository = sesionUsuarioRepository;
     }
 
     @Override
@@ -36,36 +43,54 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         final String authHeader = request.getHeader("Authorization");
-        final String jwt;
-        final String userEmail;
 
-        // 1. Verificar si el encabezado contiene el token Bearer
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        jwt = authHeader.substring(7);
-        userEmail = jwtService.extractUsername(jwt);
+        final String jwt = authHeader.substring(7);
+        String userEmail = null;
 
-        // 2. Si hay un usuario en el token y no está autenticado en el contexto actual
+        try {
+            userEmail = jwtService.extractUsername(jwt);
+        } catch (ExpiredJwtException e) {
+            logger.warn("Token JWT expirado detectado");
+        } catch (Exception e) {
+            logger.warn("Token JWT inválido detectado");
+        }
+
         if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
 
             if (jwtService.isTokenValid(jwt, userEmail)) {
-                // Extraer el rol del token para asignarle los permisos
                 String rol = jwtService.extractClaim(jwt, claims -> claims.get("rol", String.class));
+                Long idUsuario = jwtService.extractClaim(jwt, claims -> claims.get("idUsuario", Long.class));
+                Long idSesion = jwtService.extractClaim(jwt, claims -> claims.get("idSesion", Long.class));
+
+                // VALIDACIÓN CRÍTICA CORREGIDA:
+                // Verificamos que ESTA sesión específica (la del token de la computadora) siga activa
+                if (idSesion != null) {
+                    Optional<SesionUsuario> sesionOpt = sesionUsuarioRepository.findById(idSesion);
+
+                    // Si la sesión no existe o YA TIENE fecha_fin, se rechaza la petición inmediatamente
+                    if (sesionOpt.isEmpty() || sesionOpt.get().getFechaFin() != null) {
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        response.setContentType("application/json");
+                        response.setCharacterEncoding("UTF-8");
+                        response.getWriter().write("{\"error\": \"Sesion cerrada o invalida\"}");
+                        return;
+                    }
+                }
+
                 List<GrantedAuthority> authorities = Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + rol));
 
-                // Crear el objeto de autenticación
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        userEmail,
+                        idUsuario,
                         null,
                         authorities
                 );
 
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-                // Guardar la autenticación en el contexto de Spring Security
                 SecurityContextHolder.getContext().setAuthentication(authToken);
             }
         }

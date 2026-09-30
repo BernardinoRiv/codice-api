@@ -1,6 +1,8 @@
 package com.codice.sra.security;
 
+import com.codice.sra.models.Usuario;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
@@ -17,13 +19,36 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
-    // Extrae la clave secreta desde el archivo de configuración
     @Value("${security.jwt.secret-key}")
     private String secretKey;
 
-    // Extrae el tiempo de vida del token (ej. 24 horas)
     @Value("${security.jwt.expiration-time}")
     private long jwtExpiration;
+
+    public String generateToken(Usuario usuario) {
+        Map<String, Object> extraClaims = new HashMap<>();
+        extraClaims.put("idUsuario", usuario.getIdUsuario());
+        extraClaims.put("rol", usuario.getRol().getRol());
+        return generateToken(extraClaims, usuario.getCorreoInstitucional());
+    }
+
+    public String generateToken(Usuario usuario, Long idSesion) {
+        Map<String, Object> extraClaims = new HashMap<>();
+        extraClaims.put("idUsuario", usuario.getIdUsuario());
+        extraClaims.put("rol", usuario.getRol().getRol());
+        extraClaims.put("idSesion", idSesion);
+        return generateToken(extraClaims, usuario.getCorreoInstitucional());
+    }
+
+    public String generateToken(Map<String, Object> extraClaims, String username) {
+        return Jwts.builder()
+                .setClaims(extraClaims)
+                .setSubject(username)
+                .setIssuedAt(new Date(System.currentTimeMillis()))
+                .setExpiration(new Date(System.currentTimeMillis() + jwtExpiration))
+                .signWith(getSignInKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
 
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
@@ -34,25 +59,29 @@ public class JwtService {
         return claimsResolver.apply(claims);
     }
 
-    public String generateToken(String username, String rol) {
-        Map<String, Object> extraClaims = new HashMap<>();
-        extraClaims.put("rol", rol);
-        return buildToken(extraClaims, username, jwtExpiration);
+    public Long extractIdUsuario(String token) {
+        return extractClaim(token, claims -> claims.get("idUsuario", Long.class));
     }
 
-    private String buildToken(Map<String, Object> extraClaims, String subject, long expiration) {
-        return Jwts.builder()
-                .setClaims(extraClaims)
-                .setSubject(subject) // Generalmente usamos el correo institucional aquí
-                .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(getSignInKey(), SignatureAlgorithm.HS256)
-                .compact();
+    public String extractRol(String token) {
+        return extractClaim(token, claims -> claims.get("rol", String.class));
+    }
+
+    public Long extractIdSesion(String token) {
+        return extractClaim(token, claims -> claims.get("idSesion", Long.class));
     }
 
     public boolean isTokenValid(String token, String username) {
-        final String tokenUsername = extractUsername(token);
-        return (tokenUsername.equals(username)) && !isTokenExpired(token);
+        try {
+            final String tokenUsername = extractUsername(token);
+            return (tokenUsername.equals(username)) && !isTokenExpired(token);
+        } catch (ExpiredJwtException e) {
+            // El token expiró, por lo tanto no es válido (evita el Error 500)
+            return false;
+        } catch (Exception e) {
+            // Cualquier otro error (firma inválida, formato malformado)
+            return false;
+        }
     }
 
     private boolean isTokenExpired(String token) {

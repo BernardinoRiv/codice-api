@@ -1,11 +1,13 @@
 package com.codice.sra.controllers;
 
+import com.codice.sra.dtos.PersonaConsultaResponseDTO;
 import com.codice.sra.dtos.PersonaRegistroRequestDTO;
 import com.codice.sra.dtos.PersonaResponseDTO;
 import com.codice.sra.services.PersonaService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -24,10 +26,11 @@ public class PersonaController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    @GetMapping("/buscar")
-    public ResponseEntity<PersonaResponseDTO> buscarPorDocumento(@RequestParam String documento) {
-        return personaService.buscarPorDocumento(documento)
+    @GetMapping("/buscar-por-documento")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<PersonaConsultaResponseDTO> buscarPorDocumento(@RequestParam String numeroDocumento) {
+        return personaService.buscarPorDocumento(numeroDocumento)
                 .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 }

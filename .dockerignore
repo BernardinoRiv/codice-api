@@ -1,0 +1,10 @@
+target/
+.git/
+.gitignore
+.idea/
+.vscode/
+*.log
+.DS_Store
+README.md
+application-local.properties
+.env
