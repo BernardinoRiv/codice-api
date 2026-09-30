@@ -34,5 +34,13 @@ public interface InscripcionRepository extends JpaRepository<Inscripcion, Long> 
     @Query("SELECT i FROM Inscripcion i JOIN i.matricula m JOIN m.estudiante e WHERE e.carnet = :carnet AND i.grupo.idGrupo = :idGrupo")
     Optional<Inscripcion> findByCarnetAndGrupo(@Param("carnet") String carnet, @Param("idGrupo") Long idGrupo);
 
+    @Query("SELECT i FROM Inscripcion i " +
+            "JOIN FETCH i.matricula m " +
+            "JOIN FETCH m.estudiante e " +
+            "JOIN FETCH i.grupo g " +
+            "JOIN FETCH g.materia ma " +
+            "JOIN FETCH g.ciclo c " +
+            "WHERE e.idEstudiante = :idEstudiante")
+    List<Inscripcion> findAllByEstudianteId(@Param("idEstudiante") Long idEstudiante);
 
 }

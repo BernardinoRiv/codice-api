@@ -1,5 +1,6 @@
 package com.codice.sra.controllers;
 
+import com.codice.sra.dtos.HistorialAcademicoDTO;
 import com.codice.sra.dtos.NotasEstudianteResponseDTO;
 import com.codice.sra.models.Estudiante;
 import com.codice.sra.repositories.EstudianteRepository;
@@ -32,6 +33,20 @@ public class EstudianteController {
     public ResponseEntity<NotasEstudianteResponseDTO> obtenerNotas() {
         Long idEstudianteReal = obtenerIdEstudianteAutenticado();
         return ResponseEntity.ok(estudianteService.obtenerNotasCicloActual(idEstudianteReal));
+    }
+
+    @GetMapping("/historial")
+    @PreAuthorize("hasRole('ESTUDIANTE')")
+    public ResponseEntity<HistorialAcademicoDTO> obtenerHistorial() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Long idUsuario = (Long) authentication.getPrincipal();
+
+        Long idEstudiante = estudianteRepository.findByUsuarioIdUsuario(idUsuario)
+                .orElseThrow(() -> new RuntimeException("Estudiante no encontrado"))
+                .getIdEstudiante();
+
+        HistorialAcademicoDTO historial = estudianteService.obtenerHistorialAcademico(idEstudiante);
+        return ResponseEntity.ok(historial);
     }
 
     private Long obtenerIdEstudianteAutenticado() {
