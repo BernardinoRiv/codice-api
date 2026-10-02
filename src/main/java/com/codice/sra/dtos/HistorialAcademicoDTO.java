@@ -16,4 +16,5 @@ public class HistorialAcademicoDTO {
     private int totalMateriasAprobadas;
     private int totalMateriasReprobadas;
     private List<MateriaCicloDTO> materiasPorCiclo;
+    private String carrera;
 }
