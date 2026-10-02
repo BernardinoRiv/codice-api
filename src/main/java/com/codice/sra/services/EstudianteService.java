@@ -198,6 +198,12 @@ public class EstudianteService {
     public HistorialAcademicoDTO obtenerHistorialAcademico(Long idEstudiante) {
         List<Inscripcion> inscripciones = inscripcionRepository.findAllByEstudianteId(idEstudiante);
 
+        // Extracción de carrera respetando la jerarquía de la base de datos (Inscripcion -> Matricula -> EstudianteCarrera -> CarreraSede -> Carrera)
+        String carreraEstudiante = "No asignada";
+        if (!inscripciones.isEmpty()) {
+            carreraEstudiante = inscripciones.get(0).getMatricula().getEstudianteCarrera().getCarreraSede().getCarrera().getNombreCarrera();
+        }
+
         Map<Ciclo, List<Inscripcion>> inscripcionesPorCiclo = inscripciones.stream()
                 .collect(Collectors.groupingBy(i -> i.getGrupo().getCiclo()));
 
@@ -265,6 +271,7 @@ public class EstudianteService {
                 ? sumaNotasPonderadas.divide(BigDecimal.valueOf(totalUV), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
-        return new HistorialAcademicoDTO(cum, totalUV, totalAprobadas, totalReprobadas, materiasPorCiclo);
+        // Orden de variables ajustado para coincidir exactamente con HistorialAcademicoDTO
+        return new HistorialAcademicoDTO(cum, totalUV, totalAprobadas, totalReprobadas, materiasPorCiclo, carreraEstudiante);
     }
 }
