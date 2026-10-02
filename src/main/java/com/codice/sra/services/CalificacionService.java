@@ -64,6 +64,16 @@ public class CalificacionService {
         Calificacion calificacion;
         if (calificacionExistente.isPresent()) {
             calificacion = calificacionExistente.get();
+
+            // bloqueo para ediciones manuales
+            if ("PUBLICADA".equalsIgnoreCase(calificacion.getEstadoCalificacion().getEstadoCalificacion())) {
+                if (calificacion.getNota().compareTo(request.getNota()) == 0) {
+                    return mapearAResponse(calificacion);
+                } else {
+                    throw new RuntimeException("La calificación del estudiante ya está publicada y no puede ser modificada. Solicite permisos al administrador.");
+                }
+            }
+
             calificacion.setNota(request.getNota());
             calificacion.setFechaModificacion(ahora);
             calificacion.setEstadoCalificacion(estadoBorrador);
@@ -101,7 +111,7 @@ public class CalificacionService {
 
             CellStyle editableStyle = workbook.createCellStyle();
             editableStyle.setDataFormat(workbook.createDataFormat().getFormat("0.0"));
-            editableStyle.setLocked(false); // Permite edición en celdas de notas
+            editableStyle.setLocked(false);
 
             Row headerRow = sheet.createRow(0);
             String[] headers = {"CARNET", "ESTUDIANTE"};
@@ -140,10 +150,14 @@ public class CalificacionService {
             }
 
             DataValidationHelper validationHelper = sheet.getDataValidationHelper();
-            DataValidationConstraint constraint = validationHelper.createDecimalConstraint(DataValidationConstraint.OperatorType.BETWEEN, "0", "10");
+            String customFormula = "AND(ISNUMBER(C2), C2>=0, C2<=10, TRUNC(C2,1)=C2)";
+            DataValidationConstraint constraint = validationHelper.createCustomConstraint(customFormula);
+
             CellRangeAddressList addressList = new CellRangeAddressList(1, 100, 2, 2 + evaluaciones.size() - 1);
             DataValidation validation = validationHelper.createValidation(constraint, addressList);
+
             validation.setShowErrorBox(true);
+            validation.createErrorBox("Formato inválido", "Solo se permiten notas de 0.0 a 10.0 con máximo un decimal. No se aproxima automáticamente.");
             sheet.addValidationData(validation);
 
             sheet.protectSheet("notas2026");
@@ -153,13 +167,18 @@ public class CalificacionService {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             workbook.write(outputStream);
 
+            String materia = grupo.getMateria().getNombreMateria().replaceAll("\\s+", "_");
+            String codigoGrupo = grupo.getCodigoGrupo().replaceAll("\\s+", "_");
+            String cicloFormateado = String.format("%02d_%d", grupo.getCiclo().getNumeroCiclo(), grupo.getCiclo().getAnio());
+            String nombreFinalArchivo = String.format("Notas_%s_%s_Ciclo_%s.xlsx", materia, codigoGrupo, cicloFormateado);
+
             return new PlantillaNotasResponseDTO(
-                    "Plantilla_Notas_" + grupo.getCodigoGrupo() + ".xlsx",
+                    nombreFinalArchivo,
                     outputStream.toByteArray(),
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             );
         } catch (Exception e) {
-            throw new RuntimeException("Error al generar la plantilla: " + e.getMessage());
+            throw new RuntimeException("Error al generar el documento de notas: " + e.getMessage());
         }
     }
 
@@ -169,7 +188,6 @@ public class CalificacionService {
         List<Evaluacion> todasEvaluaciones = evaluacionRepository.findByIdGrupoOrderByPeriodo(idGrupo);
         LocalDateTime ahora = LocalDateTime.now();
 
-        // Filtrar solo evaluaciones activas
         List<Evaluacion> evaluacionesActivas = todasEvaluaciones.stream()
                 .filter(ev -> {
                     LocalDateTime inicio = ev.getFechaInicio();
@@ -185,7 +203,6 @@ public class CalificacionService {
         try (Workbook workbook = new XSSFWorkbook(archivo.getInputStream())) {
             Sheet sheet = workbook.getSheetAt(0);
 
-            // Validar estructura del archivo
             Row headerRow = sheet.getRow(0);
             if (headerRow == null) {
                 throw new RuntimeException("El archivo está vacío o no tiene encabezados.");
@@ -196,10 +213,9 @@ public class CalificacionService {
 
             if (colA == null || !colA.toUpperCase().contains("CARNET") ||
                     colB == null || !colB.toUpperCase().contains("ESTUDIANTE")) {
-                throw new RuntimeException("Estructura inválida: Las columnas A y B deben ser 'CARNET' y 'ESTUDIANTE'. Descarga la plantilla oficial.");
+                throw new RuntimeException("Estructura inválida: Las columnas A y B deben ser 'CARNET' y 'ESTUDIANTE'. Descarga el documento oficial.");
             }
 
-            // Crear mapa de evaluaciones activas a sus columnas
             Map<String, Integer> mapaEvaluacionesActivas = new HashMap<>();
             for (int i = 2; i < headerRow.getLastCellNum(); i++) {
                 Cell cell = headerRow.getCell(i);
@@ -219,7 +235,6 @@ public class CalificacionService {
                 }
             }
 
-            // Validar que existan columnas para las evaluaciones activas
             for (Evaluacion ev : evaluacionesActivas) {
                 String key = ev.getTipoEvaluacion().getTipoEvaluacion() + "_" + ev.getNumeroEvaluacion();
                 if (!mapaEvaluacionesActivas.containsKey(key)) {
@@ -228,7 +243,6 @@ public class CalificacionService {
                 }
             }
 
-            // Procesar filas
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
@@ -240,7 +254,6 @@ public class CalificacionService {
                 Inscripcion inscripcion = inscripcionRepository.findByCarnetAndGrupo(carnet, idGrupo)
                         .orElseThrow(() -> new RuntimeException("Fila " + filaActual + ": Estudiante con carnet " + carnet + " no encontrado."));
 
-                // Procesar SOLO las evaluaciones activas
                 for (Evaluacion evaluacion : evaluacionesActivas) {
                     String key = evaluacion.getTipoEvaluacion().getTipoEvaluacion() + "_" + evaluacion.getNumeroEvaluacion();
                     Integer indiceColumna = mapaEvaluacionesActivas.get(key);
@@ -255,6 +268,12 @@ public class CalificacionService {
 
                         if (nota.stripTrailingZeros().scale() > 1) {
                             throw new RuntimeException("Fila " + filaActual + ": La nota tiene más de 1 decimal.");
+                        }
+
+                        // salto inteligente para notas ya publicadas
+                        Optional<Calificacion> califExistente = calificacionRepository.findByInscripcionIdInscripcionAndEvaluacionIdEvaluacion(inscripcion.getIdInscripcion(), evaluacion.getIdEvaluacion());
+                        if (califExistente.isPresent() && "PUBLICADA".equalsIgnoreCase(califExistente.get().getEstadoCalificacion().getEstadoCalificacion())) {
+                            continue;
                         }
 
                         CalificacionRegistroRequestDTO request = new CalificacionRegistroRequestDTO();
