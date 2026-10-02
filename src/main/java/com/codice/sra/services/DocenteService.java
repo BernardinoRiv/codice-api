@@ -21,7 +21,6 @@ import java.util.stream.Collectors;
 @Service
 public class DocenteService {
 
-
     public static final String ROL_DOCENTE = "DOCENTE";
     public static final String ESTADO_ACTIVO = "ACTIVO";
     public static final String PREFIJO_CODIGO = "DOC";
@@ -35,6 +34,7 @@ public class DocenteService {
     private final UsuarioService usuarioService;
     private final GrupoRepository grupoRepository;
     private final UsuarioRepository usuarioRepository;
+    private final CicloRepository cicloRepository; // Agregado para poder obtener el ciclo activo
 
     public DocenteService(DocenteRepository docenteRepository,
                           SedeRepository sedeRepository,
@@ -43,7 +43,8 @@ public class DocenteService {
                           PersonaService personaService,
                           UsuarioService usuarioService,
                           GrupoRepository grupoRepository,
-                          UsuarioRepository usuarioRepository) {
+                          UsuarioRepository usuarioRepository,
+                          CicloRepository cicloRepository) {
         this.docenteRepository = docenteRepository;
         this.sedeRepository = sedeRepository;
         this.tipoContratacionRepository = tipoContratacionRepository;
@@ -52,6 +53,7 @@ public class DocenteService {
         this.usuarioService = usuarioService;
         this.grupoRepository = grupoRepository;
         this.usuarioRepository = usuarioRepository;
+        this.cicloRepository = cicloRepository; // Inyección de dependencia
     }
 
     @Transactional
@@ -108,15 +110,20 @@ public class DocenteService {
                 "Docente registrado exitosamente. Credenciales enviadas."
         );
     }
+
+    // MÉTODO ACTUALIZADO: Ahora filtra por ciclo activo
     public List<Grupo> obtenerGruposPorDocente(Long idUsuario) {
         Docente docente = docenteRepository.findByUsuarioIdUsuario(idUsuario)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Docente no encontrado para el usuario con ID: " + idUsuario));
 
-        return grupoRepository.findByDocenteIdDocente(docente.getIdDocente());
+        Ciclo cicloActivo = cicloRepository.findCicloActivo()
+                .orElseThrow(() -> new RuntimeException("No hay ciclo activo en el sistema."));
+
+        // Se usa el repositorio con ambos parámetros (idDocente e idCiclo)
+        return grupoRepository.findByDocenteIdDocenteAndCicloIdCiclo(docente.getIdDocente(), cicloActivo.getIdCiclo());
     }
 
-    // AGREGA ESTE MÉTODO NUEVO
     public List<GrupoResponseDTO> obtenerGruposPorDocenteDTO(Long idUsuario) {
         List<Grupo> grupos = obtenerGruposPorDocente(idUsuario);
 
