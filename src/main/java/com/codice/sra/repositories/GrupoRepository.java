@@ -39,4 +39,5 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
 
 
     Optional<Grupo> findById(Long id);
+    List<Grupo> findByDocenteIdDocenteAndCicloIdCiclo(Long idDocente, Long idCiclo);
 }

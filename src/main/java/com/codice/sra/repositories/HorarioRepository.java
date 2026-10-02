@@ -46,4 +46,6 @@ public interface HorarioRepository extends JpaRepository<Horario, Long> {
 
     // Recuperar todos los bloques de horario asignados a un grupo
     List<Horario> findByGrupo_IdGrupo(Long idGrupo);
+
+    List<Horario> findByGrupoIdGrupo(Long idGrupo);
 }

@@ -43,4 +43,6 @@ public interface InscripcionRepository extends JpaRepository<Inscripcion, Long> 
             "WHERE e.idEstudiante = :idEstudiante")
     List<Inscripcion> findAllByEstudianteId(@Param("idEstudiante") Long idEstudiante);
 
+    long countByGrupoIdGrupo(Long idGrupo);
+
 }
