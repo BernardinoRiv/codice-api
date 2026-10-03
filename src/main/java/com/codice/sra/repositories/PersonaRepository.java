@@ -17,13 +17,6 @@ public interface PersonaRepository extends JpaRepository<Persona, Long> {
 
     boolean existsByCorreoPersonal(String correoPersonal);
 
-    @Query("SELECT p FROM Persona p " +
-            "LEFT JOIN FETCH p.tipoDocumento " +
-            "LEFT JOIN FETCH p.distrito d " +
-            "LEFT JOIN FETCH d.departamento " +
-            "WHERE p.numeroDocumento = :numeroDocumento")
-    Optional<Persona> findByNumeroDocumento(@Param("numeroDocumento") String numeroDocumento);
-
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Persona p WHERE p.idPersona = :idPersona")
     Optional<Persona> findByIdForUpdate(@Param("idPersona") Long idPersona);
@@ -31,4 +24,11 @@ public interface PersonaRepository extends JpaRepository<Persona, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Persona p WHERE p.numeroDocumento = :numeroDocumento")
     Optional<Persona> findByNumeroDocumentoForUpdate(@Param("numeroDocumento") String numeroDocumento);
+
+    @Query("SELECT p FROM Persona p " +
+            "LEFT JOIN FETCH p.tipoDocumento " +
+            "LEFT JOIN FETCH p.distrito d " +
+            "LEFT JOIN FETCH d.departamento " +
+            "WHERE p.numeroDocumento = :numeroDocumento")
+    Optional<Persona> findByNumeroDocumentoConUbicacion(@Param("numeroDocumento") String numeroDocumento);
 }

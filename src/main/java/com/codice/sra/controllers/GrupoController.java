@@ -26,7 +26,7 @@ public class GrupoController {
 
     // ENDPOINT NUEVO: APERTURA DE SECCIÓN POR PLANTILLA INSTITUCIONAL
     @PostMapping("/aperturar")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'COORDINADOR_ACADEMICO')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
     @Operation(
             summary = "Aperturar una sección académica por plantilla",
             description = "Crea una nueva sección académica vinculada a una materia, ciclo, sede y docente a partir de una plantilla horaria oficial, clonando sus bloques temporales y validando aforo y cruces de horario."
