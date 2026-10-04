@@ -1,6 +1,8 @@
 package com.codice.sra.security;
 
 import com.codice.sra.models.Usuario;
+import com.codice.sra.repositories.DocenteRepository;
+import com.codice.sra.repositories.EmpleadoRepository;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
@@ -25,18 +27,54 @@ public class JwtService {
     @Value("${security.jwt.expiration-time}")
     private long jwtExpiration;
 
+    // Inyectamos los repositorios para buscar los datos adicionales
+    private final EmpleadoRepository empleadoRepository;
+    private final DocenteRepository docenteRepository;
+
+    public JwtService(EmpleadoRepository empleadoRepository, DocenteRepository docenteRepository) {
+        this.empleadoRepository = empleadoRepository;
+        this.docenteRepository = docenteRepository;
+    }
+
     public String generateToken(Usuario usuario) {
-        Map<String, Object> extraClaims = new HashMap<>();
-        extraClaims.put("idUsuario", usuario.getIdUsuario());
-        extraClaims.put("rol", usuario.getRol().getRol());
-        return generateToken(extraClaims, usuario.getCorreoInstitucional());
+        return generateToken(usuario, null);
     }
 
     public String generateToken(Usuario usuario, Long idSesion) {
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("idUsuario", usuario.getIdUsuario());
-        extraClaims.put("rol", usuario.getRol().getRol());
-        extraClaims.put("idSesion", idSesion);
+
+        String rol = usuario.getRol().getRol();
+        extraClaims.put("rol", rol);
+
+        if (idSesion != null) {
+            extraClaims.put("idSesion", idSesion);
+        }
+
+        // LÓGICA DE AISLAMIENTO: Inyección dinámica según el rol del usuario
+        if ("EMPLEADO".equalsIgnoreCase(rol)) {
+            empleadoRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
+                    .ifPresent(empleado -> {
+                        if (empleado.getSede() != null) {
+                            extraClaims.put("idSede", empleado.getSede().getIdSede());
+                        }
+                        if (empleado.getCargo() != null) {
+                            // Guardamos el ID del cargo para validaciones estrictas
+                            extraClaims.put("idCargo", empleado.getCargo().getIdCargo());
+                            // Opcional: También puedes guardar el nombre para usarlo fácil en el frontend
+                            extraClaims.put("nombreCargo", empleado.getCargo().getCargo());
+                        }
+                    });
+        } else if ("DOCENTE".equalsIgnoreCase(rol)) {
+            docenteRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
+                    .ifPresent(docente -> {
+                        if (docente.getSede() != null) {
+                            extraClaims.put("idSede", docente.getSede().getIdSede());
+                        }
+                    });
+        }
+        // Si es ESTUDIANTE, el bloque if/else lo omite naturalmente y no busca nada.
+
         return generateToken(extraClaims, usuario.getCorreoInstitucional());
     }
 
@@ -71,15 +109,22 @@ public class JwtService {
         return extractClaim(token, claims -> claims.get("idSesion", Long.class));
     }
 
+    // Nuevos métodos para extraer los datos de restricción
+    public Long extractIdSede(String token) {
+        return extractClaim(token, claims -> claims.get("idSede", Long.class));
+    }
+
+    public Long extractIdCargo(String token) {
+        return extractClaim(token, claims -> claims.get("idCargo", Long.class));
+    }
+
     public boolean isTokenValid(String token, String username) {
         try {
             final String tokenUsername = extractUsername(token);
             return (tokenUsername.equals(username)) && !isTokenExpired(token);
         } catch (ExpiredJwtException e) {
-            // El token expiró, por lo tanto no es válido (evita el Error 500)
             return false;
         } catch (Exception e) {
-            // Cualquier otro error (firma inválida, formato malformado)
             return false;
         }
     }

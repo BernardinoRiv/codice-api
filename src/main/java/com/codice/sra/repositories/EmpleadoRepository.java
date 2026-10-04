@@ -15,4 +15,5 @@ public interface EmpleadoRepository extends JpaRepository<Empleado, Long> {
             "LEFT JOIN FETCH e.sede " +
             "WHERE e.persona.idPersona = :idPersona")
     Optional<Empleado> findByPersonaIdConRelaciones(@Param("idPersona") Long idPersona);
+    Optional<Empleado> findByUsuarioIdUsuario(Long idUsuario);
 }
