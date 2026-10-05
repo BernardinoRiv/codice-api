@@ -40,4 +40,13 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
 
     Optional<Grupo> findById(Long id);
     List<Grupo> findByDocenteIdDocenteAndCicloIdCiclo(Long idDocente, Long idCiclo);
+
+    // Verifica si existen secciones asociadas al ciclo
+    boolean existsByCiclo_IdCiclo(Long idCiclo);
+
+    // Consulta los grupos de un ciclo específico para gestión o limpieza
+    List<Grupo> findByCiclo_IdCiclo(Long idCiclo);
+
+    // Eliminación por ciclo
+    void deleteByCiclo_IdCiclo(Long idCiclo);
 }

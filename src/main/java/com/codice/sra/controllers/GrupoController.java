@@ -74,9 +74,10 @@ public class GrupoController {
 
     @GetMapping("/catalogos/docentes")
     @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
-    @Operation(summary = "Listado ligero de docentes activos para asignación de grupos")
-    public ResponseEntity<List<DocenteSeleccionDTO>> obtenerDocentesParaSeleccion() {
-        return ResponseEntity.ok(grupoService.obtenerDocentesParaSeleccion());
+    @Operation(summary = "Listado ligero de docentes activos filtrados por sede para asignación de grupos")
+    public ResponseEntity<List<DocenteSeleccionDTO>> obtenerDocentesParaSeleccion(
+            @RequestParam(name = "idSede", required = false) Long idSede) {
+        return ResponseEntity.ok(grupoService.obtenerDocentesParaSeleccion(idSede));
     }
 
     @GetMapping("/{idGrupo}/inscripciones")
@@ -98,5 +99,12 @@ public class GrupoController {
     @Operation(summary = "Obtener calificaciones de un grupo")
     public ResponseEntity<List<CalificacionResponseDTO>> obtenerCalificaciones(@PathVariable Long idGrupo) {
         return ResponseEntity.ok(grupoService.obtenerCalificacionesPorGrupo(idGrupo));
+    }
+
+    @GetMapping("/por-ciclo/{idCiclo}")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @Operation(summary = "Listar todas las secciones registradas en un ciclo determinado")
+    public ResponseEntity<List<GrupoDetalleResponseDTO>> listarGruposPorCiclo(@PathVariable Long idCiclo) {
+        return ResponseEntity.ok(grupoService.listarGruposPorCiclo(idCiclo));
     }
 }
