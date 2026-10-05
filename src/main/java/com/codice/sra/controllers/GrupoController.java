@@ -100,4 +100,11 @@ public class GrupoController {
     public ResponseEntity<List<CalificacionResponseDTO>> obtenerCalificaciones(@PathVariable Long idGrupo) {
         return ResponseEntity.ok(grupoService.obtenerCalificacionesPorGrupo(idGrupo));
     }
+
+    @GetMapping("/por-ciclo/{idCiclo}")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @Operation(summary = "Listar todas las secciones registradas en un ciclo determinado")
+    public ResponseEntity<List<GrupoDetalleResponseDTO>> listarGruposPorCiclo(@PathVariable Long idCiclo) {
+        return ResponseEntity.ok(grupoService.listarGruposPorCiclo(idCiclo));
+    }
 }

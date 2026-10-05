@@ -7,8 +7,11 @@ import com.codice.sra.dtos.SiguienteCicloSugeridoDTO;
 import com.codice.sra.exceptions.GrupoException;
 import com.codice.sra.models.Ciclo;
 import com.codice.sra.models.EstadoCiclo;
+import com.codice.sra.models.Grupo;
 import com.codice.sra.repositories.CicloRepository;
 import com.codice.sra.repositories.EstadoCicloRepository;
+import com.codice.sra.repositories.GrupoRepository;
+import com.codice.sra.repositories.HorarioRepository;
 import com.codice.sra.utils.CicloCodigoUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +29,8 @@ public class CicloService {
 
     private final CicloRepository cicloRepository;
     private final EstadoCicloRepository estadoCicloRepository;
+    private final GrupoRepository grupoRepository;
+    private final HorarioRepository horarioRepository;
 
     /**
      * Resuelve el ciclo lectivo operativo:
@@ -190,5 +195,34 @@ public class CicloService {
         cicloPlanificado.setEstadoCiclo(estadoActivo);
         cicloRepository.save(cicloPlanificado);
         log.info("Ciclo lectivo [{}] promovido exitosamente a estado ACTIVO.", cicloPlanificado.getCodigoCiclo());
+    }
+
+
+    @Transactional(rollbackFor = Exception.class)
+    public void eliminarCicloPlanificado(Long idCiclo) {
+        Ciclo ciclo = cicloRepository.findById(idCiclo)
+                .orElseThrow(() -> GrupoException.noEncontrado("El ciclo lectivo especificado no existe."));
+
+        // Regla de Integridad Histórica: Solo se permite eliminar periodos en PLANIFICACIÓN
+        String estadoActual = ciclo.getEstadoCiclo().getEstadoCiclo().trim().toUpperCase();
+        if (!"PLANIFICACION".equals(estadoActual)) {
+            throw GrupoException.reglaNegocio(String.format(
+                    "Operación denegada: No se puede eliminar el ciclo '%s' porque su estado es '%s'. Solo los ciclos en PLANIFICACIÓN pueden eliminarse.",
+                    ciclo.getCodigoCiclo(), estadoActual));
+        }
+
+        // Limpieza de secciones y horarios si ya se habían cargado
+        List<Grupo> gruposAsociados = grupoRepository.findByCiclo_IdCiclo(idCiclo);
+        if (!gruposAsociados.isEmpty()) {
+            for (Grupo g : gruposAsociados) {
+                horarioRepository.deleteByGrupo_IdGrupo(g.getIdGrupo());
+            }
+            grupoRepository.deleteAll(gruposAsociados);
+            log.info("Se eliminaron {} secciones asociadas al ciclo [{}] previo a su purga.",
+                    gruposAsociados.size(), ciclo.getCodigoCiclo());
+        }
+
+        cicloRepository.delete(ciclo);
+        log.info("Ciclo lectivo [{}] eliminado satisfactoriamente del sistema.", ciclo.getCodigoCiclo());
     }
 }

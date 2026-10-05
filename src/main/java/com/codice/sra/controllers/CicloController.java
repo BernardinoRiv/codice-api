@@ -5,6 +5,7 @@ import com.codice.sra.dtos.CicloPlanificacionDTO;
 import com.codice.sra.dtos.CrearCicloPlanificacionDTO;
 import com.codice.sra.dtos.SiguienteCicloSugeridoDTO;
 import com.codice.sra.services.CicloService;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -77,5 +78,14 @@ public class CicloController {
         return ResponseEntity.ok(Map.of(
                 "mensaje", "Ciclo activado exitosamente. El periodo anterior ha sido finalizado automáticamente."
         ));
+    }
+
+    @DeleteMapping("/{idCiclo}")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @Operation(summary = "Eliminar un ciclo en estado PLANIFICACIÓN",
+            description = "Purga de forma atómica un ciclo lectivo en preparación junto a sus secciones y horarios asociados.")
+    public ResponseEntity<Void> eliminarCicloPlanificado(@PathVariable Long idCiclo) {
+        cicloService.eliminarCicloPlanificado(idCiclo);
+        return ResponseEntity.noContent().build();
     }
 }

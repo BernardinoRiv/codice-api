@@ -2,6 +2,7 @@ package com.codice.sra.repositories;
 
 import com.codice.sra.models.Horario;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -48,4 +49,9 @@ public interface HorarioRepository extends JpaRepository<Horario, Long> {
     List<Horario> findByGrupo_IdGrupo(Long idGrupo);
 
     List<Horario> findByGrupoIdGrupo(Long idGrupo);
+
+    @Modifying
+    @Query("DELETE FROM Horario h WHERE h.grupo.idGrupo = :idGrupo")
+    void deleteByGrupo_IdGrupo(@Param("idGrupo") Long idGrupo);
+
 }

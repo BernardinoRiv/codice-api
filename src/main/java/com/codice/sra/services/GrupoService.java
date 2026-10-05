@@ -17,12 +17,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class GrupoService {
 
-    // --- Repositorios existentes (Trabajo previo de consulta) ---
     private final InscripcionRepository inscripcionRepository;
     private final EvaluacionRepository evaluacionRepository;
     private final CalificacionRepository calificacionRepository;
-
-    // --- Repositorios requeridos para la apertura de secciones y validaciones ---
     private final GrupoRepository grupoRepository;
     private final HorarioRepository horarioRepository;
     private final PlantillaHorarioRepository plantillaHorarioRepository;
@@ -33,10 +30,6 @@ public class GrupoService {
     private final ModalidadRepository modalidadRepository;
     private final AulaRepository aulaRepository;
     private final EstadoGrupoRepository estadoGrupoRepository;
-
-    // =========================================================================
-    // MÉTODOS DE CONSULTA EXISTENTES
-    // =========================================================================
 
     public List<InscripcionResponseDTO> obtenerInscripcionesConEstudiantes(Long idGrupo) {
         return inscripcionRepository.findByGrupoIdGrupo(idGrupo).stream().map(inscripcion -> {
@@ -49,6 +42,46 @@ public class GrupoService {
                     persona.getApellidos()
             );
         }).collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<GrupoDetalleResponseDTO> listarGruposPorCiclo(Long idCiclo) {
+        return grupoRepository.findByCiclo_IdCiclo(idCiclo).stream()
+                .map(g -> {
+                    List<FranjaHorariaResponseDTO> franjas = horarioRepository.findByGrupoIdGrupo(g.getIdGrupo()).stream()
+                            .map(h -> FranjaHorariaResponseDTO.builder()
+                                    .idHorario(h.getIdHorario())
+                                    .dia(h.getDia().getDia())
+                                    .horaInicio(h.getHoraInicio())
+                                    .horaFin(h.getHoraFin())
+                                    .modalidad(h.getModalidad().getModalidad())
+                                    .aula(h.getAula() != null ? h.getAula().getCodigoAula() : "Virtual")
+                                    .enlaceVirtual(h.getEnlaceVirtual())
+                                    .build())
+                            .toList();
+
+                    String espacio = !franjas.isEmpty() && franjas.get(0).getAula() != null
+                            ? franjas.get(0).getAula()
+                            : (!franjas.isEmpty() ? franjas.get(0).getEnlaceVirtual() : "N/A");
+
+                    return new GrupoDetalleResponseDTO(
+                            g.getIdGrupo(),
+                            g.getCodigoGrupo(),
+                            g.getMateria().getIdMateria(),
+                            g.getMateria().getCodigoMateria(),
+                            g.getMateria().getNombreMateria(),
+                            g.getDocente().getIdDocente(),
+                            g.getDocente().getPersona().getNombres() + " " + g.getDocente().getPersona().getApellidos(),
+                            g.getSede().getIdSede(),
+                            g.getSede().getNombreSede(),
+                            !franjas.isEmpty() ? franjas.get(0).getModalidad() : "PRESENCIAL",
+                            espacio,
+                            g.getCupoMaximo(),
+                            g.getEstadoGrupo().getEstadoGrupo(),
+                            franjas
+                    );
+                })
+                .toList();
     }
 
     public List<EvaluacionResponseDTO> obtenerEvaluacionesPorGrupo(Long idGrupo) {
@@ -139,11 +172,25 @@ public class GrupoService {
         Ciclo ciclo = cicloRepository.findById(request.getIdCiclo())
                 .orElseThrow(() -> GrupoException.noEncontrado("El ciclo lectivo especificado no existe."));
 
+        String estadoCiclo = ciclo.getEstadoCiclo().getEstadoCiclo().trim().toUpperCase();
+
+        if (!"PLANIFICACION".equals(estadoCiclo)) {
+            throw GrupoException.reglaNegocio(String.format(
+                    "Operación rechazada: No se pueden aperturar secciones en el ciclo '%s' porque su estado es '%s'. " +
+                            "La oferta académica únicamente puede aperturarse sobre ciclos en estado 'PLANIFICACION'.",
+                    ciclo.getCodigoCiclo(), estadoCiclo
+            ));
+        }
+
         Sede sede = sedeRepository.findById(request.getIdSede())
                 .orElseThrow(() -> GrupoException.noEncontrado("La sede especificada no existe."));
 
         Materia materia = materiaRepository.findById(request.getIdMateria())
                 .orElseThrow(() -> GrupoException.noEncontrado("La materia especificada no existe."));
+
+        if (!Boolean.TRUE.equals(materia.getEstadoMateria())) {
+            throw GrupoException.reglaNegocio("La materia seleccionada no está activa en el pensum.");
+        }
 
         if (!Boolean.TRUE.equals(materia.getEstadoMateria())) {
             throw GrupoException.reglaNegocio("La materia seleccionada no está activa en el pensum.");
