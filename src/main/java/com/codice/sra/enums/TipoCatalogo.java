@@ -46,9 +46,7 @@ public enum TipoCatalogo {
     CANALES_PAGO("canales_pago", "id_canal_pago", "canal_pago"),
     ESTADOS_PAGO("estados_pago", "id_estado_pago", "estado_pago"),
     ESTADOS_FACTURA("estados_factura", "id_estado_factura", "estado_factura"),
-    CICLOS("ciclos", "id_ciclo", "codigo_ciclo"),
     SEDES("sedes", "id_sede", "nombre_sede"),
-    CARRERAS("carreras", "id_carrera", "nombre_carrera"),
 
     // División geográfica de El Salvador
     DEPARTAMENTOS("departamentos", "id_departamento", "nombre"),

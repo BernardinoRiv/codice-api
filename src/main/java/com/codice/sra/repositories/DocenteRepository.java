@@ -39,4 +39,16 @@ public interface DocenteRepository extends JpaRepository<Docente, Long> {
             "LEFT JOIN FETCH d.tipoContratacion " +
             "WHERE d.persona.idPersona = :idPersona")
     Optional<Docente> findByPersonaIdConRelaciones(@Param("idPersona") Long idPersona);
+
+    // Filtrar docentes activos por sede territorial
+    @Query("SELECT new com.codice.sra.dtos.DocenteSeleccionDTO(" +
+            "d.idDocente, d.codigoDocente, p.nombres, p.apellidos, tc.tipoContratacion, tc.maximoMaterias) " +
+            "FROM Docente d " +
+            "JOIN d.persona p " +
+            "JOIN d.tipoContratacion tc " +
+            "JOIN d.estadoDocente ed " +
+            "WHERE d.sede.idSede = :idSede " +
+            "  AND UPPER(TRIM(ed.estadoDocente)) = 'ACTIVO' " +
+            "ORDER BY p.apellidos ASC, p.nombres ASC")
+    List<DocenteSeleccionDTO> findDocentesParaSeleccionPorSede(@Param("idSede") Long idSede);
 }

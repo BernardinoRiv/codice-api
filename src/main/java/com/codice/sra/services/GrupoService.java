@@ -102,7 +102,10 @@ public class GrupoService {
     }
 
     @Transactional(readOnly = true)
-    public List<DocenteSeleccionDTO> obtenerDocentesParaSeleccion() {
+    public List<DocenteSeleccionDTO> obtenerDocentesParaSeleccion(Long idSede) {
+        if (idSede != null && idSede > 0) {
+            return docenteRepository.findDocentesParaSeleccionPorSede(idSede);
+        }
         return docenteRepository.findDocentesParaSeleccion();
     }
 

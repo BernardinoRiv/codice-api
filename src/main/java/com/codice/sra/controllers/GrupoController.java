@@ -74,9 +74,10 @@ public class GrupoController {
 
     @GetMapping("/catalogos/docentes")
     @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
-    @Operation(summary = "Listado ligero de docentes activos para asignación de grupos")
-    public ResponseEntity<List<DocenteSeleccionDTO>> obtenerDocentesParaSeleccion() {
-        return ResponseEntity.ok(grupoService.obtenerDocentesParaSeleccion());
+    @Operation(summary = "Listado ligero de docentes activos filtrados por sede para asignación de grupos")
+    public ResponseEntity<List<DocenteSeleccionDTO>> obtenerDocentesParaSeleccion(
+            @RequestParam(name = "idSede", required = false) Long idSede) {
+        return ResponseEntity.ok(grupoService.obtenerDocentesParaSeleccion(idSede));
     }
 
     @GetMapping("/{idGrupo}/inscripciones")
