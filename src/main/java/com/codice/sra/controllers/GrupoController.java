@@ -3,11 +3,13 @@ package com.codice.sra.controllers;
 import com.codice.sra.dtos.*;
 import com.codice.sra.services.GrupoService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +18,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/grupos")
 @RequiredArgsConstructor
@@ -106,5 +109,38 @@ public class GrupoController {
     @Operation(summary = "Listar todas las secciones registradas en un ciclo determinado")
     public ResponseEntity<List<GrupoDetalleResponseDTO>> listarGruposPorCiclo(@PathVariable Long idCiclo) {
         return ResponseEntity.ok(grupoService.listarGruposPorCiclo(idCiclo));
+    }
+
+    @GetMapping("/por-ciclo/{idCiclo}/conteo-carreras")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @Operation(summary = "Obtener el consolidado de secciones agrupadas por carrera en un ciclo")
+    public ResponseEntity<List<ResumenCarreraOfertaDTO>> obtenerConteoPorCarrera(@PathVariable Long idCiclo) {
+        return ResponseEntity.ok(grupoService.obtenerConteoPorCarrera(idCiclo));
+    }
+
+    @DeleteMapping("/{idGrupo}")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @Operation(summary = "Eliminar una sección aperturada en fase de planificación")
+    public ResponseEntity<Void> eliminarGrupo(@PathVariable Long idGrupo) {
+        grupoService.eliminarGrupo(idGrupo);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{idGrupo}")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @Operation(summary = "Modificar parámetros operativos de una sección",
+            description = "Permite editar docente, aforo y espacio validando traslapes (solo en ciclos en PLANIFICACIÓN).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Sección actualizada satisfactoriamente"),
+            @ApiResponse(responseCode = "404", description = "Sección no encontrada"),
+            @ApiResponse(responseCode = "409", description = "Conflicto de horario o espacio tras la edición"),
+            @ApiResponse(responseCode = "422", description = "Ciclo no está en planificación o se excedió la capacidad")
+    })
+    public ResponseEntity<SeccionResponseDTO> editarGrupo(
+            @Parameter(description = "Identificador único de la sección", example = "1")
+            @PathVariable Long idGrupo,
+            @Valid @RequestBody EditarGrupoRequestDTO request) {
+        log.info("REST: Modificación de sección ID [{}]", idGrupo);
+        return ResponseEntity.ok(grupoService.editarGrupo(idGrupo, request));
     }
 }

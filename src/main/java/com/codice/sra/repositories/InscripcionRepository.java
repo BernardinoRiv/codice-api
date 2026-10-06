@@ -45,4 +45,5 @@ public interface InscripcionRepository extends JpaRepository<Inscripcion, Long> 
 
     long countByGrupoIdGrupo(Long idGrupo);
 
+    boolean existsByGrupoIdGrupo(Long idGrupo);
 }

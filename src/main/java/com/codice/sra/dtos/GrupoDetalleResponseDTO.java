@@ -8,6 +8,7 @@ public record GrupoDetalleResponseDTO(
         Long idMateria,
         String codigoMateria,
         String nombreMateria,
+        String nombreCarrera,
         Long idDocente,
         String nombreDocente,
         Long idSede,
