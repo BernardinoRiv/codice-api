@@ -80,4 +80,6 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
     """)
     long countByDocenteIdDocenteAndCicloIdCiclo(@Param("idDocente") Long idDocente, @Param("idCiclo") Long idCiclo);
 
+    // Cuenta rápidamente si el ciclo tiene secciones creadas (Query COUNT eficiente)
+    long countByCiclo_IdCiclo(Long idCiclo);
 }
