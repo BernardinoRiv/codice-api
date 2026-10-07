@@ -21,4 +21,6 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
     // Consulta requerida para el autocompletado en el frontend
     @Query("SELECT u.rol.rol FROM Usuario u WHERE u.persona.idPersona = :idPersona")
     List<String> findRolesByPersonaId(@Param("idPersona") Long idPersona);
+
+
 }

@@ -34,7 +34,7 @@ public class SolvenciaService {
             Persona persona = estudiante.getPersona();
 
             // Calcular total de cargos
-            List<CargoEstudiante> cargos = cargoEstudianteRepository.findByMatriculaIdMatricula(matricula.getIdMatricula());
+            List<CargoEstudiante> cargos = cargoEstudianteRepository.findByMatricula_IdMatricula(matricula.getIdMatricula());
             BigDecimal totalCargos = cargos.stream()
                     .map(CargoEstudiante::getMontoTotal)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -80,7 +80,7 @@ public class SolvenciaService {
         }
 
         // Calcular saldo pendiente
-        List<CargoEstudiante> cargos = cargoEstudianteRepository.findByMatriculaIdMatricula(matricula.getIdMatricula());
+        List<CargoEstudiante> cargos = cargoEstudianteRepository.findByMatricula_IdMatricula(matricula.getIdMatricula());
         BigDecimal totalCargos = cargos.stream()
                 .map(CargoEstudiante::getMontoTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
