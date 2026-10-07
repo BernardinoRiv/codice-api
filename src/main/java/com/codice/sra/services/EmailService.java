@@ -219,4 +219,30 @@ public class EmailService {
             throw new RuntimeException("Error al enviar el comprobante de pago con adjunto", e);
         }
     }
+
+    public void enviarCodigoRecuperacion(String correoDestino, String nombreUsuario, String codigoCrudo) {
+        String asunto = "Código de Recuperación de Contraseña - Códice UMA";
+        String cuerpo = "<div style='font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eaeaea; border-radius: 10px;'>"
+                + "<h2 style='color: #000;'>Recuperación de Acceso</h2>"
+                + "<p>Hola, <b>" + nombreUsuario + "</b>,</p>"
+                + "<p>Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en Códice. Ingresa el siguiente código de 6 dígitos en la aplicación:</p>"
+                + "<div style='background-color: #f4f4f4; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;'>"
+                + "<span style='font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #2E7D32;'>" + codigoCrudo + "</span>"
+                + "</div>"
+                + "<p style='color: #666; font-size: 13px;'>Este código es válido únicamente por <b>15 minutos</b>.</p>"
+                + "<p style='color: #666; font-size: 13px;'>Si no solicitaste este cambio, ignora este correo de forma segura.</p>"
+                + "</div>";
+
+        try {
+            jakarta.mail.internet.MimeMessage mensaje = mailSender.createMimeMessage();
+            org.springframework.mail.javamail.MimeMessageHelper helper = new org.springframework.mail.javamail.MimeMessageHelper(mensaje, true, "UTF-8");
+            helper.setTo(correoDestino);
+            helper.setSubject(asunto);
+            helper.setText(cuerpo, true);
+
+            mailSender.send(mensaje);
+        } catch (Exception e) {
+            throw new RuntimeException("Error al enviar el correo con el código de recuperación.", e);
+        }
+    }
 }

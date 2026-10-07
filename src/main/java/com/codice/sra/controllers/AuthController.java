@@ -1,9 +1,6 @@
 package com.codice.sra.controllers;
 
-import com.codice.sra.dtos.AuthLoginRequestDTO;
-import com.codice.sra.dtos.AuthLoginResponseDTO;
-import com.codice.sra.dtos.CambiarContrasenaRequestDTO;
-import com.codice.sra.dtos.CambiarContrasenaResponseDTO;
+import com.codice.sra.dtos.*;
 import com.codice.sra.services.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,6 +11,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -46,5 +46,23 @@ public class AuthController {
 
         CambiarContrasenaResponseDTO response = authService.cambiarContrasena(idUsuario, request);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/solicitar-recuperacion")
+    public ResponseEntity<Map<String, String>> solicitarRecuperacion(@Valid @RequestBody SolicitarRecuperacionDTO request) {
+        String mensaje = authService.solicitarRecuperacionClave(request);
+        Map<String, String> response = new HashMap<>();
+        response.put("mensaje", mensaje);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/restablecer-clave")
+    public ResponseEntity<CambiarContrasenaResponseDTO> restablecerClave(@Valid @RequestBody RestablecerClaveDTO request) {
+        CambiarContrasenaResponseDTO response = authService.restablecerClave(request);
+        if (response.isExito()) {
+            return ResponseEntity.ok(response);
+        } else {
+            return ResponseEntity.badRequest().body(response);
+        }
     }
 }

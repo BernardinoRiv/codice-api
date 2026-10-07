@@ -1,11 +1,9 @@
 package com.codice.sra.services;
 
-import com.codice.sra.dtos.AuthLoginRequestDTO;
-import com.codice.sra.dtos.AuthLoginResponseDTO;
-import com.codice.sra.dtos.CambiarContrasenaRequestDTO;
-import com.codice.sra.dtos.CambiarContrasenaResponseDTO;
-import com.codice.sra.dtos.SesionUsuarioDTO;
+import com.codice.sra.dtos.*;
+import com.codice.sra.models.RecuperacionClave;
 import com.codice.sra.models.Usuario;
+import com.codice.sra.repositories.RecuperacionClaveRepository;
 import com.codice.sra.repositories.UsuarioRepository;
 import com.codice.sra.security.JwtService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,26 +12,34 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Service
 public class AuthService {
 
     private final UsuarioRepository usuarioRepository;
+    private final RecuperacionClaveRepository recuperacionClaveRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final SesionUsuarioService sesionUsuarioService;
+    private final EmailService emailService;
 
     @Autowired
     public AuthService(UsuarioRepository usuarioRepository,
+                       RecuperacionClaveRepository recuperacionClaveRepository,
                        PasswordEncoder passwordEncoder,
                        JwtService jwtService,
-                       SesionUsuarioService sesionUsuarioService) {
+                       SesionUsuarioService sesionUsuarioService,
+                       EmailService emailService) {
         this.usuarioRepository = usuarioRepository;
+        this.recuperacionClaveRepository = recuperacionClaveRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.sesionUsuarioService = sesionUsuarioService;
+        this.emailService = emailService;
     }
 
     public AuthLoginResponseDTO login(AuthLoginRequestDTO request, HttpServletRequest httpRequest) {
@@ -141,5 +147,77 @@ public class AuthService {
             return xfHeader.split(",")[0].trim();
         }
         return request.getRemoteAddr();
+    }
+
+    @Transactional
+    public String solicitarRecuperacionClave(SolicitarRecuperacionDTO request) {
+        Optional<Usuario> usuarioOpt = usuarioRepository.findByCorreoInstitucional(request.getCorreoInstitucional());
+
+        if (usuarioOpt.isEmpty()) {
+            return "Si el correo está registrado, recibirá un código de recuperación.";
+        }
+
+        Usuario usuario = usuarioOpt.get();
+
+        String codigoCrudo = String.format("%06d", new java.security.SecureRandom().nextInt(1000000));
+        String codigoHash = passwordEncoder.encode(codigoCrudo);
+
+        RecuperacionClave recuperacion = new RecuperacionClave();
+        recuperacion.setUsuario(usuario);
+        recuperacion.setCodigoHash(codigoHash);
+        recuperacion.setFechaGeneracion(LocalDateTime.now());
+        recuperacion.setFechaExpiracion(LocalDateTime.now().plusMinutes(15));
+        recuperacion.setUsado(false);
+
+        recuperacionClaveRepository.save(recuperacion);
+
+        String nombrePila = usuario.getPersona().getNombres().split(" ")[0];
+
+        emailService.enviarCodigoRecuperacion(usuario.getCorreoInstitucional(), nombrePila, codigoCrudo);
+
+        return "Si el correo está registrado, recibirá un código de recuperación.";
+    }
+
+    @Transactional
+    public CambiarContrasenaResponseDTO restablecerClave(RestablecerClaveDTO request) {
+        if (!request.getNuevaContrasena().equals(request.getConfirmarContrasena())) {
+            return new CambiarContrasenaResponseDTO(false, "Las contraseñas no coinciden.");
+        }
+        if (request.getNuevaContrasena().length() < 8) {
+            return new CambiarContrasenaResponseDTO(false, "La contraseña debe tener al menos 8 caracteres.");
+        }
+
+        Usuario usuario = usuarioRepository.findByCorreoInstitucional(request.getCorreoInstitucional())
+                .orElseThrow(() -> new RuntimeException("Solicitud inválida."));
+
+        List<RecuperacionClave> codigosActivos = recuperacionClaveRepository
+                .findByUsuarioAndUsadoFalseAndFechaExpiracionAfter(usuario, LocalDateTime.now());
+
+        RecuperacionClave codigoValido = null;
+        for (RecuperacionClave rec : codigosActivos) {
+            if (passwordEncoder.matches(request.getCodigo(), rec.getCodigoHash())) {
+                codigoValido = rec;
+                break;
+            }
+        }
+
+        if (codigoValido == null) {
+            return new CambiarContrasenaResponseDTO(false, "El código de recuperación es inválido o ha expirado.");
+        }
+
+        if (passwordEncoder.matches(request.getNuevaContrasena(), usuario.getPasswordHash())) {
+            return new CambiarContrasenaResponseDTO(false, "La nueva contraseña no puede ser igual a la anterior.");
+        }
+
+        usuario.setPasswordHash(passwordEncoder.encode(request.getNuevaContrasena()));
+        usuario.setIntentosFallidos(0);
+        usuario.setBloqueadoHasta(null);
+        usuarioRepository.save(usuario);
+
+        codigoValido.setUsado(true);
+        codigoValido.setFechaUso(LocalDateTime.now());
+        recuperacionClaveRepository.save(codigoValido);
+
+        return new CambiarContrasenaResponseDTO(true, "Contraseña restablecida exitosamente. Ya puede iniciar sesión.");
     }
 }
