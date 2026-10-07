@@ -1,5 +1,6 @@
 package com.codice.sra.repositories;
 
+import com.codice.sra.dtos.ResumenCarreraOfertaDTO;
 import com.codice.sra.models.Grupo;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -49,4 +50,36 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
 
     // Eliminación por ciclo
     void deleteByCiclo_IdCiclo(Long idCiclo);
+
+
+    @Query("""
+        SELECT new com.codice.sra.dtos.ResumenCarreraOfertaDTO(
+            c.idCarrera,
+            c.codigoCarrera,
+            c.nombreCarrera,
+            COUNT(DISTINCT g.idGrupo)
+        )
+        FROM Grupo g
+        JOIN g.materia m
+        JOIN PensumMateria pm ON pm.materia.idMateria = m.idMateria
+        JOIN pm.pensum p
+        JOIN p.estadoPensum ep
+        JOIN p.carrera c
+        JOIN CarreraSede cs ON cs.carrera.idCarrera = c.idCarrera AND cs.sede.idSede = g.sede.idSede
+        WHERE g.ciclo.idCiclo = :idCiclo
+          AND UPPER(TRIM(ep.estadoPensum)) = 'VIGENTE'
+        GROUP BY c.idCarrera, c.codigoCarrera, c.nombreCarrera
+        ORDER BY c.nombreCarrera ASC
+    """)
+    List<ResumenCarreraOfertaDTO> contarSeccionesPorCarreraEnCiclo(@Param("idCiclo") Long idCiclo);
+
+    @Query("""
+        SELECT COUNT(g) FROM Grupo g
+        WHERE g.docente.idDocente = :idDocente
+          AND g.ciclo.idCiclo = :idCiclo
+    """)
+    long countByDocenteIdDocenteAndCicloIdCiclo(@Param("idDocente") Long idDocente, @Param("idCiclo") Long idCiclo);
+
+    // Cuenta rápidamente si el ciclo tiene secciones creadas (Query COUNT eficiente)
+    long countByCiclo_IdCiclo(Long idCiclo);
 }

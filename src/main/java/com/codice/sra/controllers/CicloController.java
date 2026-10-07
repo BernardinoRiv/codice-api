@@ -80,6 +80,28 @@ public class CicloController {
         ));
     }
 
+//    @PostMapping("/{idCiclo}/activar")
+//    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+//    @Operation(summary = "Activar ciclo y generar cargos de matrícula masivos")
+//    public ResponseEntity<ActivacionCicloResponseDTO> activarCicloPlanificado(
+//            @PathVariable Long idCiclo) {
+//
+//        // 1. Relevo de ciclo institucional
+//        cicloService.promoverCicloAActivo(idCiclo);
+//
+//        // 2. Disparo de facturación automática masiva de matrículas
+//        ResultadoMatriculaDTO resFinanzas = finanzasService.generarMatriculasPorAperturaCiclo(idCiclo);
+//
+//        return ResponseEntity.ok(new ActivacionCicloResponseDTO(
+//                true,
+//                "Ciclo activado exitosamente y facturación de matrículas procesada.",
+//                idCiclo,
+//                resFinanzas.cobrosNuevosGenerados()
+//        ));
+//    }
+
+
+
     @DeleteMapping("/{idCiclo}")
     @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
     @Operation(summary = "Eliminar un ciclo en estado PLANIFICACIÓN",

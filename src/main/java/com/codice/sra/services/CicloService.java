@@ -178,6 +178,14 @@ public class CicloService {
             throw GrupoException.reglaNegocio("Solo se puede activar un ciclo que se encuentre en PLANIFICACIÓN.");
         }
 
+        // 2. INVARIANTE CRÍTICA: Prohibir activación sin oferta académica consolidada
+        long seccionesConfiguradas = grupoRepository.countByCiclo_IdCiclo(idCicloPlanificado);
+        if (seccionesConfiguradas == 0) {
+            throw GrupoException.reglaNegocio(String.format(
+                    "Operación rechazada: No es posible activar el ciclo '%s' porque no posee ninguna sección académica aperturada.",
+                    cicloPlanificado.getCodigoCiclo()
+            ));
+        }
         EstadoCiclo estadoFinalizado = estadoCicloRepository.findByEstadoCicloIgnoreCase("FINALIZADO")
                 .orElseThrow(() -> GrupoException.noEncontrado("Estado 'FINALIZADO' no configurado en la base de datos."));
 
