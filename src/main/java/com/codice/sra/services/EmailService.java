@@ -6,6 +6,7 @@ import jakarta.mail.internet.MimeMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.core.io.ByteArrayResource;
 
 @Service
 public class EmailService {
@@ -151,6 +152,71 @@ public class EmailService {
 
         } catch (MessagingException e) {
             throw new RuntimeException("Error al enviar la alerta de seguridad", e);
+        }
+    }
+
+    public void enviarComprobantePago(String destinatario, String nombreEstudiante, String numeroFactura, byte[] pdfBytes) {
+        try {
+            MimeMessage mimeMessage = mailSender.createMimeMessage();
+            // El 'true' aquí es clave: indica que el correo será "multipart" (permite adjuntos)
+            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+
+            helper.setTo(destinatario);
+            helper.setSubject("Comprobante de Pago Electrónico SRA - " + numeroFactura);
+
+            String htmlContent = String.format("""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        body { font-family: Arial, sans-serif; background-color: #f4f4f7; margin: 0; padding: 0; }
+                        .email-container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+                        .email-header { background-color: #111111; text-align: center; padding: 25px; border-bottom: 4px solid #b30000; }
+                        .email-header img { max-width: 90px; height: auto; }
+                        .email-body { padding: 30px; color: #333333; line-height: 1.6; }
+                        .email-body h2 { color: #b30000; margin-top: 0; }
+                        .info-box { background-color: #f9f9f9; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; border-radius: 4px; }
+                        .email-footer { background-color: #f4f4f7; text-align: center; padding: 15px; font-size: 12px; color: #777777; border-top: 1px solid #e0e0e0; }
+                    </style>
+                </head>
+                <body>
+                    <div class="email-container">
+                        <div class="email-header">
+                            <img src="https://www.uma.edu.sv/regionales/san-miguel/assets/logo25.png" alt="Escudo UMA">
+                        </div>
+                        <div class="email-body">
+                            <h2>Pago Procesado Exitosamente</h2>
+                            <p>Estimado/a <strong>%s</strong>,</p>
+                            <p>Le confirmamos que hemos recibido y procesado su pago en la ventanilla financiera de la universidad.</p>
+                            
+                            <div class="info-box">
+                                <p>Adjunto a este correo encontrará su comprobante electrónico en formato PDF (Factura: <strong>%s</strong>).</p>
+                                <p>Puede guardarlo para sus registros personales o cualquier trámite académico futuro.</p>
+                            </div>
+                            
+                            <p>Atentamente,<br><strong>Departamento de Finanzas - UMA</strong></p>
+                        </div>
+                        <div class="email-footer">
+                            <p>&copy; 2026 Universidad Modular Abierta (UMA). Todos los derechos reservados.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """,
+                    nombreEstudiante, numeroFactura
+            );
+
+            helper.setText(htmlContent, true);
+
+            // Adjuntar el PDF
+            ByteArrayResource pdfAdjunto = new ByteArrayResource(pdfBytes);
+            helper.addAttachment("Comprobante_" + numeroFactura + ".pdf", pdfAdjunto);
+
+            mailSender.send(mimeMessage);
+
+        } catch (MessagingException e) {
+            throw new RuntimeException("Error al enviar el comprobante de pago con adjunto", e);
         }
     }
 }

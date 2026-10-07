@@ -27,7 +27,6 @@ public class JwtService {
     @Value("${security.jwt.expiration-time}")
     private long jwtExpiration;
 
-    // Inyectamos los repositorios para buscar los datos adicionales
     private final EmpleadoRepository empleadoRepository;
     private final DocenteRepository docenteRepository;
 
@@ -51,17 +50,18 @@ public class JwtService {
             extraClaims.put("idSesion", idSesion);
         }
 
-        // LÓGICA DE AISLAMIENTO: Inyección dinámica según el rol del usuario
-        if ("EMPLEADO".equalsIgnoreCase(rol)) {
+        if ("EMPLEADO".equalsIgnoreCase(rol) ||
+                "FINANZAS".equalsIgnoreCase(rol) ||
+                "ADMINISTRADOR".equalsIgnoreCase(rol) ||
+                "REGISTRO_ACADEMICO".equalsIgnoreCase(rol)) {
+
             empleadoRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
                     .ifPresent(empleado -> {
                         if (empleado.getSede() != null) {
                             extraClaims.put("idSede", empleado.getSede().getIdSede());
                         }
                         if (empleado.getCargo() != null) {
-                            // Guardamos el ID del cargo para validaciones estrictas
                             extraClaims.put("idCargo", empleado.getCargo().getIdCargo());
-                            // Opcional: También puedes guardar el nombre para usarlo fácil en el frontend
                             extraClaims.put("nombreCargo", empleado.getCargo().getCargo());
                         }
                     });
@@ -73,7 +73,6 @@ public class JwtService {
                         }
                     });
         }
-        // Si es ESTUDIANTE, el bloque if/else lo omite naturalmente y no busca nada.
 
         return generateToken(extraClaims, usuario.getCorreoInstitucional());
     }
@@ -109,7 +108,6 @@ public class JwtService {
         return extractClaim(token, claims -> claims.get("idSesion", Long.class));
     }
 
-    // Nuevos métodos para extraer los datos de restricción
     public Long extractIdSede(String token) {
         return extractClaim(token, claims -> claims.get("idSede", Long.class));
     }
