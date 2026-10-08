@@ -13,4 +13,5 @@ public interface ConceptoCobroRepository extends JpaRepository<ConceptoCobro, Lo
     Optional<ConceptoCobro> findByCiclo_IdCicloAndTipoCobro_TipoCobro(Long idCiclo, String tipoCobro);
 
     List<ConceptoCobro> findByCiclo_IdCicloAndTipoCobro_TipoCobroContainingIgnoreCase(Long idCiclo, String palabraClave);
+    List<ConceptoCobro> findByCiclo_IdCiclo(Long idCiclo);
 }

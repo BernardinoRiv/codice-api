@@ -1,6 +1,7 @@
 package com.codice.sra.controllers;
 
 import com.codice.sra.dtos.EstadoCuentaResponseDTO;
+import com.codice.sra.dtos.GenerarCobrosMasivosRequestDTO;
 import com.codice.sra.dtos.ProcesarPagoRequestDTO;
 import com.codice.sra.services.FinanzasService;
 import com.codice.sra.security.JwtService;
@@ -23,25 +24,40 @@ public class FinanzasController {
     private final FinanzasService finanzasService;
     private final JwtService jwtService;
 
-    @PostMapping("/ciclos/{idCiclo}/generar-matriculas")
-    @PreAuthorize("hasAnyRole('EMPLEADO', 'FINANZAS')")
-    public ResponseEntity<Map<String, Object>> generarCobrosMasivos(@PathVariable Long idCiclo) {
+    // ====================================================================
+    // NUEVO: CLONAR ARANCELES DEL CICLO PASADO AL NUEVO
+    // ====================================================================
+    @PostMapping("/clonar-aranceles")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('FINANZAS')")
+    public ResponseEntity<Map<String, Object>> clonarAranceles(
+            @RequestParam Long idCicloAnterior,
+            @RequestParam Long idCicloNuevo) {
+
+        int cantidad = finanzasService.clonarArancelesCicloAnterior(idCicloAnterior, idCicloNuevo);
+
         Map<String, Object> response = new HashMap<>();
-        try {
-            int cobrosGenerados = finanzasService.generarCobrosMatriculaAperturaCiclo(idCiclo);
-            response.put("exito", true);
-            response.put("mensaje", "Proceso financiero de apertura de ciclo ejecutado con éxito.");
-            response.put("cobrosNuevosGenerados", cobrosGenerados);
-            return ResponseEntity.ok(response);
-        } catch (RuntimeException e) {
-            response.put("exito", false);
-            response.put("mensaje", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
-        } catch (Exception e) {
-            response.put("exito", false);
-            response.put("mensaje", "Ocurrió un error interno al generar los cobros masivos.");
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
-        }
+        response.put("exito", true);
+        response.put("mensaje", "Se clonaron " + cantidad + " aranceles exitosamente al nuevo ciclo.");
+
+        return ResponseEntity.ok(response);
+    }
+
+    // ====================================================================
+    // ACTUALIZADO: GENERACIÓN MASIVA CON EL DTO
+    // ====================================================================
+    @PostMapping("/generar-cargos-apertura")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('FINANZAS')")
+    public ResponseEntity<Map<String, Object>> generarCobrosMasivos(
+            @Valid @RequestBody GenerarCobrosMasivosRequestDTO request) {
+
+        int generados = finanzasService.generarCobrosMatriculaAperturaCiclo(request);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("exito", true);
+        response.put("mensaje", "Proceso Batch finalizado. Se generaron " + generados + " cargos financieros.");
+        response.put("cargosGenerados", generados);
+
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/estudiantes/{carnet}/estado-cuenta")

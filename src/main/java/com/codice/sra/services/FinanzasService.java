@@ -1,10 +1,6 @@
 package com.codice.sra.services;
 
-import com.codice.sra.dtos.CargoPendienteDTO;
-import com.codice.sra.dtos.EstadoCuentaResponseDTO;
-import com.codice.sra.dtos.EstudianteCajaDTO;
-import com.codice.sra.dtos.ProcesarPagoRequestDTO;
-import com.codice.sra.dtos.ComprobantePagoDTO;
+import com.codice.sra.dtos.*;
 import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
 import lombok.RequiredArgsConstructor;
@@ -42,37 +38,90 @@ public class FinanzasService {
     private final PuntoRecaudoRepository puntoRecaudoRepository;
     private final ComprobantePdfService comprobantePdfService;
     private final EmailService emailService;
+    private final EstudianteCarreraRepository estudianteCarreraRepository;
 
+    // ====================================================================
+    // NUEVO: MÉTODO PARA CLONAR ARANCELES AL ABRIR UN NUEVO CICLO
+    // ====================================================================
     @Transactional(rollbackFor = Exception.class)
-    public int generarCobrosMatriculaAperturaCiclo(Long idCiclo) {
-        Ciclo ciclo = cicloRepository.findById(idCiclo)
+    public int clonarArancelesCicloAnterior(Long idCicloAnterior, Long idCicloNuevo) {
+        Ciclo cicloNuevo = cicloRepository.findById(idCicloNuevo)
+                .orElseThrow(() -> new RuntimeException("El ciclo destino no existe."));
+
+        List<ConceptoCobro> arancelesViejos = conceptoCobroRepository.findByCiclo_IdCiclo(idCicloAnterior);
+
+        if (arancelesViejos.isEmpty()) {
+            throw new RuntimeException("El ciclo anterior no tiene aranceles registrados para clonar.");
+        }
+
+        int clonados = 0;
+        for (ConceptoCobro viejo : arancelesViejos) {
+            ConceptoCobro nuevo = new ConceptoCobro();
+            nuevo.setCiclo(cicloNuevo);
+            nuevo.setTipoCobro(viejo.getTipoCobro()); // Mantiene el mismo nombre/tipo
+            nuevo.setMontoBase(viejo.getMontoBase()); // Copia el precio viejo (se podrá editar luego en el CRUD)
+            // Si tienes otros campos en ConceptoCobro (como aplicaMora), cópialos aquí.
+
+            conceptoCobroRepository.save(nuevo);
+            clonados++;
+        }
+
+        return clonados;
+    }
+
+    // ====================================================================
+    // ACTUALIZADO: GENERACIÓN MASIVA BASADA EN EL DTO DEL FRONTEND
+    // ====================================================================
+    @Transactional(rollbackFor = Exception.class)
+    public int generarCobrosMatriculaAperturaCiclo(GenerarCobrosMasivosRequestDTO request) {
+
+        Ciclo ciclo = cicloRepository.findById(request.getIdCiclo())
                 .orElseThrow(() -> new RuntimeException("El ciclo especificado no existe."));
 
-        ConceptoCobro conceptoMatricula = conceptoCobroRepository
-                .findByCiclo_IdCicloAndTipoCobro_TipoCobroContainingIgnoreCase(idCiclo, "Matrícula")
-                .stream().findFirst()
-                .orElseThrow(() -> new RuntimeException("No se ha configurado el arancel de Matrícula para este ciclo."));
-
-        ConceptoCobro conceptoMensualidad = conceptoCobroRepository
-                .findByCiclo_IdCicloAndTipoCobro_TipoCobroContainingIgnoreCase(idCiclo, "Cuota")
-                .stream().findFirst()
-                .orElseThrow(() -> new RuntimeException("No se ha configurado el arancel de Cuota Mensual para este ciclo."));
-
         EstadoCargo estadoPendiente = estadoCargoRepository.findByEstadoCargo("PENDIENTE")
-                .orElseThrow(() -> new RuntimeException("El estado PENDIENTE no existe en el catálogo de cargos."));
+                .orElseThrow(() -> new RuntimeException("El estado PENDIENTE no existe."));
 
-        List<Estudiante> estudiantesActivos = estudianteRepository.findByEstadoEstudiante_EstadoEstudiante("ACTIVO");
+        List<Estudiante> estudiantesProcesar = estudianteRepository
+                .findByEstadoEstudiante_EstadoEstudianteIn(List.of("ACTIVO", "EGRESADO"));
+
         int cobrosGenerados = 0;
-
         int mesInicio = (ciclo.getNumeroCiclo() != null && ciclo.getNumeroCiclo() == 2) ? 7 : 1;
         int anioCiclo = ciclo.getAnio() != null ? ciclo.getAnio() : LocalDate.now().getYear();
 
-        for (Estudiante estudiante : estudiantesActivos) {
+        for (Estudiante estudiante : estudiantesProcesar) {
             Optional<Matricula> matriculaOpt = matriculaRepository.findByEstudianteIdEstudianteAndCicloIdCiclo(
-                    estudiante.getIdEstudiante(), idCiclo);
+                    estudiante.getIdEstudiante(), request.getIdCiclo());
 
             if (matriculaOpt.isPresent()) {
                 Matricula matricula = matriculaOpt.get();
+                String estadoActual = estudiante.getEstadoEstudiante().getEstadoEstudiante().toUpperCase();
+
+                String nombreCarrera = estudianteCarreraRepository
+                        .findNombreCarreraByEstudianteId(estudiante.getIdEstudiante())
+                        .orElse("").toUpperCase();
+
+                Long idConceptoMatriculaAplicar;
+                Long idConceptoCuotaAplicar;
+
+                if (estadoActual.equals("EGRESADO")) {
+                    idConceptoMatriculaAplicar = request.getIdMatriculaTesis();
+                    idConceptoCuotaAplicar = request.getIdCuotaTesis();
+                } else if (nombreCarrera.contains("MAESTRÍA") || nombreCarrera.contains("MAESTRIA")) {
+                    idConceptoMatriculaAplicar = request.getIdMatriculaMaestria();
+                    idConceptoCuotaAplicar = request.getIdCuotaMaestria();
+                } else {
+                    idConceptoMatriculaAplicar = request.getIdMatriculaCarrera();
+                    idConceptoCuotaAplicar = request.getIdCuotaCarrera();
+                }
+
+                if (idConceptoMatriculaAplicar == null || idConceptoCuotaAplicar == null) {
+                    continue; // Si el frontend no mandó IDs para esta modalidad, la omitimos
+                }
+
+                ConceptoCobro conceptoMatricula = conceptoCobroRepository.findById(idConceptoMatriculaAplicar)
+                        .orElseThrow(() -> new RuntimeException("Arancel de matrícula no encontrado. ID: " + idConceptoMatriculaAplicar));
+                ConceptoCobro conceptoMensualidad = conceptoCobroRepository.findById(idConceptoCuotaAplicar)
+                        .orElseThrow(() -> new RuntimeException("Arancel de mensualidad no encontrado. ID: " + idConceptoCuotaAplicar));
 
                 boolean existeMatricula = cargoEstudianteRepository.existsByMatricula_IdMatriculaAndConceptoCobro_IdConceptoCobroAndNumeroCuota(
                         matricula.getIdMatricula(), conceptoMatricula.getIdConceptoCobro(), 1);
@@ -216,7 +265,7 @@ public class FinanzasService {
 
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> procesarPagoVentanilla(ProcesarPagoRequestDTO request, String usuarioCajero, Long idSedeCajero) {
-
+        // [Este método se mantiene intacto, tal cual lo probamos para los pagos en ventanilla y factura PDF]
         boolean tieneFijos = request.getIdsCargosAPagar() != null && !request.getIdsCargosAPagar().isEmpty();
         boolean tieneAdicionales = request.getArancelesAdicionales() != null && !request.getArancelesAdicionales().isEmpty();
 
@@ -290,9 +339,6 @@ public class FinanzasService {
                 nuevoCargo.setFechaGeneracion(LocalDateTime.now());
                 nuevoCargo.setFechaVencimiento(hoy);
 
-                // ========================================================
-                // SOLUCIÓN: Algoritmo para asignar el "número de cuota"
-                // ========================================================
                 int nextCuota = cuotasAsignadasEnMemoria.getOrDefault(idConcepto, 0);
                 if (nextCuota == 0) {
                     nextCuota = 1;
@@ -306,7 +352,6 @@ public class FinanzasService {
                 cuotasAsignadasEnMemoria.put(idConcepto, nextCuota);
 
                 nuevoCargo.setNumeroCuota(nextCuota);
-
                 BigDecimal monto = concepto.getMontoBase();
                 nuevoCargo.setMontoBase(monto);
                 nuevoCargo.setMontoDescuento(BigDecimal.ZERO);
@@ -329,7 +374,7 @@ public class FinanzasService {
                 .orElseThrow(() -> new RuntimeException("El método de pago proporcionado no es válido."));
 
         PuntoRecaudo punto = puntoRecaudoRepository.findFirstBySede_IdSedeAndActivoTrue(idSedeCajero)
-                .orElseThrow(() -> new RuntimeException("No se encontró una caja activa para procesar el pago en su sede actual."));
+                .orElseThrow(() -> new RuntimeException("No se encontró una caja activa para procesar el pago."));
 
         Pago nuevoPago = new Pago();
         nuevoPago.setMontoPagado(totalEsperado);
@@ -356,7 +401,7 @@ public class FinanzasService {
         nuevoPago.setPuntoRecaudo(punto);
 
         Usuario usuarioCajeroEntity = usuarioRepository.findByCorreoInstitucional(usuarioCajero)
-                .orElseThrow(() -> new RuntimeException("Usuario cajero no encontrado en la base de datos."));
+                .orElseThrow(() -> new RuntimeException("Usuario cajero no encontrado."));
         nuevoPago.setUsuarioRegistro(usuarioCajeroEntity);
 
         pagoRepository.save(nuevoPago);
@@ -400,10 +445,6 @@ public class FinanzasService {
 
         final BigDecimal totalCobradoFinal = totalEsperado;
 
-        // ========================================================
-        // SOLUCIÓN: Armar el DTO de Factura completamente antes
-        // de lanzar el hilo asíncrono.
-        // ========================================================
         List<ComprobantePagoDTO.DetalleComprobanteDTO> detallesComprobante = new ArrayList<>();
         for (CargoEstudiante cargo : cargosProcesados) {
             String descripcion = cargo.getConceptoCobro().getTipoCobro().getTipoCobro();
@@ -440,7 +481,6 @@ public class FinanzasService {
                 .detalles(detallesComprobante)
                 .build();
 
-        // Lanzar la tarea pesada y el email en segundo plano
         CompletableFuture.runAsync(() -> {
             try {
                 byte[] pdfBytes = comprobantePdfService.generarPdf(comprobanteDTO);
