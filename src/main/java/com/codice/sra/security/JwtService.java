@@ -52,13 +52,14 @@ public class JwtService {
 
         if ("EMPLEADO".equalsIgnoreCase(rol) ||
                 "FINANZAS".equalsIgnoreCase(rol) ||
-                "ADMINISTRADOR".equalsIgnoreCase(rol) ||
-                "REGISTRO_ACADEMICO".equalsIgnoreCase(rol)) {
+                "ADMINISTRADOR".equalsIgnoreCase(rol)
+        ) {
 
             empleadoRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
                     .ifPresent(empleado -> {
                         if (empleado.getSede() != null) {
                             extraClaims.put("idSede", empleado.getSede().getIdSede());
+                            extraClaims.put("nombreSede", empleado.getSede().getNombreSede());
                         }
                         if (empleado.getCargo() != null) {
                             extraClaims.put("idCargo", empleado.getCargo().getIdCargo());

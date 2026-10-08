@@ -38,7 +38,7 @@ public class CicloController {
      * para prellenar los campos bloqueados del modal de planificación.
      */
     @GetMapping("/siguiente-sugerido")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     public ResponseEntity<SiguienteCicloSugeridoDTO> obtenerSiguienteSugerido() {
         return ResponseEntity.ok(cicloService.sugerirSiguienteCiclo());
     }
@@ -47,7 +47,7 @@ public class CicloController {
      * Registra un nuevo ciclo lectivo en estado PLANIFICACIÓN.
      */
     @PostMapping("/planificacion")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     public ResponseEntity<CicloOperativoDTO> crearCicloPlanificado(
             @RequestBody(required = false) CrearCicloPlanificacionDTO dto) {
         CicloOperativoDTO creado = cicloService.registrarCicloPlanificado(
@@ -61,7 +61,7 @@ public class CicloController {
      * ya configuradas, alimentando la tabla de relevo institucional.
      */
     @GetMapping("/en-planificacion")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'COORDINADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     public ResponseEntity<List<CicloPlanificacionDTO>> listarEnPlanificacion() {
         return ResponseEntity.ok(cicloService.listarCiclosEnPlanificacion());
     }
@@ -71,7 +71,7 @@ public class CicloController {
      * El ciclo activo actual pasa a 'FINALIZADO' y el ciclo planificado pasa a 'ACTIVO'.
      */
     @PostMapping("/{idCiclo}/activar")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     public ResponseEntity<Map<String, String>> activarCicloPlanificado(
             @PathVariable Long idCiclo) {
         cicloService.promoverCicloAActivo(idCiclo);
@@ -103,7 +103,7 @@ public class CicloController {
 
 
     @DeleteMapping("/{idCiclo}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     @Operation(summary = "Eliminar un ciclo en estado PLANIFICACIÓN",
             description = "Purga de forma atómica un ciclo lectivo en preparación junto a sus secciones y horarios asociados.")
     public ResponseEntity<Void> eliminarCicloPlanificado(@PathVariable Long idCiclo) {

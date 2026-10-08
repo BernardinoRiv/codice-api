@@ -29,7 +29,7 @@ public class GrupoController {
 
     // ENDPOINT NUEVO: APERTURA DE SECCIÓN POR PLANTILLA INSTITUCIONAL
     @PostMapping("/aperturar")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     @Operation(
             summary = "Aperturar una sección académica por plantilla",
             description = "Crea una nueva sección académica vinculada a una materia, ciclo, sede y docente a partir de una plantilla horaria oficial, clonando sus bloques temporales y validando aforo y cruces de horario."
@@ -55,28 +55,28 @@ public class GrupoController {
     }
 
     @GetMapping("/catalogos/plantillas")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     @Operation(summary = "Obtener catálogo de plantillas horarias institucionales con franjas temporales")
     public ResponseEntity<List<PlantillaHorarioResponseDTO>> obtenerPlantillasHorarias() {
         return ResponseEntity.ok(grupoService.obtenerPlantillasActivas());
     }
 
     @GetMapping("/catalogos/aulas")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     @Operation(summary = "Obtener aulas físicas disponibles por sede")
     public ResponseEntity<List<AulaResponseDTO>> obtenerAulasPorSede(@RequestParam Long idSede) {
         return ResponseEntity.ok(grupoService.obtenerAulasPorSede(idSede));
     }
 
     @GetMapping("/catalogos/materias")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     @Operation(summary = "Obtener materias del pensum activo ordenadas por ciclo recomendado")
     public ResponseEntity<List<MateriaPensumResponseDTO>> obtenerMateriasPorCarrera(@RequestParam Long idCarrera) {
         return ResponseEntity.ok(grupoService.obtenerMateriasPorCarrera(idCarrera));
     }
 
     @GetMapping("/catalogos/docentes")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     @Operation(summary = "Listado ligero de docentes activos filtrados por sede para asignación de grupos")
     public ResponseEntity<List<DocenteSeleccionDTO>> obtenerDocentesParaSeleccion(
             @RequestParam(name = "idSede", required = false) Long idSede) {
@@ -84,42 +84,42 @@ public class GrupoController {
     }
 
     @GetMapping("/{idGrupo}/inscripciones")
-    @PreAuthorize("hasRole('DOCENTE')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('DOCENTE')")
     @Operation(summary = "Obtener inscripciones de un grupo")
     public ResponseEntity<List<InscripcionResponseDTO>> obtenerInscripciones(@PathVariable Long idGrupo) {
         return ResponseEntity.ok(grupoService.obtenerInscripcionesConEstudiantes(idGrupo));
     }
 
     @GetMapping("/{idGrupo}/evaluaciones")
-    @PreAuthorize("hasRole('DOCENTE')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('DOCENTE')")
     @Operation(summary = "Obtener evaluaciones de un grupo")
     public ResponseEntity<List<EvaluacionResponseDTO>> obtenerEvaluaciones(@PathVariable Long idGrupo) {
         return ResponseEntity.ok(grupoService.obtenerEvaluacionesPorGrupo(idGrupo));
     }
 
     @GetMapping("/{idGrupo}/calificaciones")
-    @PreAuthorize("hasRole('DOCENTE')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('DOCENTE')")
     @Operation(summary = "Obtener calificaciones de un grupo")
     public ResponseEntity<List<CalificacionResponseDTO>> obtenerCalificaciones(@PathVariable Long idGrupo) {
         return ResponseEntity.ok(grupoService.obtenerCalificacionesPorGrupo(idGrupo));
     }
 
     @GetMapping("/por-ciclo/{idCiclo}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     @Operation(summary = "Listar todas las secciones registradas en un ciclo determinado")
     public ResponseEntity<List<GrupoDetalleResponseDTO>> listarGruposPorCiclo(@PathVariable Long idCiclo) {
         return ResponseEntity.ok(grupoService.listarGruposPorCiclo(idCiclo));
     }
 
     @GetMapping("/por-ciclo/{idCiclo}/conteo-carreras")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     @Operation(summary = "Obtener el consolidado de secciones agrupadas por carrera en un ciclo")
     public ResponseEntity<List<ResumenCarreraOfertaDTO>> obtenerConteoPorCarrera(@PathVariable Long idCiclo) {
         return ResponseEntity.ok(grupoService.obtenerConteoPorCarrera(idCiclo));
     }
 
     @DeleteMapping("/{idGrupo}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     @Operation(summary = "Eliminar una sección aperturada en fase de planificación")
     public ResponseEntity<Void> eliminarGrupo(@PathVariable Long idGrupo) {
         grupoService.eliminarGrupo(idGrupo);
@@ -127,7 +127,7 @@ public class GrupoController {
     }
 
     @PutMapping("/{idGrupo}")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
     @Operation(summary = "Modificar parámetros operativos de una sección",
             description = "Permite editar docente, aforo y espacio validando traslapes (solo en ciclos en PLANIFICACIÓN).")
     @ApiResponses({
