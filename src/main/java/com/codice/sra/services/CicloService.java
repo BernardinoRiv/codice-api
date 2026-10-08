@@ -58,12 +58,6 @@ public class CicloService {
         );
     }
 
-    /**
-     * Proyección semestral matemática determinista:
-     * (A, 1) -> (A, 2)
-     * (A, 2) -> (A + 1, 1)
-     * Formato resultante: '01-YYYY' o '02-YYYY'
-     */
     @Transactional(readOnly = true)
     public SiguienteCicloSugeridoDTO sugerirSiguienteCiclo() {
         return cicloRepository.findUltimoCicloRegistrado()
