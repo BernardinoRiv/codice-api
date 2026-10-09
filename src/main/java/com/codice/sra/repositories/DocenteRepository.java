@@ -51,4 +51,11 @@ public interface DocenteRepository extends JpaRepository<Docente, Long> {
             "  AND UPPER(TRIM(ed.estadoDocente)) = 'ACTIVO' " +
             "ORDER BY p.apellidos ASC, p.nombres ASC")
     List<DocenteSeleccionDTO> findDocentesParaSeleccionPorSede(@Param("idSede") Long idSede);
+
+    @Query("SELECT d FROM Docente d " +
+            "LEFT JOIN FETCH d.persona p " +
+            "LEFT JOIN FETCH d.sede " +
+            "LEFT JOIN FETCH d.tipoContratacion " +
+            "WHERE d.idDocente = :idDocente")
+    Optional<Docente> findByIdConRelaciones(@Param("idDocente") Long idDocente);
 }

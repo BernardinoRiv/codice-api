@@ -16,6 +16,16 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleResourceNotFound(ResourceNotFoundException ex) {
+        return buildResponse(HttpStatus.NOT_FOUND, "Recurso No Encontrado", ex.getMessage());
+    }
+
+    @ExceptionHandler(DuplicateResourceException.class)
+    public ResponseEntity<Map<String, Object>> handleDuplicateResource(DuplicateResourceException ex) {
+        return buildResponse(HttpStatus.CONFLICT, "Conflicto de Integridad", ex.getMessage());
+    }
+
     @ExceptionHandler(GrupoException.class)
     public ResponseEntity<Map<String, Object>> handleGrupoException(GrupoException ex) {
         return buildResponse(ex.getStatus(), ex.getError(), ex.getMessage());

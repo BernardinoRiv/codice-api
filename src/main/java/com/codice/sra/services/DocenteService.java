@@ -1,9 +1,7 @@
 package com.codice.sra.services;
 
-import com.codice.sra.dtos.DocenteListaResponseDTO;
-import com.codice.sra.dtos.DocenteRegistroRequestDTO;
-import com.codice.sra.dtos.DocenteRegistroResponseDTO;
-import com.codice.sra.dtos.GrupoResponseDTO;
+import com.codice.sra.dtos.*;
+import com.codice.sra.exceptions.ResourceNotFoundException;
 import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
 import com.codice.sra.repositories.DocenteRepository;
@@ -12,10 +10,12 @@ import com.codice.sra.repositories.SedeRepository;
 import com.codice.sra.repositories.TipoContratacionDocenteRepository;
 import com.codice.sra.utils.UserUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,6 +35,7 @@ public class DocenteService {
     private final GrupoRepository grupoRepository;
     private final UsuarioRepository usuarioRepository;
     private final CicloRepository cicloRepository; // Agregado para poder obtener el ciclo activo
+    private final AuditoriaService auditoriaService;
 
     public DocenteService(DocenteRepository docenteRepository,
                           SedeRepository sedeRepository,
@@ -44,7 +45,8 @@ public class DocenteService {
                           UsuarioService usuarioService,
                           GrupoRepository grupoRepository,
                           UsuarioRepository usuarioRepository,
-                          CicloRepository cicloRepository) {
+                          CicloRepository cicloRepository,
+                          AuditoriaService auditoriaService) {
         this.docenteRepository = docenteRepository;
         this.sedeRepository = sedeRepository;
         this.tipoContratacionRepository = tipoContratacionRepository;
@@ -54,6 +56,7 @@ public class DocenteService {
         this.grupoRepository = grupoRepository;
         this.usuarioRepository = usuarioRepository;
         this.cicloRepository = cicloRepository; // Inyección de dependencia
+        this.auditoriaService = auditoriaService;
     }
 
     @Transactional
@@ -160,5 +163,81 @@ public class DocenteService {
                     docente.getEstadoDocente().getEstadoDocente()
             );
         }).collect(Collectors.toList());
+    }
+
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void actualizarDocente(Long idDocente, DocenteEdicionRequestDTO dto) {
+        if (idDocente == null || idDocente <= 0) {
+            throw new IllegalArgumentException("El ID del docente debe ser positivo");
+        }
+
+        Docente docente = docenteRepository.findByIdConRelaciones(idDocente)
+                .orElseThrow(() -> new IllegalArgumentException("Docente no encontrado con ID: " + idDocente));
+
+        boolean cambiosPersona = personaService.actualizarDatosContacto(docente.getPersona().getIdPersona(), dto);
+
+        boolean sedeIgual = docente.getSede() != null &&
+                Objects.equals(docente.getSede().getIdSede(), dto.getIdSede());
+
+        boolean tipoContratoIgual = docente.getTipoContratacion() != null &&
+                Objects.equals(docente.getTipoContratacion().getIdTipoContratacion(), dto.getIdTipoContratacion());
+
+        boolean cambiosDocente = false;
+
+        if (!sedeIgual) {
+            Sede nuevaSede = sedeRepository.findById(dto.getIdSede())
+                    .orElseThrow(() -> new IllegalArgumentException("Sede no encontrada con ID: " + dto.getIdSede()));
+            docente.setSede(nuevaSede);
+            cambiosDocente = true;
+        }
+
+        if (!tipoContratoIgual) {
+            TipoContratacionDocente nuevoTipo = tipoContratacionRepository.findById(dto.getIdTipoContratacion())
+                    .orElseThrow(() -> new IllegalArgumentException("Tipo de contratación no encontrado con ID: " + dto.getIdTipoContratacion()));
+            docente.setTipoContratacion(nuevoTipo);
+            cambiosDocente = true;
+        }
+
+        if (cambiosPersona || cambiosDocente) {
+            auditoriaService.registrarEvento(
+                    "ACTUALIZACION_DOCENTE",
+                    "docentes",
+                    docente.getIdDocente(), // id_registro_afectado: El docente modificado
+                    "El administrador actualizó sede=" + dto.getIdSede() + ", tipoContrato=" + dto.getIdTipoContratacion()
+            );
+        }
+        // Si no hubo cambios, la transacción termina en éxito sin ensuciar la base de datos
+    }
+
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void cambiarEstadoDocente(Long idDocente, DocenteEstadoRequestDTO dto) {
+        if (idDocente == null || idDocente <= 0) {
+            throw new IllegalArgumentException("El ID del docente debe ser positivo");
+        }
+
+        // 1. Obtener docente y su estado actual
+        Docente docente = docenteRepository.findById(idDocente)
+                .orElseThrow(() -> new IllegalArgumentException("Docente no encontrado con ID: " + idDocente));
+
+        // 2. Cargar el estado destino solicitado desde el catálogo
+        EstadoDocente nuevoEstado = estadoDocenteRepository.findById(dto.getIdEstadoDocente())
+                .orElseThrow(() -> new IllegalArgumentException("Estado de docente no válido con ID: " + dto.getIdEstadoDocente()));
+
+        // 3. Regla de Negocio: Prevención de transiciones idénticas (Idempotencia)
+        if (docente.getEstadoDocente() != null &&
+                Objects.equals(docente.getEstadoDocente().getIdEstadoDocente(), nuevoEstado.getIdEstadoDocente())) {
+            throw new IllegalArgumentException(
+                    "El docente con ID " + idDocente + " ya posee el estado '" + nuevoEstado.getEstadoDocente() + "'"
+            );
+        }
+
+        docente.setEstadoDocente(nuevoEstado);
+
+        auditoriaService.registrarEvento(
+                "CAMBIO_ESTADO_DOCENTE",
+                "docentes",
+                docente.getIdDocente(),
+                String.format("Transición a estado '%s'. Motivo: %s", nuevoEstado.getEstadoDocente(), dto.getMotivo().trim())
+        );
     }
 }
