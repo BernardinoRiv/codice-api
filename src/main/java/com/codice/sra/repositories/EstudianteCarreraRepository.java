@@ -11,7 +11,7 @@ import java.util.Optional;
 @Repository
 public interface EstudianteCarreraRepository extends JpaRepository<EstudianteCarrera, Long> {
 
-    @Query("SELECT c.carrera FROM EstudianteCarrera ec " +
+    @Query("SELECT c.nombreCarrera FROM EstudianteCarrera ec " +
             "JOIN ec.carreraSede cs " +
             "JOIN cs.carrera c " +
             "WHERE ec.estudiante.idEstudiante = :idEstudiante")
