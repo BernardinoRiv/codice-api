@@ -1,9 +1,6 @@
 package com.codice.sra.controllers;
 
-import com.codice.sra.dtos.CicloOperativoDTO;
-import com.codice.sra.dtos.CicloPlanificacionDTO;
-import com.codice.sra.dtos.CrearCicloPlanificacionDTO;
-import com.codice.sra.dtos.SiguienteCicloSugeridoDTO;
+import com.codice.sra.dtos.*;
 import com.codice.sra.services.CicloService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -66,40 +63,24 @@ public class CicloController {
         return ResponseEntity.ok(cicloService.listarCiclosEnPlanificacion());
     }
 
-    /**
-     * Ejecuta la transición de estado atómica institucional:
-     * El ciclo activo actual pasa a 'FINALIZADO' y el ciclo planificado pasa a 'ACTIVO'.
-     */
-    @PostMapping("/{idCiclo}/activar")
+    // Botón: "Confirmar Planificación"
+    @PatchMapping("/{idCiclo}/confirmar-planificacion")
     @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
-    public ResponseEntity<Map<String, String>> activarCicloPlanificado(
-            @PathVariable Long idCiclo) {
-        cicloService.promoverCicloAActivo(idCiclo);
-        return ResponseEntity.ok(Map.of(
-                "mensaje", "Ciclo activado exitosamente. El periodo anterior ha sido finalizado automáticamente."
-        ));
+    @Operation(summary = "Confirmar planificación: Pasa el ciclo a PLANIFICADO (permite prematrícula)")
+    public ResponseEntity<CicloOperativoDTO> confirmarPlanificacion(@PathVariable Long idCiclo) {
+        CicloOperativoDTO dto = cicloService.confirmarPlanificacion(idCiclo);
+        return ResponseEntity.ok(dto);
     }
 
-//    @PostMapping("/{idCiclo}/activar")
-//    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
-//    @Operation(summary = "Activar ciclo y generar cargos de matrícula masivos")
-//    public ResponseEntity<ActivacionCicloResponseDTO> activarCicloPlanificado(
-//            @PathVariable Long idCiclo) {
-//
-//        // 1. Relevo de ciclo institucional
-//        cicloService.promoverCicloAActivo(idCiclo);
-//
-//        // 2. Disparo de facturación automática masiva de matrículas
-//        ResultadoMatriculaDTO resFinanzas = finanzasService.generarMatriculasPorAperturaCiclo(idCiclo);
-//
-//        return ResponseEntity.ok(new ActivacionCicloResponseDTO(
-//                true,
-//                "Ciclo activado exitosamente y facturación de matrículas procesada.",
-//                idCiclo,
-//                resFinanzas.cobrosNuevosGenerados()
-//        ));
-//    }
-
+    // Botón: "Activar / Relevo Institucional" (o ejecutado por el Scheduler)
+    @PostMapping("/activar")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
+    @Operation(summary = "Relevo definitivo: Pasa de PLANIFICADO a ACTIVO y genera cobros masivos")
+    public ResponseEntity<ActivacionCicloResponseDTO> activarCiclo(
+            @Valid @RequestBody GenerarCobrosMasivosRequestDTO request) {
+        ActivacionCicloResponseDTO response = cicloService.ejecutarRelevoYActivacion(request);
+        return ResponseEntity.ok(response);
+    }
 
 
     @DeleteMapping("/{idCiclo}")
@@ -109,5 +90,10 @@ public class CicloController {
     public ResponseEntity<Void> eliminarCicloPlanificado(@PathVariable Long idCiclo) {
         cicloService.eliminarCicloPlanificado(idCiclo);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{idCiclo}/aranceles-apertura")
+    public ResponseEntity<ArancelesAperturaDTO> obtenerArancelesApertura(@PathVariable Long idCiclo) {
+        return ResponseEntity.ok(cicloService.obtenerArancelesApertura(idCiclo));
     }
 }

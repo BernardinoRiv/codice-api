@@ -3,6 +3,7 @@ package com.codice.sra.repositories;
 import com.codice.sra.dtos.ResumenCarreraOfertaDTO;
 import com.codice.sra.models.Grupo;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -48,10 +49,6 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
     // Consulta los grupos de un ciclo específico para gestión o limpieza
     List<Grupo> findByCiclo_IdCiclo(Long idCiclo);
 
-    // Eliminación por ciclo
-    void deleteByCiclo_IdCiclo(Long idCiclo);
-
-
     @Query("""
         SELECT new com.codice.sra.dtos.ResumenCarreraOfertaDTO(
             c.idCarrera,
@@ -80,6 +77,13 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
     """)
     long countByDocenteIdDocenteAndCicloIdCiclo(@Param("idDocente") Long idDocente, @Param("idCiclo") Long idCiclo);
 
-    // Cuenta rápidamente si el ciclo tiene secciones creadas (Query COUNT eficiente)
-    long countByCiclo_IdCiclo(Long idCiclo);
+
+    // Obtener únicamente los IDs para no cargar entidades pesadas a la memoria de Hibernate
+    @Query("SELECT g.idGrupo FROM Grupo g WHERE g.ciclo.idCiclo = :idCiclo")
+    List<Long> findIdsByCiclo_IdCiclo(@Param("idCiclo") Long idCiclo);
+
+    // Borrado directo en BD sin ensuciar el contexto de persistencia
+    @Modifying
+    @Query("DELETE FROM Grupo g WHERE g.ciclo.idCiclo = :idCiclo")
+    void deleteByCiclo_IdCiclo(@Param("idCiclo") Long idCiclo);
 }

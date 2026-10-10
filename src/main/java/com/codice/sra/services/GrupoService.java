@@ -306,7 +306,7 @@ public class GrupoService {
         String modalidadKey = modalidad.getModalidad().toUpperCase().trim();
 
         switch (modalidadKey) {
-            case "PRESENCIAL", "SEMIPRESENCIAL" -> {
+            case "PRESENCIAL", "HIBRIDA" -> {
                 if (request.getIdAula() == null) {
                     throw GrupoException.reglaNegocio("Debe asignar un aula física para modalidades presenciales o semipresenciales.");
                 }

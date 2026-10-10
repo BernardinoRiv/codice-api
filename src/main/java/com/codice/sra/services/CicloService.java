@@ -1,26 +1,24 @@
 package com.codice.sra.services;
 
-import com.codice.sra.dtos.CicloOperativoDTO;
-import com.codice.sra.dtos.CicloPlanificacionDTO;
-import com.codice.sra.dtos.CrearCicloPlanificacionDTO;
-import com.codice.sra.dtos.SiguienteCicloSugeridoDTO;
+import com.codice.sra.dtos.*;
 import com.codice.sra.exceptions.GrupoException;
 import com.codice.sra.models.Ciclo;
+import com.codice.sra.models.ConceptoCobro;
 import com.codice.sra.models.EstadoCiclo;
 import com.codice.sra.models.Grupo;
-import com.codice.sra.repositories.CicloRepository;
-import com.codice.sra.repositories.EstadoCicloRepository;
-import com.codice.sra.repositories.GrupoRepository;
-import com.codice.sra.repositories.HorarioRepository;
+import com.codice.sra.repositories.*;
 import com.codice.sra.utils.CicloCodigoUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -31,6 +29,8 @@ public class CicloService {
     private final EstadoCicloRepository estadoCicloRepository;
     private final GrupoRepository grupoRepository;
     private final HorarioRepository horarioRepository;
+    private final FinanzasService finanzasService;
+    private final ConceptoCobroRepository conceptoCobroRepository;
 
     /**
      * Resuelve el ciclo lectivo operativo:
@@ -39,19 +39,25 @@ public class CicloService {
      */
     @Transactional(readOnly = true)
     public CicloOperativoDTO obtenerCicloParaOferta() {
-        Ciclo ciclo = cicloRepository.findCicloEnPlanificacion()
-                .or(cicloRepository::findCicloActivo)
+        // 1. Priorizar el ciclo formalmente ACTIVO en clases.
+        // Si no hay ninguno activo, se toma como alternativa el que esté en planificación.
+        Ciclo ciclo = cicloRepository.findCicloActivo()
+                .or(cicloRepository::findCicloEnPlanificacion)
                 .orElseThrow(() -> GrupoException.reglaNegocio(
-                        "No existe ningún ciclo en estado PLANIFICACIÓN ni ACTIVO en el sistema."));
+                        "No existe ningún ciclo en estado ACTIVO ni en PLANIFICACIÓN en el sistema."));
 
-        boolean esPlanificacion = "PLANIFICACION".equalsIgnoreCase(ciclo.getEstadoCiclo().getEstadoCiclo());
+        String estado = (ciclo.getEstadoCiclo() != null && ciclo.getEstadoCiclo().getEstadoCiclo() != null)
+                ? ciclo.getEstadoCiclo().getEstadoCiclo().trim().toUpperCase()
+                : "PLANIFICACION";
+
+        boolean esPlanificacion = "PLANIFICACION".equals(estado) || "PLANIFICADO".equals(estado);
 
         return new CicloOperativoDTO(
                 ciclo.getIdCiclo(),
                 ciclo.getCodigoCiclo(),
                 ciclo.getAnio(),
                 ciclo.getNumeroCiclo(),
-                ciclo.getEstadoCiclo().getEstadoCiclo(),
+                estado,
                 ciclo.getFechaInicio(),
                 ciclo.getFechaFin(),
                 esPlanificacion
@@ -128,6 +134,27 @@ public class CicloService {
         log.info("Ciclo [{}] registrado con vigencia fija [{} al {}]",
                 persistido.getCodigoCiclo(), fechaInicioAdministrativa, fechaFinAdministrativa);
 
+        // Clonación de aranceles del ciclo anterior
+        Optional<Ciclo> cicloAnteriorOpt = cicloRepository.findCicloActivo();
+
+        if (cicloAnteriorOpt.isPresent()) {
+            Long idCicloAnterior = cicloAnteriorOpt.get().getIdCiclo();
+            Long idCicloNuevo = persistido.getIdCiclo();
+
+            try {
+                int clonados = finanzasService.clonarArancelesCicloAnterior(idCicloAnterior, idCicloNuevo);
+                log.info("Finanzas: {} aranceles clonados del ciclo previo ID [{}] al nuevo ciclo ID [{}]",
+                        clonados, idCicloAnterior, idCicloNuevo);
+            } catch (Exception ex) {
+                log.error("Fallo al clonar aranceles para el ciclo ID [{}]: {}", persistido.getIdCiclo(), ex.getMessage());
+                // Lanzamos GrupoException para forzar el ROLLBACK de cicloRepository.save(nuevoCiclo)
+                throw GrupoException.reglaNegocio(
+                        "No se pudo completar la creación del ciclo. Fallo en módulo de aranceles: " + ex.getMessage());
+            }
+        } else {
+            log.warn("No se encontró ciclo anterior activo. Se omite clonación de aranceles.");
+        }
+
         return new CicloOperativoDTO(
                 persistido.getIdCiclo(),
                 persistido.getCodigoCiclo(),
@@ -153,78 +180,258 @@ public class CicloService {
                         c.getNumeroCiclo(),
                         c.getFechaInicio(),
                         c.getFechaFin(),
+                        c.getEstadoCiclo() != null ? c.getEstadoCiclo().getEstadoCiclo() : "PLANIFICACION",
                         (long) (c.getGrupos() != null ? c.getGrupos().size() : 0)
                 ))
                 .toList();
     }
 
-    /**
-     * Transición atómica de relevo semestral:
-     * - Cierra el ciclo que estaba ACTIVO pasando a FINALIZADO.
-     * - Promueve el ciclo en PLANIFICACIÓN al estado ACTIVO.
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public void promoverCicloAActivo(Long idCicloPlanificado) {
-        Ciclo cicloPlanificado = cicloRepository.findById(idCicloPlanificado)
-                .orElseThrow(() -> GrupoException.noEncontrado("El ciclo lectivo a activar no existe."));
+    @Transactional(readOnly = true)
+    public ArancelesAperturaDTO obtenerArancelesApertura(Long idCiclo) {
+        Ciclo ciclo = cicloRepository.findById(idCiclo)
+                .orElseThrow(() -> GrupoException.noEncontrado("Ciclo no encontrado con ID: " + idCiclo));
 
-        if (!"PLANIFICACION".equalsIgnoreCase(cicloPlanificado.getEstadoCiclo().getEstadoCiclo())) {
-            throw GrupoException.reglaNegocio("Solo se puede activar un ciclo que se encuentre en PLANIFICACIÓN.");
+        List<ConceptoCobro> conceptos = conceptoCobroRepository.findByCiclo_IdCiclo(idCiclo);
+
+        ConceptoCobro matPre = null;
+        ConceptoCobro cuoPre = null;
+        ConceptoCobro matMae = null;
+        ConceptoCobro cuoMae = null;
+
+        for (ConceptoCobro c : conceptos) {
+            if (c.getTipoCobro() != null && c.getTipoCobro().getIdTipoCobro() != null) {
+                long tipoId = c.getTipoCobro().getIdTipoCobro();
+
+                // Pregrado
+                if (tipoId == 1L) {
+                    matPre = c; // Matrícula de Pregrado ($70.00)
+                } else if (tipoId == 2L) {
+                    cuoPre = c; // Cuota Mensual de Pregrado ($70.00)
+                }
+
+                // Maestría (Prioridad Docencia Universitaria 6 y 7, con fallback a 8 y 9)
+                else if (tipoId == 6L || (tipoId == 8L && matMae == null)) {
+                    matMae = c; // Matrícula de Maestría ($100.00 / $120.00)
+                } else if (tipoId == 7L || (tipoId == 9L && cuoMae == null)) {
+                    cuoMae = c; // Cuota Mensual de Maestría ($100.00 / $130.00)
+                }
+            }
         }
 
-        // 2. INVARIANTE CRÍTICA: Prohibir activación sin oferta académica consolidada
-        long seccionesConfiguradas = grupoRepository.countByCiclo_IdCiclo(idCicloPlanificado);
-        if (seccionesConfiguradas == 0) {
-            throw GrupoException.reglaNegocio(String.format(
-                    "Operación rechazada: No es posible activar el ciclo '%s' porque no posee ninguna sección académica aperturada.",
-                    cicloPlanificado.getCodigoCiclo()
-            ));
-        }
-        EstadoCiclo estadoFinalizado = estadoCicloRepository.findByEstadoCicloIgnoreCase("FINALIZADO")
-                .orElseThrow(() -> GrupoException.noEncontrado("Estado 'FINALIZADO' no configurado en la base de datos."));
+        boolean completos = (matPre != null && cuoPre != null);
 
-        EstadoCiclo estadoActivo = estadoCicloRepository.findByEstadoCicloIgnoreCase("ACTIVO")
-                .orElseThrow(() -> GrupoException.noEncontrado("Estado 'ACTIVO' no configurado en la base de datos."));
-
-        // 1. Relevar el ciclo activo saliente si existe
-        cicloRepository.findCicloActivo().ifPresent(actual -> {
-            log.info("Finalizando ciclo saliente: [{}]", actual.getCodigoCiclo());
-            actual.setEstadoCiclo(estadoFinalizado);
-            cicloRepository.save(actual);
-        });
-
-        // 2. Activar el nuevo ciclo
-        cicloPlanificado.setEstadoCiclo(estadoActivo);
-        cicloRepository.save(cicloPlanificado);
-        log.info("Ciclo lectivo [{}] promovido exitosamente a estado ACTIVO.", cicloPlanificado.getCodigoCiclo());
+        return new ArancelesAperturaDTO(
+                ciclo.getIdCiclo(),
+                matPre != null ? matPre.getIdConceptoCobro() : null,
+                matPre != null ? matPre.getMontoBase() : BigDecimal.ZERO,
+                cuoPre != null ? cuoPre.getIdConceptoCobro() : null,
+                cuoPre != null ? cuoPre.getMontoBase() : BigDecimal.ZERO,
+                matMae != null ? matMae.getIdConceptoCobro() : null,
+                matMae != null ? matMae.getMontoBase() : BigDecimal.ZERO,
+                cuoMae != null ? cuoMae.getIdConceptoCobro() : null,
+                cuoMae != null ? cuoMae.getMontoBase() : BigDecimal.ZERO,
+                completos
+        );
     }
 
 
     @Transactional(rollbackFor = Exception.class)
     public void eliminarCicloPlanificado(Long idCiclo) {
+        log.info("Iniciando purga controlada del ciclo ID [{}]...", idCiclo);
+
+        // 1. Obtención y validación de existencia
         Ciclo ciclo = cicloRepository.findById(idCiclo)
                 .orElseThrow(() -> GrupoException.noEncontrado("El ciclo lectivo especificado no existe."));
 
-        // Regla de Integridad Histórica: Solo se permite eliminar periodos en PLANIFICACIÓN
-        String estadoActual = ciclo.getEstadoCiclo().getEstadoCiclo().trim().toUpperCase();
-        if (!"PLANIFICACION".equals(estadoActual)) {
+        // 2. Programación Defensiva (Fail-Fast): Validar estado de borrador
+        String estadoActual = (ciclo.getEstadoCiclo() != null && ciclo.getEstadoCiclo().getEstadoCiclo() != null)
+                ? ciclo.getEstadoCiclo().getEstadoCiclo().trim().toUpperCase()
+                : "";
+
+        if (!"PLANIFICACION".equals(estadoActual) && !"EN_PLANIFICACION".equals(estadoActual)) {
             throw GrupoException.reglaNegocio(String.format(
-                    "Operación denegada: No se puede eliminar el ciclo '%s' porque su estado es '%s'. Solo los ciclos en PLANIFICACIÓN pueden eliminarse.",
+                    "Operación denegada: No se puede eliminar el ciclo '%s' porque su estado es '%s'. " +
+                            "Solo los ciclos en fase de planificación pueden purgarse.",
                     ciclo.getCodigoCiclo(), estadoActual));
         }
 
-        // Limpieza de secciones y horarios si ya se habían cargado
-        List<Grupo> gruposAsociados = grupoRepository.findByCiclo_IdCiclo(idCiclo);
-        if (!gruposAsociados.isEmpty()) {
-            for (Grupo g : gruposAsociados) {
-                horarioRepository.deleteByGrupo_IdGrupo(g.getIdGrupo());
-            }
-            grupoRepository.deleteAll(gruposAsociados);
-            log.info("Se eliminaron {} secciones asociadas al ciclo [{}] previo a su purga.",
-                    gruposAsociados.size(), ciclo.getCodigoCiclo());
+        // 3.Purgar los aranceles/conceptos clonados del ciclo
+        conceptoCobroRepository.deleteByCiclo_IdCiclo(idCiclo);
+        log.info("Aranceles clonados del ciclo [{}] purgados satisfactoriamente.", ciclo.getCodigoCiclo());
+
+        // 4. Obtener SOLO IDs de los grupos para limpiar horarios (sin cargar entidades Grupo a memoria)
+        List<Long> idsGrupos = grupoRepository.findIdsByCiclo_IdCiclo(idCiclo);
+
+        if (!idsGrupos.isEmpty()) {
+            // Borrar horarios de esos grupos
+            horarioRepository.deleteByGrupo_IdGrupoIn(idsGrupos);
+
+            // Borrar los grupos directamente a nivel SQL
+            grupoRepository.deleteByCiclo_IdCiclo(idCiclo);
+            log.info("Se purgaron los horarios y grupos asociados al ciclo [{}]", ciclo.getCodigoCiclo());
         }
 
+        // 5. Purga final del ciclo lectivo
         cicloRepository.delete(ciclo);
-        log.info("Ciclo lectivo [{}] eliminado satisfactoriamente del sistema.", ciclo.getCodigoCiclo());
+        log.info("Ciclo lectivo [{}] purgado satisfactoriamente del sistema.", ciclo.getCodigoCiclo());
     }
+
+    @Transactional(rollbackFor = Exception.class)
+    public CicloOperativoDTO confirmarPlanificacion(Long idCiclo) {
+        log.info("Iniciando confirmación de planificación para ciclo ID [{}]...", idCiclo);
+
+        // 1. Validar existencia de ciclo
+        Ciclo ciclo = cicloRepository.findById(idCiclo)
+                .orElseThrow(() -> GrupoException.noEncontrado("Ciclo no encontrado con ID: " + idCiclo));
+
+        String estadoActual = ciclo.getEstadoCiclo() != null
+                ? ciclo.getEstadoCiclo().getEstadoCiclo().trim().toUpperCase()
+                : "";
+
+        // 2. Fail-Fast: Solo se puede confirmar lo que está en preparación
+        if (!"EN_PLANIFICACION".equals(estadoActual) && !"PLANIFICACION".equals(estadoActual)) {
+            throw GrupoException.conflicto(String.format(
+                    "El ciclo %s no puede ser confirmado porque su estado actual es '%s' (se requiere EN_PLANIFICACION).",
+                    ciclo.getCodigoCiclo(), estadoActual));
+        }
+
+        // 3. Regla de Integridad Financiera: Debe tener aranceles configurados
+        boolean tieneAranceles = conceptoCobroRepository.existsByCiclo_IdCiclo(idCiclo);
+        if (!tieneAranceles) {
+            throw GrupoException.reglaNegocio(String.format(
+                    "No se puede confirmar la planificación del ciclo %s: No posee ningún arancel configurado.",
+                    ciclo.getCodigoCiclo()));
+        }
+
+        boolean tieneSecciones = grupoRepository.existsByCiclo_IdCiclo(idCiclo);
+        if (!tieneSecciones) {
+            throw GrupoException.reglaNegocio(String.format(
+                    "Operación denegada: El ciclo %s no posee ninguna materia o sección registrada. " +
+                            "Debe registrar la oferta académica antes de confirmar la planificación.",
+                    ciclo.getCodigoCiclo()));
+        }
+
+        // 4. Obtener estado PLANIFICADO del catálogo
+        EstadoCiclo estadoPlanificado = estadoCicloRepository.findByEstadoCicloIgnoreCase("PLANIFICADO")
+                .orElseThrow(() -> GrupoException.noEncontrado("Estado 'PLANIFICADO' no configurado en el catálogo."));
+
+        // 5. Transición de estado inmutable
+        ciclo.setEstadoCiclo(estadoPlanificado);
+        Ciclo cicloGuardado = cicloRepository.save(ciclo);
+        log.info("Ciclo [{}] pasó exitosamente a estado PLANIFICADO con su oferta académica fijada.", cicloGuardado.getCodigoCiclo());
+
+        // 6. Retornar DTO operativo intacto (esPlanificacion = true)
+        return new CicloOperativoDTO(
+                cicloGuardado.getIdCiclo(),
+                cicloGuardado.getCodigoCiclo(),
+                cicloGuardado.getAnio(),
+                cicloGuardado.getNumeroCiclo(),
+                estadoPlanificado.getEstadoCiclo(),
+                cicloGuardado.getFechaInicio(),
+                cicloGuardado.getFechaFin(),
+                true
+        );
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ActivacionCicloResponseDTO ejecutarRelevoYActivacion(GenerarCobrosMasivosRequestDTO request) {
+        log.info("Iniciando relevo y activación formal para el ciclo ID [{}]", request.getIdCiclo());
+
+        // 1. Fail-Fast: Validar aranceles obligatorios de Pregrado
+        if (request.getIdMatriculaCarrera() == null || request.getIdCuotaCarrera() == null) {
+            throw GrupoException.reglaNegocio(
+                    "Debe especificar los aranceles obligatorios de matrícula y cuota para Pregrado.");
+        }
+
+        // 2. Obtener y validar el ciclo entrante
+        Ciclo cicloNuevo = cicloRepository.findById(request.getIdCiclo())
+                .orElseThrow(() -> GrupoException.noEncontrado("Ciclo no encontrado con ID: " + request.getIdCiclo()));
+
+        String estadoActual = cicloNuevo.getEstadoCiclo() != null
+                ? cicloNuevo.getEstadoCiclo().getEstadoCiclo().toUpperCase()
+                : "";
+
+        // Regla estricta: Solo un ciclo formalmente PLANIFICADO puede ser promovido a ACTIVO
+        if (!"PLANIFICADO".equals(estadoActual)) {
+            throw GrupoException.conflicto(String.format(
+                    "El ciclo %s no puede activarse directamente. Su estado actual es '%s' y debe estar 'PLANIFICADO'.",
+                    cicloNuevo.getCodigoCiclo(), estadoActual));
+        }
+
+        if (!grupoRepository.existsByCiclo_IdCiclo(request.getIdCiclo())) {
+            throw GrupoException.reglaNegocio(String.format(
+                    "Operación denegada: El ciclo '%s' no posee ninguna materia o sección registrada. " +
+                            "No se puede activar un ciclo lectivo sin oferta académica.",
+                    cicloNuevo.getCodigoCiclo()));
+        }
+
+        LocalDate hoy = LocalDate.now();
+        DateTimeFormatter formatoFecha = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+        // 2.1. Validar que el ciclo entrante ya haya alcanzado su fecha de inicio
+        if (cicloNuevo.getFechaInicio() != null && hoy.isBefore(cicloNuevo.getFechaInicio())) {
+            throw GrupoException.conflicto(String.format(
+                    "Operación denegada: El ciclo entrante '%s' no puede activarse antes de su fecha de inicio (%s). Fecha actual: %s.",
+                    cicloNuevo.getCodigoCiclo(),
+                    cicloNuevo.getFechaInicio().format(formatoFecha),
+                    hoy.format(formatoFecha)));
+        }
+
+        // 2.2. Validar que el ciclo actualmente activo ya haya finalizado según calendario
+        Optional<Ciclo> cicloPrevioActivoOpt = cicloRepository.findCicloActivo();
+        if (cicloPrevioActivoOpt.isPresent()) {
+            Ciclo cicloViejo = cicloPrevioActivoOpt.get();
+            if (!cicloViejo.getIdCiclo().equals(cicloNuevo.getIdCiclo())
+                    && cicloViejo.getFechaFin() != null
+                    && hoy.isBefore(cicloViejo.getFechaFin())) {
+                throw GrupoException.conflicto(String.format(
+                        "Operación denegada: El ciclo activo actual '%s' aún no ha finalizado (su cierre está programado para el %s). Fecha actual: %s.",
+                        cicloViejo.getCodigoCiclo(),
+                        cicloViejo.getFechaFin().format(formatoFecha),
+                        hoy.format(formatoFecha)));
+            }
+        }
+
+        // 3. Obtener referencias inmutables de estados
+        EstadoCiclo estadoActivo = estadoCicloRepository.findByEstadoCicloIgnoreCase("ACTIVO")
+                .orElseThrow(() -> GrupoException.noEncontrado("Estado 'ACTIVO' no configurado en el catálogo."));
+
+        EstadoCiclo estadoFinalizado = estadoCicloRepository.findByEstadoCicloIgnoreCase("FINALIZADO")
+                .orElseThrow(() -> GrupoException.noEncontrado("Estado 'FINALIZADO' no configurado en el catálogo."));
+
+        // 4. Disparar lógica contable del compañero (solo llega aquí si las fechas son válidas)
+        int totalCobrosGenerados;
+        try {
+            totalCobrosGenerados = finanzasService.generarCobrosMatriculaAperturaCiclo(request);
+            log.info("Finanzas generó satisfactoriamente {} cargos para el ciclo [{}]",
+                    totalCobrosGenerados, cicloNuevo.getCodigoCiclo());
+        } catch (Exception ex) {
+            log.error("Fallo al generar cobros en módulo de finanzas: {}", ex.getMessage());
+            // Provoca Rollback atómico de toda la operación
+            throw GrupoException.reglaNegocio("Error en generación de cobros masivos: " + ex.getMessage());
+        }
+
+        // 5. Finalizar ciclo anterior activo (reutiliza el Optional ya consultado arriba)
+        cicloPrevioActivoOpt.ifPresent(cicloViejo -> {
+            if (!cicloViejo.getIdCiclo().equals(cicloNuevo.getIdCiclo())) {
+                cicloViejo.setEstadoCiclo(estadoFinalizado);
+                cicloRepository.save(cicloViejo);
+                log.info("Ciclo saliente [{}] transicionado a FINALIZADO.", cicloViejo.getCodigoCiclo());
+            }
+        });
+
+        // 6. Promover el ciclo nuevo a ACTIVO
+        cicloNuevo.setEstadoCiclo(estadoActivo);
+        cicloRepository.save(cicloNuevo);
+        log.info("Ciclo entrante [{}] transicionado a ACTIVO exitosamente.", cicloNuevo.getCodigoCiclo());
+
+        return new ActivacionCicloResponseDTO(
+                true,
+                String.format("Ciclo %s activado exitosamente. Se generaron %d cobros institucionales.",
+                        cicloNuevo.getCodigoCiclo(), totalCobrosGenerados),
+                cicloNuevo.getIdCiclo(),
+                totalCobrosGenerados
+        );
+    }
+
 }
