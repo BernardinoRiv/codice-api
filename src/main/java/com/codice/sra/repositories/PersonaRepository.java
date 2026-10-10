@@ -31,4 +31,6 @@ public interface PersonaRepository extends JpaRepository<Persona, Long> {
             "LEFT JOIN FETCH d.departamento " +
             "WHERE p.numeroDocumento = :numeroDocumento")
     Optional<Persona> findByNumeroDocumentoConUbicacion(@Param("numeroDocumento") String numeroDocumento);
+
+    boolean existsByCorreoPersonalAndIdPersonaNot(String correoPersonal, Long idPersona);
 }
