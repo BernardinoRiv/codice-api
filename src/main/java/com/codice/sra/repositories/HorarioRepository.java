@@ -91,4 +91,7 @@ public interface HorarioRepository extends JpaRepository<Horario, Long> {
     @Query("DELETE FROM Horario h WHERE h.grupo.idGrupo = :idGrupo")
     void deleteByGrupo_IdGrupo(@Param("idGrupo") Long idGrupo);
 
+    @Modifying
+    @Query("DELETE FROM Horario h WHERE h.grupo.idGrupo IN :idsGrupos")
+    void deleteByGrupo_IdGrupoIn(@Param("idsGrupos") List<Long> idsGrupos);
 }

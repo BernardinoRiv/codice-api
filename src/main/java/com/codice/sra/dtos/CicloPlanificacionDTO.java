@@ -9,5 +9,6 @@ public record CicloPlanificacionDTO(
         Integer numeroCiclo,
         LocalDate fechaInicio,
         LocalDate fechaFin,
+        String estadoCiclo,
         Long totalSeccionesConfiguradas
 ) {}

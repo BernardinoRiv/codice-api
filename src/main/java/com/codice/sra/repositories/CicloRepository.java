@@ -34,9 +34,8 @@ public interface CicloRepository extends JpaRepository<Ciclo, Long> {
             "WHERE UPPER(TRIM(ec.estadoCiclo)) = 'PLANIFICACION'")
     Optional<Ciclo> findCicloEnPlanificacion();
 
-    //Lista todos los ciclos en preparación para la pantalla de relevo y activación.
     @Query("SELECT c FROM Ciclo c JOIN FETCH c.estadoCiclo ec " +
-            "WHERE UPPER(TRIM(ec.estadoCiclo)) = 'PLANIFICACION' " +
+            "WHERE UPPER(TRIM(ec.estadoCiclo)) IN ('PLANIFICACION', 'EN_PLANIFICACION', 'PLANIFICADO') " +
             "ORDER BY c.anio ASC, c.numeroCiclo ASC")
     List<Ciclo> findAllEnPlanificacion();
 
@@ -52,4 +51,17 @@ public interface CicloRepository extends JpaRepository<Ciclo, Long> {
             "LIMIT 1")
     Optional<Ciclo> findUltimoCicloRegistrado();
 
+    //Ciclos activos
+    @Query("SELECT c FROM Ciclo c WHERE UPPER(c.estadoCiclo.estadoCiclo) = 'ACTIVO'")
+    Optional<Ciclo> findCicloPorEstadoActivo();
+
+    /**
+     * Fallback determinista: obtiene el último ciclo registrado por ID decreciente.
+     */
+    Optional<Ciclo> findTopByOrderByIdCicloDesc();
+
+    /**
+     * Valida si un código oficial de ciclo ya existe (evita duplicidad).
+     */
+    boolean existsByCodigoCiclo(String codigoCiclo);
 }
