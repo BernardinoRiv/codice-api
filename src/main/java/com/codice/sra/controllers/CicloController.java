@@ -58,7 +58,7 @@ public class CicloController {
      * ya configuradas, alimentando la tabla de relevo institucional.
      */
     @GetMapping("/en-planificacion")
-    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('EMPLEADO') or hasRole('FINANZAS')")
     public ResponseEntity<List<CicloPlanificacionDTO>> listarEnPlanificacion() {
         return ResponseEntity.ok(cicloService.listarCiclosEnPlanificacion());
     }

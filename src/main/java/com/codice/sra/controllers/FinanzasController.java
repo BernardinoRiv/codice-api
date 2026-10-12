@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -106,6 +107,58 @@ public class FinanzasController {
             return ResponseEntity.ok(aranceles);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    // ====================================================================
+    // ENDPOINTS DE GESTIÓN DE ARANCELES (CRUD)
+    // ====================================================================
+
+    @GetMapping("/ciclos/{idCiclo}/aranceles")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('FINANZAS')")
+    public ResponseEntity<List<Map<String, Object>>> listarArancelesDelCiclo(@PathVariable Long idCiclo) {
+        return ResponseEntity.ok(finanzasService.obtenerArancelesPorCiclo(idCiclo));
+    }
+
+    @PutMapping("/aranceles/{idConcepto}")
+    @PreAuthorize("hasRole('FINANZAS')")
+    public ResponseEntity<Map<String, Object>> actualizarPrecioArancel(
+            @PathVariable Long idConcepto,
+            @RequestParam BigDecimal nuevoMonto) {
+
+        try {
+            Map<String, Object> resultado = finanzasService.actualizarPrecioArancel(idConcepto, nuevoMonto);
+            return ResponseEntity.ok(resultado);
+        } catch (RuntimeException e) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("exito", false);
+            error.put("mensaje", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    @PostMapping("/ciclos/{idCiclo}/aranceles")
+    @PreAuthorize("hasRole('FINANZAS')")
+    public ResponseEntity<Map<String, Object>> crearNuevoArancel(
+            @PathVariable Long idCiclo,
+            @RequestBody Map<String, Object> payload) {
+        try {
+            String conceptoStr = (String) payload.get("concepto");
+            String montoStr = String.valueOf(payload.get("montoBase"));
+
+            if (conceptoStr == null || conceptoStr.trim().isEmpty() || montoStr == null || montoStr.trim().isEmpty()) {
+                throw new RuntimeException("Debe proporcionar un concepto y un monto válido.");
+            }
+
+            BigDecimal montoBase = new BigDecimal(montoStr);
+            Map<String, Object> resultado = finanzasService.crearNuevoArancelEnCiclo(idCiclo, conceptoStr, montoBase);
+
+            return ResponseEntity.status(HttpStatus.CREATED).body(resultado);
+        } catch (RuntimeException e) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("exito", false);
+            error.put("mensaje", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
         }
     }
 
