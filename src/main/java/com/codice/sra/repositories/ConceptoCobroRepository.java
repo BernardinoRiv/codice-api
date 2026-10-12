@@ -24,4 +24,5 @@ public interface ConceptoCobroRepository extends JpaRepository<ConceptoCobro, Lo
     @Query("DELETE FROM ConceptoCobro c WHERE c.ciclo.idCiclo = :idCiclo")
     void deleteByCiclo_IdCiclo(@Param("idCiclo") Long idCiclo);
 
+    boolean existsByCiclo_IdCicloAndTipoCobro_IdTipoCobro(Long idCiclo, Long idTipoCobro);
 }

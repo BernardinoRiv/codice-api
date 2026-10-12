@@ -39,6 +39,7 @@ public class FinanzasService {
     private final ComprobantePdfService comprobantePdfService;
     private final EmailService emailService;
     private final EstudianteCarreraRepository estudianteCarreraRepository;
+    private final TipoCobroRepository tipoCobroRepository;
 
     // ====================================================================
     // NUEVO: MÉTODO PARA CLONAR ARANCELES AL ABRIR UN NUEVO CICLO
@@ -506,5 +507,105 @@ public class FinanzasService {
         respuesta.put("totalCobrado", totalEsperado);
 
         return respuesta;
+    }
+
+    // ====================================================================
+    // GESTIÓN DE ARANCELES (CRUD FINANCIERO)
+    // ====================================================================
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> obtenerArancelesPorCiclo(Long idCiclo) {
+        List<ConceptoCobro> conceptos = conceptoCobroRepository.findByCiclo_IdCiclo(idCiclo);
+        List<Map<String, Object>> lista = new ArrayList<>();
+
+        for (ConceptoCobro c : conceptos) {
+            Map<String, Object> dto = new HashMap<>();
+            dto.put("idConcepto", c.getIdConceptoCobro());
+            // Aplicando la regla de capitalización estricta (Solo la primera en mayúscula)
+            String nombreOriginal = c.getTipoCobro().getTipoCobro().toLowerCase();
+            String nombreCapitalizado = nombreOriginal.substring(0, 1).toUpperCase() + nombreOriginal.substring(1);
+
+            dto.put("concepto", nombreCapitalizado);
+            dto.put("montoBase", c.getMontoBase());
+
+            lista.add(dto);
+        }
+
+        return lista;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> actualizarPrecioArancel(Long idConcepto, BigDecimal nuevoMonto) {
+        ConceptoCobro concepto = conceptoCobroRepository.findById(idConcepto)
+                .orElseThrow(() -> new RuntimeException("El arancel solicitado no existe."));
+
+        String estadoCiclo = concepto.getCiclo().getEstadoCiclo().getEstadoCiclo().toUpperCase();
+
+        // Validación estricta: Solo permite editar si está en planificación
+        if (!estadoCiclo.equals("PLANIFICACION") && !estadoCiclo.equals("PLANIFICADO")) {
+            throw new RuntimeException("Acción denegada. El ciclo actual se encuentra en estado " + estadoCiclo.toLowerCase() + ", por lo que sus aranceles son de solo lectura.");
+        }
+
+        if (nuevoMonto.compareTo(BigDecimal.ZERO) < 0) {
+            throw new RuntimeException("El monto del arancel no puede ser negativo.");
+        }
+
+        concepto.setMontoBase(nuevoMonto);
+        conceptoCobroRepository.save(concepto);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("exito", true);
+        response.put("mensaje", "Precio actualizado correctamente.");
+        response.put("nuevoMonto", nuevoMonto);
+
+        return response;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> crearNuevoArancelEnCiclo(Long idCiclo, String nombreConcepto, BigDecimal montoBase) {
+        Ciclo ciclo = cicloRepository.findById(idCiclo)
+                .orElseThrow(() -> new RuntimeException("El ciclo especificado no existe."));
+
+        String estadoCiclo = ciclo.getEstadoCiclo().getEstadoCiclo().toUpperCase();
+
+        if (!estadoCiclo.equals("PLANIFICACION") && !estadoCiclo.equals("PLANIFICADO")) {
+            throw new RuntimeException("Acción denegada. Solo se pueden agregar aranceles a ciclos en planificación.");
+        }
+
+        if (montoBase.compareTo(BigDecimal.ZERO) < 0) {
+            throw new RuntimeException("El monto del arancel no puede ser negativo.");
+        }
+
+        String nombreLimpio = nombreConcepto.trim().toUpperCase();
+
+        // 1. Buscamos si el tipo de cobro ya existe en el catálogo maestro, si no, lo creamos
+        TipoCobro tipoCobro = tipoCobroRepository.findByTipoCobroIgnoreCase(nombreLimpio)
+                .orElseGet(() -> {
+                    TipoCobro nuevoTipo = new TipoCobro();
+                    nuevoTipo.setTipoCobro(nombreLimpio);
+                    // Asumimos estado activo por defecto para el nuevo tipo de cobro
+                    return tipoCobroRepository.save(nuevoTipo);
+                });
+
+        // 2. Verificamos que este ciclo no tenga ya asociado este mismo arancel
+        boolean yaExiste = conceptoCobroRepository.existsByCiclo_IdCicloAndTipoCobro_IdTipoCobro(idCiclo, tipoCobro.getIdTipoCobro());
+        if (yaExiste) {
+            throw new RuntimeException("Este arancel ya se encuentra registrado para el ciclo actual.");
+        }
+
+        // 3. Creamos la asociación final
+        ConceptoCobro nuevoConcepto = new ConceptoCobro();
+        nuevoConcepto.setCiclo(ciclo);
+        nuevoConcepto.setTipoCobro(tipoCobro);
+        nuevoConcepto.setMontoBase(montoBase);
+
+        conceptoCobroRepository.save(nuevoConcepto);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("exito", true);
+        response.put("mensaje", "Arancel registrado exitosamente.");
+        response.put("idConcepto", nuevoConcepto.getIdConceptoCobro());
+
+        return response;
     }
 }
