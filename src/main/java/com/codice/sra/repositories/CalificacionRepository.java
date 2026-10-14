@@ -1,6 +1,7 @@
 package com.codice.sra.repositories;
 
 import com.codice.sra.models.Calificacion;
+import com.codice.sra.models.Evaluacion;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -30,5 +31,11 @@ public interface CalificacionRepository extends JpaRepository<Calificacion, Long
             "JOIN FETCH e.tipoEvaluacion te " +
             "WHERE c.inscripcion.idInscripcion = :idInscripcion")
     List<Calificacion> findByInscripcionIdInscripcion(@Param("idInscripcion") Long idInscripcion);
+
+    @Query("SELECT c FROM Calificacion c WHERE c.evaluacion = :evaluacion AND c.estadoCalificacion.estadoCalificacion = :estado")
+    List<Calificacion> findByEvaluacionAndEstado(
+            @Param("evaluacion") Evaluacion evaluacion,
+            @Param("estado") String estado
+    );
 
 }

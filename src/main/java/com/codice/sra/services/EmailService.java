@@ -5,9 +5,11 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.core.io.ByteArrayResource;
-
+import lombok.extern.slf4j.Slf4j;
+@Slf4j
 @Service
 public class EmailService {
 
@@ -243,6 +245,139 @@ public class EmailService {
             mailSender.send(mensaje);
         } catch (Exception e) {
             throw new RuntimeException("Error al enviar el correo con el código de recuperación.", e);
+        }
+    }
+    @Async
+    public void enviarRecordatorioPago(String correoDestino, String nombreEstudiante, String concepto, String fechaLimite, String monto) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setTo(correoDestino);
+            helper.setSubject("Códice SRA - Recordatorio de Vencimiento de Cuota");
+
+            String html = String.format(
+                    "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;\">" +
+                            "  <div style=\"background-color: #0f3b6c; padding: 20px; text-align: center; color: white;\">" +
+                            "    <h2 style=\"margin: 0;\">Recordatorio de Pago</h2>" +
+                            "  </div>" +
+                            "  <div style=\"padding: 30px; color: #334155; background-color: #f8fafc;\">" +
+                            "    <p>Hola <strong>%s</strong>,</p>" +
+                            "    <p>Te recordamos que tu pago correspondiente a <strong>%s</strong> está próximo a vencer.</p>" +
+                            "    <div style=\"background-color: #fffbeb; border-left: 4px solid #d97706; padding: 15px; margin: 20px 0;\">" +
+                            "      <p style=\"margin: 0; color: #92400e;\"><strong>Monto a cancelar:</strong> $%s</p>" +
+                            "      <p style=\"margin: 5px 0 0 0; color: #92400e;\"><strong>Fecha límite sin mora:</strong> %s</p>" +
+                            "    </div>" +
+                            "    <p style=\"font-size: 13px; color: #64748b;\">Para evitar recargos por mora ($5.00), te invitamos a realizar tu pago en la ventanilla de la universidad antes de la fecha indicada.</p>" +
+                            "  </div>" +
+                            "</div>",
+                    nombreEstudiante, concepto, monto, fechaLimite
+            );
+
+            helper.setText(html, true);
+            mailSender.send(message);
+            log.info("Recordatorio de pago enviado a {}", correoDestino);
+        } catch (Exception e) {
+            log.error("Error al enviar recordatorio de pago a {}: {}", correoDestino, e.getMessage());
+        }
+    }
+
+    @Async
+    public void enviarNotificacionNota(String correoDestino, String nombreEstudiante, String materia, String evaluacion, String nota) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setTo(correoDestino);
+            helper.setSubject("Códice SRA - Nueva Calificación Publicada");
+
+            // Lógica para colores dinámicos basados en la nota (Aprobado >= 6.0)
+            double notaValor = 0.0;
+            try {
+                notaValor = Double.parseDouble(nota);
+            } catch (NumberFormatException e) {
+                log.warn("La nota no es un número válido para parsear: {}", nota);
+            }
+
+            String colorFondoHeader = notaValor >= 6.0 ? "#15803d" : "#b91c1c"; // Verde oscuro o Rojo oscuro
+            String colorTextoNota = notaValor >= 6.0 ? "#16a34a" : "#dc2626";   // Verde o Rojo
+            String colorFondoNota = notaValor >= 6.0 ? "#dcfce7" : "#fee2e2";   // Fondo claro Verde o Rojo
+            String mensajeFeedback = notaValor >= 6.0 ? "¡Sigue así con tu buen rendimiento!" : "Te animamos a esforzarte más en las próximas evaluaciones.";
+
+            String html = String.format(
+                    "<!DOCTYPE html>" +
+                            "<html>" +
+                            "<head><meta charset=\"UTF-8\"></head>" +
+                            "<body style=\"background-color: #f4f5f7; padding: 30px 10px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 0;\">" +
+                            "  <div style=\"max-width: 550px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.05);\">" +
+                            "    <div style=\"background-color: %s; padding: 25px; text-align: center; color: #ffffff;\">" +
+                            "      <h2 style=\"margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.5px;\">Calificación Publicada</h2>" +
+                            "    </div>" +
+                            "    <div style=\"padding: 35px 30px; color: #334155;\">" +
+                            "      <p style=\"font-size: 16px; margin-top: 0;\">Hola <strong>%s</strong>,</p>" +
+                            "      <p style=\"font-size: 15px; line-height: 1.6; color: #475569;\">Tu catedrático ha publicado de manera oficial una nueva nota en el sistema para la materia de <strong style=\"color: #0f172a;\">%s</strong>.</p>" +
+                            "      <div style=\"text-align: center; margin: 40px 0;\">" +
+                            "        <p style=\"font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 800; letter-spacing: 1.5px; margin-bottom: 12px;\">%s</p>" +
+                            "        <span style=\"font-size: 42px; font-weight: 900; color: %s; background-color: %s; padding: 15px 40px; border-radius: 16px; display: inline-block; border: 2px solid %s; box-shadow: 0 4px 6px rgba(0,0,0,0.02);\">%s</span>" +
+                            "      </div>" +
+                            "      <p style=\"font-size: 14px; text-align: center; color: #64748b; font-style: italic; margin-bottom: 30px;\">%s</p>" +
+                            "      <hr style=\"border: 0; border-top: 1px dashed #cbd5e1; margin: 0 0 20px 0;\" />" +
+                            "      <p style=\"font-size: 12px; color: #94a3b8; text-align: center; margin: 0;\">Puedes revisar el detalle de tu rendimiento ingresando a tu portal estudiantil Códice.</p>" +
+                            "    </div>" +
+                            "  </div>" +
+                            "</body>" +
+                            "</html>",
+                    colorFondoHeader, nombreEstudiante, materia, evaluacion, colorTextoNota, colorFondoNota, colorFondoNota, nota, mensajeFeedback
+            );
+
+            helper.setText(html, true);
+            mailSender.send(message);
+            log.info("Notificación de nota enviada a {}", correoDestino);
+        } catch (Exception e) {
+            log.error("Error al enviar notificación de nota a {}: {}", correoDestino, e.getMessage());
+        }
+    }
+
+    @Async
+    public void enviarRecordatorioDocenteNotas(String correoDestino, String nombreDocente, String materia, String evaluacion, String fechaLimite, int notasBorrador) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setTo(correoDestino);
+            helper.setSubject("⚠️ Códice SRA - Recordatorio de Cierre de Actas");
+
+            String html = String.format(
+                    "<!DOCTYPE html>" +
+                            "<html>" +
+                            "<head><meta charset=\"UTF-8\"></head>" +
+                            "<body style=\"background-color: #f4f5f7; padding: 30px 10px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 0;\">" +
+                            "  <div style=\"max-width: 550px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.05);\">" +
+                            "    <div style=\"background-color: #d97706; padding: 25px; text-align: center; color: #ffffff;\">" +
+                            "      <h2 style=\"margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.5px;\">Cierre de Actas Próximo</h2>" +
+                            "    </div>" +
+                            "    <div style=\"padding: 35px 30px; color: #334155;\">" +
+                            "      <p style=\"font-size: 16px; margin-top: 0;\">Estimado/a <strong>%s</strong>,</p>" +
+                            "      <p style=\"font-size: 15px; line-height: 1.6; color: #475569;\">El sistema le notifica que faltan <strong>3 días</strong> para el cierre oficial de la evaluación <strong style=\"color: #0f172a;\">%s</strong> en la materia de <strong style=\"color: #0f172a;\">%s</strong>.</p>" +
+                            "      <div style=\"background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 20px; margin: 25px 0; border-radius: 6px;\">" +
+                            "        <p style=\"margin: 0 0 10px 0; font-size: 14px;\"><strong>Fecha límite de publicación:</strong> %s</p>" +
+                            "        <p style=\"margin: 0; font-size: 14px; color: #b45309;\"><strong>Notas pendientes en Borrador:</strong> %d registros</p>" +
+                            "      </div>" +
+                            "      <p style=\"font-size: 14px; line-height: 1.6; color: #475569;\">Recuerde ingresar al portal docente y dar clic en <strong>\"Publicar Activas\"</strong> antes de la fecha límite. Las notas en estado \"Borrador\" no son visibles para los estudiantes.</p>" +
+                            "      <hr style=\"border: 0; border-top: 1px dashed #cbd5e1; margin: 30px 0 20px 0;\" />" +
+                            "      <p style=\"font-size: 12px; color: #94a3b8; text-align: center; margin: 0;\">Este es un mensaje automático del Sistema de Registro Académico (SRA).</p>" +
+                            "    </div>" +
+                            "  </div>" +
+                            "</body>" +
+                            "</html>",
+                    nombreDocente, evaluacion, materia, fechaLimite, notasBorrador
+            );
+
+            helper.setText(html, true);
+            mailSender.send(message);
+            log.info("Recordatorio docente enviado a {}", correoDestino);
+        } catch (Exception e) {
+            log.error("Error al enviar recordatorio docente a {}: {}", correoDestino, e.getMessage());
         }
     }
 }
