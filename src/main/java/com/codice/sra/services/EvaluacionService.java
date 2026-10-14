@@ -25,6 +25,9 @@ public class EvaluacionService {
     @Autowired
     private EstadoCalificacionRepository estadoCalificacionRepository;
 
+    @Autowired
+    private EmailService emailService;
+
     @Transactional
     public void publicarEvaluacion(Long idEvaluacion) {
         Evaluacion evaluacion = evaluacionRepository.findById(idEvaluacion)
@@ -40,6 +43,16 @@ public class EvaluacionService {
         for (Calificacion calificacion : calificaciones) {
             calificacion.setEstadoCalificacion(estadoPublicada);
             calificacion.setFechaPublicacion(ahora);
+
+            String correo = calificacion.getInscripcion().getMatricula().getEstudiante().getPersona().getCorreoPersonal();
+
+            if (correo != null && !correo.trim().isEmpty()) {
+                String nombreEstudiante = calificacion.getInscripcion().getMatricula().getEstudiante().getPersona().getNombres();
+                String materia = evaluacion.getGrupo().getMateria().getNombreMateria();
+                String nombreEval = evaluacion.getTipoEvaluacion().getTipoEvaluacion() + " " + evaluacion.getNumeroEvaluacion();
+                String notaDura = calificacion.getNota() != null ? calificacion.getNota().toString() : "0.0";
+                emailService.enviarNotificacionNota(correo, nombreEstudiante, materia, nombreEval, notaDura);
+            }
         }
 
         calificacionRepository.saveAll(calificaciones);
