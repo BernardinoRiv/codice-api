@@ -34,7 +34,7 @@ public class DocenteService {
     private final UsuarioService usuarioService;
     private final GrupoRepository grupoRepository;
     private final UsuarioRepository usuarioRepository;
-    private final CicloRepository cicloRepository; // Agregado para poder obtener el ciclo activo
+    private final CicloRepository cicloRepository;
     private final AuditoriaService auditoriaService;
 
     public DocenteService(DocenteRepository docenteRepository,
@@ -55,19 +55,15 @@ public class DocenteService {
         this.usuarioService = usuarioService;
         this.grupoRepository = grupoRepository;
         this.usuarioRepository = usuarioRepository;
-        this.cicloRepository = cicloRepository; // Inyección de dependencia
+        this.cicloRepository = cicloRepository;
         this.auditoriaService = auditoriaService;
     }
 
     @Transactional
     public DocenteRegistroResponseDTO registrarDocente(DocenteRegistroRequestDTO request) {
-        // 1. Obtener o crear persona mediante el contrato PersonaInputDTO
         Persona persona = personaService.obtenerOCrearPersona(request);
-
-        // 2. Aprovisionar credenciales y cuenta de usuario delegando en UsuarioService
         Usuario usuario = usuarioService.aprovisionarUsuario(persona, ROL_DOCENTE, LONGITUD_PASSWORD);
 
-        // 3. Resolver catálogos específicos del dominio Docente
         Sede sede = sedeRepository.findById(request.getIdSede())
                 .orElseThrow(() -> new IllegalArgumentException("Sede no encontrada con ID: " + request.getIdSede()));
 
@@ -77,7 +73,6 @@ public class DocenteService {
         EstadoDocente estadoDocente = estadoDocenteRepository.findByEstadoDocente(ESTADO_ACTIVO)
                 .orElseThrow(() -> new IllegalStateException("Estado '" + ESTADO_ACTIVO + "' para Docente no encontrado en la base de datos"));
 
-        // 4. Construir y persistir la entidad Docente
         String codigoDocente = UserUtils.generarCodigoUnico(PREFIJO_CODIGO);
         LocalDate fechaIngresoActual = LocalDate.now();
         LocalDate fechaFinContrato = request.getFechaFin();
@@ -101,7 +96,6 @@ public class DocenteService {
         docente.setFechaFin(fechaFinContrato);
         docente = docenteRepository.save(docente);
 
-        // 5. Finalizar el ciclo de registro de la persona física
         personaService.marcarComoCompletada(persona);
 
         return new DocenteRegistroResponseDTO(
@@ -114,7 +108,6 @@ public class DocenteService {
         );
     }
 
-    // MÉTODO ACTUALIZADO: Ahora filtra por ciclo activo
     public List<Grupo> obtenerGruposPorDocente(Long idUsuario) {
         Docente docente = docenteRepository.findByUsuarioIdUsuario(idUsuario)
                 .orElseThrow(() -> new IllegalArgumentException(
@@ -123,7 +116,6 @@ public class DocenteService {
         Ciclo cicloActivo = cicloRepository.findCicloActivo()
                 .orElseThrow(() -> new RuntimeException("No hay ciclo activo en el sistema."));
 
-        // Se usa el repositorio con ambos parámetros (idDocente e idCiclo)
         return grupoRepository.findByDocenteIdDocenteAndCicloIdCiclo(docente.getIdDocente(), cicloActivo.getIdCiclo());
     }
 
@@ -131,9 +123,6 @@ public class DocenteService {
         List<Grupo> grupos = obtenerGruposPorDocente(idUsuario);
 
         return grupos.stream().map(grupo -> {
-            String nombreDocente = grupo.getDocente().getPersona().getNombres() + " " +
-                    grupo.getDocente().getPersona().getApellidos();
-
             return new GrupoResponseDTO(
                     grupo.getIdGrupo(),
                     grupo.getCodigoGrupo(),
@@ -151,16 +140,28 @@ public class DocenteService {
         List<Docente> docentes = docenteRepository.findAll();
 
         return docentes.stream().map(docente -> {
+            Persona persona = docente.getPersona();
+            Long idDistrito = persona.getDistrito() != null ? persona.getDistrito().getIdDistrito() : null;
+
             return new DocenteListaResponseDTO(
                     docente.getIdDocente(),
                     docente.getCodigoDocente(),
-                    docente.getPersona().getNombres(),
-                    docente.getPersona().getApellidos(),
+                    persona.getNombres(),
+                    persona.getApellidos(),
                     docente.getUsuario().getCorreoInstitucional(),
                     docente.getEspecialidad(),
                     docente.getSede().getNombreSede(),
                     docente.getTipoContratacion().getTipoContratacion(),
-                    docente.getEstadoDocente().getEstadoDocente()
+                    docente.getEstadoDocente().getEstadoDocente(),
+                    persona.getTelefono(),
+                    persona.getCorreoPersonal(),
+                    persona.getDireccion(),
+                    idDistrito,
+                    docente.getSede().getIdSede(),
+                    docente.getTipoContratacion().getIdTipoContratacion(),
+                    persona.getNumeroDocumento(),
+                    docente.getFechaInicio(),
+                    docente.getFechaFin()
             );
         }).collect(Collectors.toList());
     }
@@ -202,11 +203,10 @@ public class DocenteService {
             auditoriaService.registrarEvento(
                     "ACTUALIZACION_DOCENTE",
                     "docentes",
-                    docente.getIdDocente(), // id_registro_afectado: El docente modificado
+                    docente.getIdDocente(),
                     "El administrador actualizó sede=" + dto.getIdSede() + ", tipoContrato=" + dto.getIdTipoContratacion()
             );
         }
-        // Si no hubo cambios, la transacción termina en éxito sin ensuciar la base de datos
     }
 
     @Transactional(propagation = Propagation.REQUIRED)
@@ -215,15 +215,12 @@ public class DocenteService {
             throw new IllegalArgumentException("El ID del docente debe ser positivo");
         }
 
-        // 1. Obtener docente y su estado actual
         Docente docente = docenteRepository.findById(idDocente)
                 .orElseThrow(() -> new IllegalArgumentException("Docente no encontrado con ID: " + idDocente));
 
-        // 2. Cargar el estado destino solicitado desde el catálogo
         EstadoDocente nuevoEstado = estadoDocenteRepository.findById(dto.getIdEstadoDocente())
                 .orElseThrow(() -> new IllegalArgumentException("Estado de docente no válido con ID: " + dto.getIdEstadoDocente()));
 
-        // 3. Regla de Negocio: Prevención de transiciones idénticas (Idempotencia)
         if (docente.getEstadoDocente() != null &&
                 Objects.equals(docente.getEstadoDocente().getIdEstadoDocente(), nuevoEstado.getIdEstadoDocente())) {
             throw new IllegalArgumentException(
