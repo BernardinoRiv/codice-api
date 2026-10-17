@@ -39,9 +39,6 @@ public interface CarreraRepository extends JpaRepository<Carrera, Long> {
     List<Carrera> findTodasCarrerasOfertables();
 
 
-    Optional<Carrera> findByCodigoCarreraIgnoreCase(String codigoCarrera);
-
-
     @Query("SELECT CASE WHEN COUNT(cs) > 0 THEN true ELSE false END " +
             "FROM CarreraSede cs " +
             "WHERE cs.carrera.idCarrera = :idCarrera " +
@@ -76,4 +73,16 @@ public interface CarreraRepository extends JpaRepository<Carrera, Long> {
         ORDER BY c.nombre_carrera ASC
     """, nativeQuery = true)
     List<Carrera> findCarrerasOfertablesPorSede(@Param("idSede") Long idSede);
+
+    // Validaciones para creación
+    boolean existsByCodigoCarreraIgnoreCase(String codigoCarrera);
+    boolean existsByNombreCarreraIgnoreCase(String nombreCarrera);
+
+    // Validaciones para actualización excluyendo el registro actual (HU-ADM-05)
+    boolean existsByCodigoCarreraIgnoreCaseAndIdCarreraNot(String codigoCarrera, Long idCarrera);
+    boolean existsByNombreCarreraIgnoreCaseAndIdCarreraNot(String nombreCarrera, Long idCarrera);
+
+    Optional<Carrera> findByCodigoCarreraIgnoreCase(String codigoCarrera);
+
+
 }
