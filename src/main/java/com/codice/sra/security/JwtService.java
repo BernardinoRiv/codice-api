@@ -3,6 +3,7 @@ package com.codice.sra.security;
 import com.codice.sra.models.Usuario;
 import com.codice.sra.repositories.DocenteRepository;
 import com.codice.sra.repositories.EmpleadoRepository;
+import com.codice.sra.repositories.EstudianteRepository; // <-- IMPORTANTE
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
@@ -29,10 +30,15 @@ public class JwtService {
 
     private final EmpleadoRepository empleadoRepository;
     private final DocenteRepository docenteRepository;
+    private final EstudianteRepository estudianteRepository; // <-- AÑADIDO
 
-    public JwtService(EmpleadoRepository empleadoRepository, DocenteRepository docenteRepository) {
+    // <-- CONSTRUCTOR ACTUALIZADO
+    public JwtService(EmpleadoRepository empleadoRepository,
+                      DocenteRepository docenteRepository,
+                      EstudianteRepository estudianteRepository) {
         this.empleadoRepository = empleadoRepository;
         this.docenteRepository = docenteRepository;
+        this.estudianteRepository = estudianteRepository;
     }
 
     public String generateToken(Usuario usuario) {
@@ -72,6 +78,12 @@ public class JwtService {
                         if (docente.getSede() != null) {
                             extraClaims.put("idSede", docente.getSede().getIdSede());
                         }
+                    });
+        } else if ("ESTUDIANTE".equalsIgnoreCase(rol)) {
+            // <-- NUEVA LÓGICA PARA INYECTAR EL CARNET
+            estudianteRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
+                    .ifPresent(estudiante -> {
+                        extraClaims.put("carnet", estudiante.getCarnet());
                     });
         }
 
@@ -115,6 +127,11 @@ public class JwtService {
 
     public Long extractIdCargo(String token) {
         return extractClaim(token, claims -> claims.get("idCargo", Long.class));
+    }
+
+    // <-- NUEVO MÉTODO PARA EXTRAER EL CARNET EN EL BACKEND SI SE NECESITA
+    public String extractCarnet(String token) {
+        return extractClaim(token, claims -> claims.get("carnet", String.class));
     }
 
     public boolean isTokenValid(String token, String username) {

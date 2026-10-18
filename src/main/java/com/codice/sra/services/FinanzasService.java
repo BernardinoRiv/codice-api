@@ -608,4 +608,106 @@ public class FinanzasService {
 
         return response;
     }
+
+    @Transactional(readOnly = true)
+    public EstadoCuentaCicloDTO consultarEstadoCuentaPorCiclo(String carnet, Long idCiclo) {
+
+        // 1. Obtener los cargos del estudiante para ese ciclo exacto
+        List<CargoEstudiante> cargosDelCiclo = cargoEstudianteRepository
+                .findByMatricula_Estudiante_CarnetAndMatricula_Ciclo_IdCiclo(carnet, idCiclo);
+
+        if (cargosDelCiclo.isEmpty()) {
+            throw new RuntimeException("No se encontraron registros financieros para el estudiante en el ciclo seleccionado.");
+        }
+
+        // 2. Extraer información del estudiante (tomando el primer cargo como referencia)
+        Matricula matricula = cargosDelCiclo.get(0).getMatricula();
+        Estudiante estudiante = matricula.getEstudiante();
+
+        String nombreCarrera = estudianteCarreraRepository
+                .findNombreCarreraByEstudianteId(estudiante.getIdEstudiante())
+                .orElse("Carrera no asignada");
+
+        EstadoCuentaCicloDTO.EstudianteInfo infoEstudiante = EstadoCuentaCicloDTO.EstudianteInfo.builder()
+                .carnet(estudiante.getCarnet())
+                .nombreCompleto(estudiante.getPersona().getNombres() + " " + estudiante.getPersona().getApellidos())
+                .carrera(nombreCarrera)
+                .build();
+
+        // 3. Variables para los KPIs Financieros
+        BigDecimal deudaTotal = BigDecimal.ZERO;
+        BigDecimal totalPagado = BigDecimal.ZERO;
+        BigDecimal saldoPendiente = BigDecimal.ZERO;
+
+        List<EstadoCuentaCicloDTO.CargoDetalle> listaPendientes = new ArrayList<>();
+        LocalDate hoy = LocalDate.now();
+        String[] nombresMeses = {"Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"};
+
+        // 4. Procesar Cargos (Deuda Total y Saldo Pendiente)
+        for (CargoEstudiante cargo : cargosDelCiclo) {
+            BigDecimal recargoMora = BigDecimal.ZERO;
+            String estadoCargo = cargo.getEstadoCargo().getEstadoCargo().toUpperCase();
+            String nombreCobro = cargo.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase();
+            boolean esMensualidad = nombreCobro.contains("cuota");
+
+            // Aplicar mora dinámica solo si está pendiente y vencido
+            if (estadoCargo.equals("PENDIENTE") && esMensualidad && cargo.getFechaVencimiento() != null && hoy.isAfter(cargo.getFechaVencimiento())) {
+                recargoMora = new BigDecimal("5.00");
+            }
+
+            BigDecimal montoFinalCargo = cargo.getMontoBase().subtract(cargo.getMontoDescuento()).add(recargoMora);
+            deudaTotal = deudaTotal.add(montoFinalCargo);
+
+            String mesAsignado = cargo.getFechaVencimiento() != null ? nombresMeses[cargo.getFechaVencimiento().getMonthValue() - 1] : "N/A";
+
+            if (estadoCargo.equals("PENDIENTE")) {
+                saldoPendiente = saldoPendiente.add(montoFinalCargo);
+
+                listaPendientes.add(EstadoCuentaCicloDTO.CargoDetalle.builder()
+                        .idCargo(cargo.getIdCargoEstudiante())
+                        .concepto(cargo.getConceptoCobro().getTipoCobro().getTipoCobro())
+                        .mes(mesAsignado)
+                        .fechaVencimiento(cargo.getFechaVencimiento())
+                        .monto(montoFinalCargo)
+                        .build());
+            }
+        }
+
+        // 5. Procesar Historial de Pagos
+        List<PagoCargo> pagosAplicados = pagoCargoRepository.findByCargo_Matricula_IdMatricula(matricula.getIdMatricula());
+        List<EstadoCuentaCicloDTO.PagoDetalle> listaPagos = new ArrayList<>();
+
+        for (PagoCargo pc : pagosAplicados) {
+            totalPagado = totalPagado.add(pc.getMontoAplicado());
+
+            Pago pago = pc.getPago();
+            String conceptoPagado = pc.getCargo().getConceptoCobro().getTipoCobro().getTipoCobro();
+
+            if (conceptoPagado.toLowerCase().contains("cuota") && pc.getCargo().getFechaVencimiento() != null) {
+                conceptoPagado += " (" + nombresMeses[pc.getCargo().getFechaVencimiento().getMonthValue() - 1] + ")";
+            }
+
+            listaPagos.add(EstadoCuentaCicloDTO.PagoDetalle.builder()
+                    .idPago(pago.getIdPago())
+                    .numeroRecibo(pago.getReferencia())
+                    .fechaPago(pago.getFechaPago().toLocalDate())
+                    .concepto(conceptoPagado)
+                    .metodoPago(pago.getMetodoPago().getMetodoPago())
+                    .montoPagado(pc.getMontoAplicado())
+                    .build());
+        }
+
+        EstadoCuentaCicloDTO.ResumenFinanciero resumen = EstadoCuentaCicloDTO.ResumenFinanciero.builder()
+                .deudaTotal(deudaTotal)
+                .totalPagado(totalPagado)
+                .saldoPendiente(saldoPendiente)
+                .build();
+
+        return EstadoCuentaCicloDTO.builder()
+                .estudiante(infoEstudiante)
+                .resumen(resumen)
+                .cargosPendientes(listaPendientes)
+                .historialPagos(listaPagos)
+                .build();
+    }
 }
