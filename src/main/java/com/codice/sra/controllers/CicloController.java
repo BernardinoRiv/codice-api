@@ -1,6 +1,7 @@
 package com.codice.sra.controllers;
 
 import com.codice.sra.dtos.*;
+import com.codice.sra.models.Ciclo;
 import com.codice.sra.services.CicloService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -95,5 +96,27 @@ public class CicloController {
     @GetMapping("/{idCiclo}/aranceles-apertura")
     public ResponseEntity<ArancelesAperturaDTO> obtenerArancelesApertura(@PathVariable Long idCiclo) {
         return ResponseEntity.ok(cicloService.obtenerArancelesApertura(idCiclo));
+    }
+
+    @GetMapping
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'REGISTRO_ACADEMICO', 'FINANZAS', 'ESTUDIANTE')")
+    public ResponseEntity<List<Map<String, Object>>> listarTodosLosCiclos() {
+        try {
+            List<com.codice.sra.models.Ciclo> ciclos = cicloService.obtenerTodosLosCiclos();
+            List<Map<String, Object>> respuesta = new java.util.ArrayList<>();
+
+            for (com.codice.sra.models.Ciclo c : ciclos) {
+                Map<String, Object> map = new java.util.HashMap<>();
+                map.put("idCiclo", c.getIdCiclo());
+                map.put("codigoCiclo", c.getCodigoCiclo());
+                map.put("estadoCiclo", c.getEstadoCiclo() != null ? c.getEstadoCiclo().getEstadoCiclo() : "DESCONOCIDO");
+
+                respuesta.add(map);
+            }
+
+            return ResponseEntity.ok(respuesta);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
     }
 }

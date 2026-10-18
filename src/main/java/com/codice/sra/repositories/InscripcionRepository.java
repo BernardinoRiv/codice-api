@@ -46,4 +46,9 @@ public interface InscripcionRepository extends JpaRepository<Inscripcion, Long> 
     long countByGrupoIdGrupo(Long idGrupo);
 
     boolean existsByGrupoIdGrupo(Long idGrupo);
+
+    // 1. Contar cuántas materias tiene inscritas en el ciclo activo
+    @Query("SELECT COUNT(i) FROM Inscripcion i WHERE i.matricula.estudiante.carnet = :carnet AND i.matricula.ciclo.estadoCiclo.estadoCiclo = 'ACTIVO'")
+    int countMateriasInscritasEnCicloActivo(@Param("carnet") String carnet);
+
 }

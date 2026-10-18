@@ -434,4 +434,10 @@ public class CicloService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public List<Ciclo> obtenerTodosLosCiclos() {
+        // Ordenamos descendente para que el ciclo actual (ej. 02-2026) salga de primero
+        return cicloRepository.findAll(org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "idCiclo"));
+    }
+
 }

@@ -9,4 +9,6 @@ import java.util.List;
 @Repository
 public interface PagoCargoRepository extends JpaRepository<PagoCargo, Long> {
     List<PagoCargo> findByCargoIdCargoEstudiante(Long idCargoEstudiante);
+    // Obtiene el detalle de los pagos aplicados a los cargos de una matrícula específica
+    List<PagoCargo> findByCargo_Matricula_IdMatricula(Long idMatricula);
 }

@@ -30,4 +30,10 @@ public interface CargoEstudianteRepository extends JpaRepository<CargoEstudiante
             @Param("estado") String estado,
             @Param("mes") int mes,
             @Param("anio") int anio);
+
+    // Obtiene todos los cargos (pagados y pendientes) de un estudiante en un ciclo específico
+    List<CargoEstudiante> findByMatricula_Estudiante_CarnetAndMatricula_Ciclo_IdCiclo(String carnet, Long idCiclo);
+    // 3. Sumar cuánto dinero debe en el ciclo activo actual
+    @Query("SELECT COALESCE(SUM(c.montoTotal), 0) FROM CargoEstudiante c WHERE c.matricula.estudiante.carnet = :carnet AND c.matricula.ciclo.estadoCiclo.estadoCiclo = 'ACTIVO' AND c.estadoCargo.estadoCargo = 'PENDIENTE'")
+    java.math.BigDecimal calcularDeudaPendienteCicloActivo(@Param("carnet") String carnet);
 }

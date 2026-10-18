@@ -1,5 +1,6 @@
 package com.codice.sra.controllers;
 
+import com.codice.sra.dtos.EstadoCuentaCicloDTO;
 import com.codice.sra.dtos.EstadoCuentaResponseDTO;
 import com.codice.sra.dtos.GenerarCobrosMasivosRequestDTO;
 import com.codice.sra.dtos.ProcesarPagoRequestDTO;
@@ -159,6 +160,21 @@ public class FinanzasController {
             error.put("exito", false);
             error.put("mensaje", e.getMessage());
             return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    @GetMapping("/estudiantes/{carnet}/estado-cuenta/ciclos/{idCiclo}")
+    @PreAuthorize("hasRole('ESTUDIANTE') or hasRole('FINANZAS')")
+    public ResponseEntity<?> obtenerEstadoCuentaPorCiclo(
+            @PathVariable String carnet,
+            @PathVariable Long idCiclo) {
+        try {
+            EstadoCuentaCicloDTO estadoCuenta = finanzasService.consultarEstadoCuentaPorCiclo(carnet, idCiclo);
+            return ResponseEntity.ok(estadoCuenta);
+        } catch (RuntimeException e) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
         }
     }
 
