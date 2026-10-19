@@ -15,8 +15,8 @@ public class EstadoAsistenciaController {
     private EstadoAsistenciaService service;
 
     @GetMapping
-    public ResponseEntity<List<EstadoAsistencia>> listar() {
-        return ResponseEntity.ok(service.obtenerActivos());
+    public ResponseEntity<List<EstadoAsistencia>> obtenerTodos() {
+        return ResponseEntity.ok(service.obtenerTodos());
     }
 
     @PostMapping

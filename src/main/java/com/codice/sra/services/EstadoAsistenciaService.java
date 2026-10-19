@@ -16,6 +16,11 @@ public class EstadoAsistenciaService {
         return repository.findByActivoTrue();
     }
 
+    // Vista de mantenimiento
+    public List<EstadoAsistencia> obtenerTodos() {
+        return repository.findAll();
+    }
+
     public EstadoAsistencia guardar(EstadoAsistencia estado) {
         estado.setActivo(true);
         return repository.save(estado);

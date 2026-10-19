@@ -16,6 +16,10 @@ public class EstadoAulaService {
         return repository.findByActivoTrue();
     }
 
+    public List<EstadoAula> obtenerTodos() {
+        return repository.findAll();
+    }
+
     public EstadoAula guardar(EstadoAula estado) {
         estado.setIdEstadoAula(null); // Evita conflictos con autoincrementable
         estado.setActivo(true);
