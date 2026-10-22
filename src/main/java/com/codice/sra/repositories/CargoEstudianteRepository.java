@@ -36,4 +36,7 @@ public interface CargoEstudianteRepository extends JpaRepository<CargoEstudiante
     // 3. Sumar cuánto dinero debe en el ciclo activo actual
     @Query("SELECT COALESCE(SUM(c.montoTotal), 0) FROM CargoEstudiante c WHERE c.matricula.estudiante.carnet = :carnet AND c.matricula.ciclo.estadoCiclo.estadoCiclo = 'ACTIVO' AND c.estadoCargo.estadoCargo = 'PENDIENTE'")
     java.math.BigDecimal calcularDeudaPendienteCicloActivo(@Param("carnet") String carnet);
+
+
+    List<CargoEstudiante> findByMatricula_Estudiante_IdEstudianteAndMatricula_Ciclo_IdCiclo(Long idEstudiante, Long idCiclo);
 }

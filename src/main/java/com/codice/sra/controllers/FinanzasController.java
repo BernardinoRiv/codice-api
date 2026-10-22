@@ -61,12 +61,12 @@ public class FinanzasController {
 
         return ResponseEntity.ok(response);
     }
-
-    @GetMapping("/estudiantes/{carnet}/estado-cuenta")
+    @GetMapping("/estudiantes/{identificador}/estado-cuenta")
     @PreAuthorize("hasRole('FINANZAS')")
-    public ResponseEntity<?> obtenerEstadoCuentaVentanilla(@PathVariable String carnet) {
+    public ResponseEntity<?> obtenerEstadoCuentaVentanilla(@PathVariable String identificador) {
         try {
-            EstadoCuentaResponseDTO estadoCuenta = finanzasService.consultarEstadoCuentaPorCarnet(carnet);
+            // Llamamos al nuevo método que busca por Carnet o por DUI/NIT
+            EstadoCuentaResponseDTO estadoCuenta = finanzasService.consultarEstadoCuentaPorCarnetODocumento(identificador);
             return ResponseEntity.ok(estadoCuenta);
         } catch (RuntimeException e) {
             Map<String, String> errorResponse = new HashMap<>();

@@ -41,9 +41,6 @@ public class FinanzasService {
     private final EstudianteCarreraRepository estudianteCarreraRepository;
     private final TipoCobroRepository tipoCobroRepository;
 
-    // ====================================================================
-    // NUEVO: MÉTODO PARA CLONAR ARANCELES AL ABRIR UN NUEVO CICLO
-    // ====================================================================
     @Transactional(rollbackFor = Exception.class)
     public int clonarArancelesCicloAnterior(Long idCicloAnterior, Long idCicloNuevo) {
         Ciclo cicloNuevo = cicloRepository.findById(idCicloNuevo)
@@ -59,9 +56,8 @@ public class FinanzasService {
         for (ConceptoCobro viejo : arancelesViejos) {
             ConceptoCobro nuevo = new ConceptoCobro();
             nuevo.setCiclo(cicloNuevo);
-            nuevo.setTipoCobro(viejo.getTipoCobro()); // Mantiene el mismo nombre/tipo
-            nuevo.setMontoBase(viejo.getMontoBase()); // Copia el precio viejo (se podrá editar luego en el CRUD)
-            // Si tienes otros campos en ConceptoCobro (como aplicaMora), cópialos aquí.
+            nuevo.setTipoCobro(viejo.getTipoCobro());
+            nuevo.setMontoBase(viejo.getMontoBase());
 
             conceptoCobroRepository.save(nuevo);
             clonados++;
@@ -70,9 +66,6 @@ public class FinanzasService {
         return clonados;
     }
 
-    // ====================================================================
-    // ACTUALIZADO: GENERACIÓN MASIVA BASADA EN EL DTO DEL FRONTEND
-    // ====================================================================
     @Transactional(rollbackFor = Exception.class)
     public int generarCobrosMatriculaAperturaCiclo(GenerarCobrosMasivosRequestDTO request) {
 
@@ -116,7 +109,7 @@ public class FinanzasService {
                 }
 
                 if (idConceptoMatriculaAplicar == null || idConceptoCuotaAplicar == null) {
-                    continue; // Si el frontend no mandó IDs para esta modalidad, la omitimos
+                    continue;
                 }
 
                 ConceptoCobro conceptoMatricula = conceptoCobroRepository.findById(idConceptoMatriculaAplicar)
@@ -179,22 +172,28 @@ public class FinanzasService {
     }
 
     @Transactional(readOnly = true)
-    public EstadoCuentaResponseDTO consultarEstadoCuentaPorCarnet(String carnet) {
-        Estudiante estudiante = estudianteRepository.findByCarnet(carnet)
-                .orElseThrow(() -> new RuntimeException("No se encontró ningún estudiante con el carnet: " + carnet));
+    public EstadoCuentaResponseDTO consultarEstadoCuentaPorCarnetODocumento(String identificador) {
+
+        Estudiante estudiante = estudianteRepository.findByCarnet(identificador)
+                .orElseGet(() -> estudianteRepository.findByPersona_NumeroDocumento(identificador)
+                        .orElseThrow(() -> new RuntimeException("No se encontró ningún estudiante o aspirante con el identificador proporcionado: " + identificador)));
 
         boolean esBecado = estudianteBeneficioRepository
                 .existsByEstudiante_IdEstudianteAndEstadoBeneficioEstudiante_EstadoBeneficioEstudiante(estudiante.getIdEstudiante(), "ACTIVO");
 
+        String carnetMostrar = estudiante.getEstadoEstudiante().getEstadoEstudiante().equalsIgnoreCase("ASPIRANTE")
+                ? "Aspirante (En proceso)"
+                : estudiante.getCarnet();
+
         EstudianteCajaDTO estudianteDTO = EstudianteCajaDTO.builder()
                 .idEstudiante(estudiante.getIdEstudiante())
-                .carnet(estudiante.getCarnet())
+                .carnet(carnetMostrar)
                 .nombreCompleto(estudiante.getPersona().getNombres() + " " + estudiante.getPersona().getApellidos())
                 .esBecado(esBecado)
                 .build();
 
         List<CargoEstudiante> cargosBd = cargoEstudianteRepository
-                .findByMatricula_Estudiante_CarnetAndEstadoCargo_EstadoCargoOrderByFechaVencimientoAsc(carnet, "PENDIENTE");
+                .findByMatricula_Estudiante_IdEstudianteAndEstadoCargo_EstadoCargoOrderByFechaVencimientoAsc(estudiante.getIdEstudiante(), "PENDIENTE");
 
         List<CargoPendienteDTO> listaCargosDTO = new ArrayList<>();
         BigDecimal totalDeudaAcumulada = BigDecimal.ZERO;
@@ -266,7 +265,6 @@ public class FinanzasService {
 
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> procesarPagoVentanilla(ProcesarPagoRequestDTO request, String usuarioCajero, Long idSedeCajero) {
-        // [Este método se mantiene intacto, tal cual lo probamos para los pagos en ventanilla y factura PDF]
         boolean tieneFijos = request.getIdsCargosAPagar() != null && !request.getIdsCargosAPagar().isEmpty();
         boolean tieneAdicionales = request.getArancelesAdicionales() != null && !request.getArancelesAdicionales().isEmpty();
 
@@ -430,7 +428,11 @@ public class FinanzasService {
 
         factura.setNombreReceptor(personaEstudiante.getNombres() + " " + personaEstudiante.getApellidos());
         factura.setCorreoReceptor(personaEstudiante.getCorreoPersonal() != null && !personaEstudiante.getCorreoPersonal().isEmpty() ? personaEstudiante.getCorreoPersonal() : "sin-correo@uma.edu.sv");
-        factura.setDocumentoReceptor(personaEstudiante.getNumeroDocumento() != null ? personaEstudiante.getNumeroDocumento() : estudiantePagador.getCarnet());
+
+        String docFactura = estudiantePagador.getEstadoEstudiante().getEstadoEstudiante().equalsIgnoreCase("ASPIRANTE")
+                ? personaEstudiante.getNumeroDocumento()
+                : estudiantePagador.getCarnet();
+        factura.setDocumentoReceptor(docFactura);
         factura.setDireccionReceptor(personaEstudiante.getDireccion() != null && !personaEstudiante.getDireccion().trim().isEmpty() ? personaEstudiante.getDireccion() : "Santa Ana, El Salvador");
 
         factura.setSubtotal(totalSubtotal);
@@ -467,7 +469,10 @@ public class FinanzasService {
         String correoReal = personaEstudiante.getCorreoPersonal();
         String nombreCompletoEst = personaEstudiante.getNombres() + " " + personaEstudiante.getApellidos();
         String nombreCajero = usuarioCajeroEntity.getPersona().getNombres() + " " + usuarioCajeroEntity.getPersona().getApellidos();
-        String carnetEstudiante = estudiantePagador.getCarnet();
+
+        String carnetComprobante = estudiantePagador.getEstadoEstudiante().getEstadoEstudiante().equalsIgnoreCase("ASPIRANTE")
+                ? personaEstudiante.getNumeroDocumento()
+                : estudiantePagador.getCarnet();
         String nroFactura = factura.getNumeroFactura();
         LocalDateTime fechaEmision = factura.getFechaEmision();
 
@@ -475,7 +480,7 @@ public class FinanzasService {
                 .numeroFactura(nroFactura)
                 .fechaEmision(fechaEmision)
                 .nombreCompleto(nombreCompletoEst)
-                .carnetEstudiante(carnetEstudiante)
+                .carnetEstudiante(carnetComprobante)
                 .correoEstudiante(correoReal != null && !correoReal.trim().isEmpty() ? correoReal : "N/A")
                 .totalCobrado(totalCobradoFinal)
                 .cajeroResponsable(nombreCajero)
@@ -509,10 +514,6 @@ public class FinanzasService {
         return respuesta;
     }
 
-    // ====================================================================
-    // GESTIÓN DE ARANCELES (CRUD FINANCIERO)
-    // ====================================================================
-
     @Transactional(readOnly = true)
     public List<Map<String, Object>> obtenerArancelesPorCiclo(Long idCiclo) {
         List<ConceptoCobro> conceptos = conceptoCobroRepository.findByCiclo_IdCiclo(idCiclo);
@@ -521,7 +522,6 @@ public class FinanzasService {
         for (ConceptoCobro c : conceptos) {
             Map<String, Object> dto = new HashMap<>();
             dto.put("idConcepto", c.getIdConceptoCobro());
-            // Aplicando la regla de capitalización estricta (Solo la primera en mayúscula)
             String nombreOriginal = c.getTipoCobro().getTipoCobro().toLowerCase();
             String nombreCapitalizado = nombreOriginal.substring(0, 1).toUpperCase() + nombreOriginal.substring(1);
 
@@ -541,7 +541,6 @@ public class FinanzasService {
 
         String estadoCiclo = concepto.getCiclo().getEstadoCiclo().getEstadoCiclo().toUpperCase();
 
-        // Validación estricta: Solo permite editar si está en planificación
         if (!estadoCiclo.equals("PLANIFICACION") && !estadoCiclo.equals("PLANIFICADO")) {
             throw new RuntimeException("Acción denegada. El ciclo actual se encuentra en estado " + estadoCiclo.toLowerCase() + ", por lo que sus aranceles son de solo lectura.");
         }
@@ -578,22 +577,18 @@ public class FinanzasService {
 
         String nombreLimpio = nombreConcepto.trim().toUpperCase();
 
-        // 1. Buscamos si el tipo de cobro ya existe en el catálogo maestro, si no, lo creamos
         TipoCobro tipoCobro = tipoCobroRepository.findByTipoCobroIgnoreCase(nombreLimpio)
                 .orElseGet(() -> {
                     TipoCobro nuevoTipo = new TipoCobro();
                     nuevoTipo.setTipoCobro(nombreLimpio);
-                    // Asumimos estado activo por defecto para el nuevo tipo de cobro
                     return tipoCobroRepository.save(nuevoTipo);
                 });
 
-        // 2. Verificamos que este ciclo no tenga ya asociado este mismo arancel
         boolean yaExiste = conceptoCobroRepository.existsByCiclo_IdCicloAndTipoCobro_IdTipoCobro(idCiclo, tipoCobro.getIdTipoCobro());
         if (yaExiste) {
             throw new RuntimeException("Este arancel ya se encuentra registrado para el ciclo actual.");
         }
 
-        // 3. Creamos la asociación final
         ConceptoCobro nuevoConcepto = new ConceptoCobro();
         nuevoConcepto.setCiclo(ciclo);
         nuevoConcepto.setTipoCobro(tipoCobro);
@@ -610,19 +605,20 @@ public class FinanzasService {
     }
 
     @Transactional(readOnly = true)
-    public EstadoCuentaCicloDTO consultarEstadoCuentaPorCiclo(String carnet, Long idCiclo) {
+    public EstadoCuentaCicloDTO consultarEstadoCuentaPorCiclo(String identificador, Long idCiclo) {
 
-        // 1. Obtener los cargos del estudiante para ese ciclo exacto
+        Estudiante estudiante = estudianteRepository.findByCarnet(identificador)
+                .orElseGet(() -> estudianteRepository.findByPersona_NumeroDocumento(identificador)
+                        .orElseThrow(() -> new RuntimeException("No se encontró ningún estudiante con el identificador: " + identificador)));
+
         List<CargoEstudiante> cargosDelCiclo = cargoEstudianteRepository
-                .findByMatricula_Estudiante_CarnetAndMatricula_Ciclo_IdCiclo(carnet, idCiclo);
+                .findByMatricula_Estudiante_IdEstudianteAndMatricula_Ciclo_IdCiclo(estudiante.getIdEstudiante(), idCiclo);
 
         if (cargosDelCiclo.isEmpty()) {
             throw new RuntimeException("No se encontraron registros financieros para el estudiante en el ciclo seleccionado.");
         }
 
-        // 2. Extraer información del estudiante (tomando el primer cargo como referencia)
         Matricula matricula = cargosDelCiclo.get(0).getMatricula();
-        Estudiante estudiante = matricula.getEstudiante();
 
         String nombreCarrera = estudianteCarreraRepository
                 .findNombreCarreraByEstudianteId(estudiante.getIdEstudiante())
@@ -634,7 +630,6 @@ public class FinanzasService {
                 .carrera(nombreCarrera)
                 .build();
 
-        // 3. Variables para los KPIs Financieros
         BigDecimal deudaTotal = BigDecimal.ZERO;
         BigDecimal totalPagado = BigDecimal.ZERO;
         BigDecimal saldoPendiente = BigDecimal.ZERO;
@@ -643,14 +638,12 @@ public class FinanzasService {
         LocalDate hoy = LocalDate.now();
         String[] nombresMeses = {"Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"};
 
-        // 4. Procesar Cargos (Deuda Total y Saldo Pendiente)
         for (CargoEstudiante cargo : cargosDelCiclo) {
             BigDecimal recargoMora = BigDecimal.ZERO;
             String estadoCargo = cargo.getEstadoCargo().getEstadoCargo().toUpperCase();
             String nombreCobro = cargo.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase();
             boolean esMensualidad = nombreCobro.contains("cuota");
 
-            // Aplicar mora dinámica solo si está pendiente y vencido
             if (estadoCargo.equals("PENDIENTE") && esMensualidad && cargo.getFechaVencimiento() != null && hoy.isAfter(cargo.getFechaVencimiento())) {
                 recargoMora = new BigDecimal("5.00");
             }
@@ -673,7 +666,6 @@ public class FinanzasService {
             }
         }
 
-        // 5. Procesar Historial de Pagos
         List<PagoCargo> pagosAplicados = pagoCargoRepository.findByCargo_Matricula_IdMatricula(matricula.getIdMatricula());
         List<EstadoCuentaCicloDTO.PagoDetalle> listaPagos = new ArrayList<>();
 

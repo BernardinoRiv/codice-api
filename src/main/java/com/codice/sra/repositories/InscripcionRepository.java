@@ -51,4 +51,12 @@ public interface InscripcionRepository extends JpaRepository<Inscripcion, Long> 
     @Query("SELECT COUNT(i) FROM Inscripcion i WHERE i.matricula.estudiante.carnet = :carnet AND i.matricula.ciclo.estadoCiclo.estadoCiclo = 'ACTIVO'")
     int countMateriasInscritasEnCicloActivo(@Param("carnet") String carnet);
 
+    // Cuenta cuántos inscritos reales tiene un grupo para calcular el cupo disponible
+    @Query("SELECT COUNT(i) FROM Inscripcion i WHERE i.grupo.idGrupo = :idGrupo AND i.estadoInscripcion.estadoInscripcion IN ('INSCRITA', 'RESERVADA')")
+    int countInscritosPorGrupo(@Param("idGrupo") Long idGrupo);
+
+    @Query("SELECT COUNT(i) FROM Inscripcion i " +
+            "WHERE i.grupo.idGrupo = :idGrupo " +
+            "AND UPPER(i.estadoInscripcion.estadoInscripcion) NOT IN ('RETIRADO', 'CANCELADO', 'REPROBADO')")
+    int countInscripcionesActivasPorGrupo(@Param("idGrupo") Long idGrupo);
 }
