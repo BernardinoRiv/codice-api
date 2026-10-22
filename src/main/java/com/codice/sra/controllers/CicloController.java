@@ -119,4 +119,5 @@ public class CicloController {
             return ResponseEntity.internalServerError().build();
         }
     }
+
 }
