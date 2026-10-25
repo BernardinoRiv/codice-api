@@ -380,4 +380,34 @@ public class EmailService {
             log.error("Error al enviar recordatorio docente a {}: {}", correoDestino, e.getMessage());
         }
     }
+    public void enviarCredencialesYBienvenida(String correoDestino, String nombreCompleto, String carnet, String correoInstitucional, String passwordTemporal) {
+        try {
+            MimeMessage mensaje = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mensaje, true, "UTF-8");
+
+            helper.setTo(correoDestino);
+            helper.setSubject("¡Bienvenido a UMA! - Credenciales de Acceso");
+
+            String htmlMsg = "<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;'>"
+                    + "<h2 style='color: #2E7D32;'>¡Bienvenido a la Universidad Modular Abierta!</h2>"
+                    + "<p>Hola <strong>" + nombreCompleto + "</strong>,</p>"
+                    + "<p>Tu proceso de matrícula ha finalizado con éxito. Oficialmente eres parte de nuestra comunidad estudiantil.</p>"
+                    + "<div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #2E7D32;'>"
+                    + "<p style='margin: 0 0 10px 0;'><strong>Tu Carnet de Estudiante:</strong> " + carnet + "</p>"
+                    + "<p style='margin: 0 0 10px 0;'><strong>Correo Institucional:</strong> " + correoInstitucional + "</p>"
+                    + "<p style='margin: 0;'><strong>Contraseña Temporal:</strong> " + passwordTemporal + "</p>"
+                    + "</div>"
+                    + "<p>Por seguridad, te recomendamos iniciar sesión en el portal académico y cambiar tu contraseña inmediatamente.</p>"
+                    + "<p>Saludos cordiales,<br><strong>Departamento de Administración Académica</strong></p>"
+                    + "</div>";
+
+            helper.setText(htmlMsg, true);
+            mailSender.send(mensaje);
+
+            log.info("Correo de bienvenida y credenciales enviado a: {}", correoDestino);
+
+        } catch (MessagingException e) {
+            log.error("Error al enviar correo de bienvenida a {}: {}", correoDestino, e.getMessage());
+        }
+    }
 }
