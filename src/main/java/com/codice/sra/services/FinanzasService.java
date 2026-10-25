@@ -5,6 +5,7 @@ import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +41,11 @@ public class FinanzasService {
     private final EmailService emailService;
     private final EstudianteCarreraRepository estudianteCarreraRepository;
     private final TipoCobroRepository tipoCobroRepository;
+
+    private final EstadoEstudianteRepository estadoEstudianteRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final RolRepository rolRepository;
+    private final EstadoUsuarioRepository estadoUsuarioRepository;
 
     @Transactional(rollbackFor = Exception.class)
     public int clonarArancelesCicloAnterior(Long idCicloAnterior, Long idCicloNuevo) {
@@ -181,7 +187,7 @@ public class FinanzasService {
         boolean esBecado = estudianteBeneficioRepository
                 .existsByEstudiante_IdEstudianteAndEstadoBeneficioEstudiante_EstadoBeneficioEstudiante(estudiante.getIdEstudiante(), "ACTIVO");
 
-        String carnetMostrar = estudiante.getEstadoEstudiante().getEstadoEstudiante().equalsIgnoreCase("ASPIRANTE")
+        String carnetMostrar = (estudiante.getUsuario() == null)
                 ? "Aspirante (En proceso)"
                 : estudiante.getCarnet();
 
@@ -194,6 +200,21 @@ public class FinanzasService {
 
         List<CargoEstudiante> cargosBd = cargoEstudianteRepository
                 .findByMatricula_Estudiante_IdEstudianteAndEstadoCargo_EstadoCargoOrderByFechaVencimientoAsc(estudiante.getIdEstudiante(), "PENDIENTE");
+
+        cargosBd.sort((c1, c2) -> {
+            boolean isMat1 = c1.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase().contains("matrícul") ||
+                    c1.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase().contains("matricul");
+            boolean isMat2 = c2.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase().contains("matrícul") ||
+                    c2.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase().contains("matricul");
+
+            if (isMat1 && !isMat2) return -1;
+            if (!isMat1 && isMat2) return 1;
+
+            if (c1.getFechaVencimiento() != null && c2.getFechaVencimiento() != null) {
+                return c1.getFechaVencimiento().compareTo(c2.getFechaVencimiento());
+            }
+            return 0;
+        });
 
         List<CargoPendienteDTO> listaCargosDTO = new ArrayList<>();
         BigDecimal totalDeudaAcumulada = BigDecimal.ZERO;
@@ -290,12 +311,11 @@ public class FinanzasService {
                             request.getIdEstudiante(), "PENDIENTE");
 
             for (int i = 0; i < request.getIdsCargosAPagar().size(); i++) {
-                CargoEstudiante cargoBd = cargosPendientes.get(i);
                 Long idSolicitado = request.getIdsCargosAPagar().get(i);
-
-                if (!cargoBd.getIdCargoEstudiante().equals(idSolicitado)) {
-                    throw new RuntimeException("Error de seguridad: Pagos intercalados no permitidos.");
-                }
+                CargoEstudiante cargoBd = cargosPendientes.stream()
+                        .filter(c -> c.getIdCargoEstudiante().equals(idSolicitado))
+                        .findFirst()
+                        .orElseThrow(() -> new RuntimeException("El cargo solicitado no existe o ya fue pagado."));
 
                 String nombreCobro = cargoBd.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase();
                 boolean esMensualidad = !nombreCobro.contains("matrícula") && !nombreCobro.contains("matricula");
@@ -429,7 +449,7 @@ public class FinanzasService {
         factura.setNombreReceptor(personaEstudiante.getNombres() + " " + personaEstudiante.getApellidos());
         factura.setCorreoReceptor(personaEstudiante.getCorreoPersonal() != null && !personaEstudiante.getCorreoPersonal().isEmpty() ? personaEstudiante.getCorreoPersonal() : "sin-correo@uma.edu.sv");
 
-        String docFactura = estudiantePagador.getEstadoEstudiante().getEstadoEstudiante().equalsIgnoreCase("ASPIRANTE")
+        String docFactura = (estudiantePagador.getUsuario() == null)
                 ? personaEstudiante.getNumeroDocumento()
                 : estudiantePagador.getCarnet();
         factura.setDocumentoReceptor(docFactura);
@@ -445,6 +465,44 @@ public class FinanzasService {
         factura.setEstadoFactura(estadoFactura);
 
         facturaRepository.save(factura);
+
+        // ========================================================
+        // CREACIÓN DE USUARIO PARA NUEVOS INGRESOS (No tienen usuario)
+        // ========================================================
+        boolean esNuevoIngreso = (estudiantePagador.getUsuario() == null);
+        String correoInstitucionalGenerado = null;
+        String claveTemporal = null;
+
+        if (esNuevoIngreso) {
+            // 1. Generar Credenciales
+            correoInstitucionalGenerado = estudiantePagador.getCarnet().toLowerCase() + "@uma.edu.sv";
+            claveTemporal = estudiantePagador.getCarnet() + "Uma*";
+
+            // 2. Crear y guardar el nuevo usuario
+            Usuario nuevoUsuario = new Usuario();
+            nuevoUsuario.setPersona(personaEstudiante);
+            nuevoUsuario.setCorreoInstitucional(correoInstitucionalGenerado);
+            nuevoUsuario.setPasswordHash(passwordEncoder.encode(claveTemporal));
+
+            // Asignar el Rol Estudiante (ID 2 según la imagen)
+            Rol rolEstudiante = rolRepository.findById(2L)
+                    .orElseThrow(() -> new RuntimeException("Rol ESTUDIANTE no configurado (ID 2)."));
+            nuevoUsuario.setRol(rolEstudiante);
+
+            // Asignar Estado Activo (Ajusta el 1L si tu ID es otro)
+            EstadoUsuario estadoActivoUsuario = estadoUsuarioRepository.findById(1L)
+                    .orElseThrow(() -> new RuntimeException("Estado de usuario ACTIVO no configurado (ID 1)."));
+            nuevoUsuario.setEstadoUsuario(estadoActivoUsuario);
+
+            usuarioRepository.save(nuevoUsuario);
+
+            // 3. Enlazar el usuario al estudiante y actualizar
+            estudiantePagador.setUsuario(nuevoUsuario);
+            estudianteRepository.save(estudiantePagador);
+
+            log.info("Nuevo usuario institucional creado exitosamente para: {}", correoInstitucionalGenerado);
+        }
+        // ========================================================
 
         final BigDecimal totalCobradoFinal = totalEsperado;
 
@@ -470,11 +528,12 @@ public class FinanzasService {
         String nombreCompletoEst = personaEstudiante.getNombres() + " " + personaEstudiante.getApellidos();
         String nombreCajero = usuarioCajeroEntity.getPersona().getNombres() + " " + usuarioCajeroEntity.getPersona().getApellidos();
 
-        String carnetComprobante = estudiantePagador.getEstadoEstudiante().getEstadoEstudiante().equalsIgnoreCase("ASPIRANTE")
-                ? personaEstudiante.getNumeroDocumento()
-                : estudiantePagador.getCarnet();
+        String carnetComprobante = estudiantePagador.getCarnet();
         String nroFactura = factura.getNumeroFactura();
         LocalDateTime fechaEmision = factura.getFechaEmision();
+
+        final String correoInstHilo = correoInstitucionalGenerado;
+        final String claveHilo = claveTemporal;
 
         ComprobantePagoDTO comprobanteDTO = ComprobantePagoDTO.builder()
                 .numeroFactura(nroFactura)
@@ -498,6 +557,16 @@ public class FinanzasService {
                             nroFactura,
                             pdfBytes
                     );
+
+                    if (esNuevoIngreso) {
+                        emailService.enviarCredencialesYBienvenida(
+                                correoReal,
+                                nombreCompletoEst,
+                                carnetComprobante,
+                                correoInstHilo,
+                                claveHilo
+                        );
+                    }
                 } else {
                     log.warn("El estudiante no tiene correo electrónico registrado.");
                 }

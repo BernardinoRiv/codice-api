@@ -76,7 +76,7 @@ public class NuevoIngresoService {
         estudiante.setUsuario(null);
         estudiante.setFechaIngreso(LocalDate.now());
 
-        // Generamos el carnet definitivo (Ej. VM260016) y lo guardamos en BD
+        // Generamos el carnet definitivo y lo guardamos en BD
         estudiante.setCarnet(generarCarnet(persona.getNombres(), persona.getApellidos(), cicloActivo.getAnio()));
         estudiante.setEstadoEstudiante(estadoEstudianteRepository.findById(1L).orElseThrow());
         estudiante = estudianteRepository.save(estudiante);
@@ -114,53 +114,69 @@ public class NuevoIngresoService {
             inscripcionRepository.save(inscripcion);
         }
 
-        // 6. GENERAR CARGOS FINANCIEROS (EXACTOS POR ID)
+        // 6. GENERAR CARGOS FINANCIEROS COMPLETOS
         List<ConceptoCobro> conceptosDelCiclo = conceptoCobroRepository.findByCiclo_IdCiclo(cicloActivo.getIdCiclo());
-
-        // IDs permitidos según tipos_cobro_rows.sql: 1 = Matrícula Pregrado, 2 = Cuota Mensual Pregrado
         List<Long> idCobrosNuevos = List.of(1L, 2L);
-        int numeroCuota = 1;
+
+        // Determinar el mes y año de inicio según el ciclo
+        int mesInicio = (cicloActivo.getNumeroCiclo() != null && cicloActivo.getNumeroCiclo() == 2) ? 7 : 1;
+        int anioCiclo = cicloActivo.getAnio() != null ? cicloActivo.getAnio() : LocalDate.now().getYear();
+
+        EstadoCargo estadoPendiente = estadoCargoRepository.findById(1L).orElseThrow();
 
         for (ConceptoCobro concepto : conceptosDelCiclo) {
             Long idTipoCobro = concepto.getTipoCobro().getIdTipoCobro();
 
-            // Si el cobro no es el ID 1 ni el 2, se descarta inmediatamente
             if (!idCobrosNuevos.contains(idTipoCobro)) {
                 continue;
             }
 
-            CargoEstudiante cargo = new CargoEstudiante();
-            cargo.setMatricula(matricula);
-            cargo.setConceptoCobro(concepto);
-            cargo.setEstadoCargo(estadoCargoRepository.findById(1L).orElseThrow());
-            cargo.setMontoBase(concepto.getMontoBase());
-            cargo.setMontoDescuento(BigDecimal.ZERO);
-            cargo.setMontoRecargo(BigDecimal.ZERO);
-            cargo.setMontoTotal(concepto.getMontoBase());
-            cargo.setFechaGeneracion(LocalDateTime.now());
+            if (idTipoCobro == 1L) { // Generar Matrícula (Única)
+                CargoEstudiante cargoMatricula = new CargoEstudiante();
+                cargoMatricula.setMatricula(matricula);
+                cargoMatricula.setConceptoCobro(concepto);
+                cargoMatricula.setEstadoCargo(estadoPendiente);
+                cargoMatricula.setMontoBase(concepto.getMontoBase());
+                cargoMatricula.setMontoDescuento(BigDecimal.ZERO);
+                cargoMatricula.setMontoRecargo(BigDecimal.ZERO);
+                cargoMatricula.setMontoTotal(concepto.getMontoBase());
+                cargoMatricula.setFechaGeneracion(LocalDateTime.now());
+                cargoMatricula.setNumeroCuota(1);
+                cargoMatricula.setFechaVencimiento(LocalDate.now().plusDays(3)); // Vence en 3 días para nuevos
 
-            if (idTipoCobro == 1L) { // Matrícula
-                cargo.setNumeroCuota(1);
-                cargo.setFechaVencimiento(LocalDate.now().plusDays(3));
-            } else if (idTipoCobro == 2L) { // Cuotas mensuales
-                cargo.setNumeroCuota(numeroCuota);
-                cargo.setFechaVencimiento(LocalDate.now().plusMonths(numeroCuota).withDayOfMonth(15));
-                numeroCuota++;
+                cargoEstudianteRepository.save(cargoMatricula);
+
+            } else if (idTipoCobro == 2L) { // Generar las 6 Cuotas Mensuales del Ciclo
+                for (int numCuota = 1; numCuota <= 6; numCuota++) {
+                    CargoEstudiante cargoCuota = new CargoEstudiante();
+                    cargoCuota.setMatricula(matricula);
+                    cargoCuota.setConceptoCobro(concepto);
+                    cargoCuota.setEstadoCargo(estadoPendiente);
+                    cargoCuota.setMontoBase(concepto.getMontoBase());
+                    cargoCuota.setMontoDescuento(BigDecimal.ZERO);
+                    cargoCuota.setMontoRecargo(BigDecimal.ZERO);
+                    cargoCuota.setMontoTotal(concepto.getMontoBase());
+                    cargoCuota.setFechaGeneracion(LocalDateTime.now());
+
+                    cargoCuota.setNumeroCuota(numCuota);
+
+                    // Asignar mes de vencimiento (Día 15 de cada mes)
+                    int mesActual = mesInicio + (numCuota - 1);
+                    cargoCuota.setFechaVencimiento(LocalDate.of(anioCiclo, mesActual, 15));
+
+                    cargoEstudianteRepository.save(cargoCuota);
+                }
             }
-
-            cargoEstudianteRepository.save(cargo);
         }
 
-        // 7. ARMAR RESPUESTA CORRECTA PARA EL FRONTEND (OCULTANDO EL CARNET)
+        // 7. ARMAR RESPUESTA
         Map<String, Object> respuesta = new HashMap<>();
         respuesta.put("mensaje", "Pre-matrícula generada con éxito.");
-        // Omitimos enviar "carnetGenerado" para que el frontend no pueda mostrarlo de ninguna forma
         respuesta.put("instrucciones", "Presente su documento de identidad (DUI/NIT) en Colectaduría. Sus credenciales y carnet oficial se enviarán a su correo personal al procesar el pago.");
 
         return respuesta;
     }
 
-    // MÉTODO RESTAURADO: Genera el carnet real basado en el correlativo y el ciclo
     private String generarCarnet(String nombres, String apellidos, int anio) {
         String inicialApellido = apellidos != null && !apellidos.isEmpty() ? apellidos.substring(0, 1).toUpperCase() : "X";
         String inicialNombre = nombres != null && !nombres.isEmpty() ? nombres.substring(0, 1).toUpperCase() : "X";
