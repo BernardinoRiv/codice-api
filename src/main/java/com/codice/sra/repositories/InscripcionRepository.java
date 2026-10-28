@@ -2,6 +2,7 @@ package com.codice.sra.repositories;
 
 import com.codice.sra.models.Inscripcion;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -59,4 +60,14 @@ public interface InscripcionRepository extends JpaRepository<Inscripcion, Long> 
             "WHERE i.grupo.idGrupo = :idGrupo " +
             "AND UPPER(i.estadoInscripcion.estadoInscripcion) NOT IN ('RETIRADO', 'CANCELADO', 'REPROBADO')")
     int countInscripcionesActivasPorGrupo(@Param("idGrupo") Long idGrupo);
+
+
+    // Conteo de inscritos para verificar contra grupo.cupoMaximo
+    long countByGrupo_IdGrupo(Long idGrupo);
+
+    List<Inscripcion> findByMatricula_IdMatricula(Long idMatricula);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM Inscripcion i WHERE i.matricula.idMatricula = :idMatricula")
+    void deleteByMatriculaId(@Param("idMatricula") Long idMatricula);
 }

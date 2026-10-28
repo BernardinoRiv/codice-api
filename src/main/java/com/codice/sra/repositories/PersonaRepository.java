@@ -33,4 +33,6 @@ public interface PersonaRepository extends JpaRepository<Persona, Long> {
     Optional<Persona> findByNumeroDocumentoConUbicacion(@Param("numeroDocumento") String numeroDocumento);
 
     boolean existsByCorreoPersonalAndIdPersonaNot(String correoPersonal, Long idPersona);
+
+    Optional<Persona> findByNumeroDocumento(String documento);
 }
