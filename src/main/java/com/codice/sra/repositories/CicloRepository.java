@@ -85,4 +85,6 @@ public interface CicloRepository extends JpaRepository<Ciclo, Long> {
             "ORDER BY c.fechaInicio ASC LIMIT 1")
     Optional<Ciclo> findCicloPlanificadoParaMatricula();
 
+    Optional<Ciclo> findByEstadoCiclo_EstadoCicloIgnoreCase(String estadoCiclo);
+
 }

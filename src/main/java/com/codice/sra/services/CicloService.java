@@ -32,25 +32,70 @@ public class CicloService {
     private final FinanzasService finanzasService;
     private final ConceptoCobroRepository conceptoCobroRepository;
 
+    // Regla de Dominio: Ventana máxima permitida para matricularse en un ciclo ya activo
+    private static final long DIAS_LIMITE_INSCRIPCION_ACTIVO = 45;
+
+    @Transactional(readOnly = true)
+    public Ciclo obtenerCicloParaNuevoIngreso() {
+        LocalDate hoy = LocalDate.now();
+
+        // 1. Prioridad: Buscar ciclo PLANIFICADO (usando tu método existente en CicloRepository)
+        Optional<Ciclo> cicloPlanificado = cicloRepository.findCicloPlanificadoParaMatricula();
+        if (cicloPlanificado.isPresent()) {
+            log.info("Ciclo resuelto para admisión: PLANIFICADO [{}]", cicloPlanificado.get().getCodigoCiclo());
+            return cicloPlanificado.get();
+        }
+
+        // 2. Alternativa: Buscar ciclo en fase de borrador/planificación (usando tu método existente)
+        Optional<Ciclo> cicloEnPlanificacion = cicloRepository.findCicloEnPlanificacion();
+        if (cicloEnPlanificacion.isPresent()) {
+            log.info("Ciclo resuelto para admisión: EN PLANIFICACION [{}]", cicloEnPlanificacion.get().getCodigoCiclo());
+            return cicloEnPlanificacion.get();
+        }
+
+        // 3. Fallback: Buscar ciclo ACTIVO por estado formal
+        Optional<Ciclo> cicloActivo = cicloRepository.findCicloPorEstadoActivo()
+                .or(cicloRepository::findCicloActivo); // Respaldo secundario por fechas
+
+        if (cicloActivo.isPresent()) {
+            Ciclo activo = cicloActivo.get();
+            LocalDate fechaInicio = activo.getFechaInicio();
+
+            if (fechaInicio != null) {
+                long diasTranscurridos = ChronoUnit.DAYS.between(fechaInicio, hoy);
+                if (diasTranscurridos <= DIAS_LIMITE_INSCRIPCION_ACTIVO) {
+                    log.info("Ciclo resuelto para admisión: ACTIVO [{}] (Transcurridos {} de {} días permitidos)",
+                            activo.getCodigoCiclo(), diasTranscurridos, DIAS_LIMITE_INSCRIPCION_ACTIVO);
+                    return activo;
+                }
+
+                // Si pasaron más de 45 días, se rechaza la admisión en este ciclo
+                throw GrupoException.reglaNegocio(String.format(
+                        "El ciclo activo '%s' ya superó el plazo máximo de %d días para admisiones de nuevo ingreso (inició el %s y han transcurrido %d días).",
+                        activo.getCodigoCiclo(), DIAS_LIMITE_INSCRIPCION_ACTIVO, fechaInicio, diasTranscurridos));
+            }
+            return activo;
+        }
+
+        throw GrupoException.reglaNegocio(
+                "No existe ningún ciclo académico habilitado (PLANIFICADO o ACTIVO vigente) para procesar admisiones.");
+    }
+
     /**
-     * Resuelve el ciclo lectivo operativo:
-     * - Prioridad 1: Ciclo en PLANIFICACIÓN (oferta académica futura).
-     * - Prioridad 2: Ciclo ACTIVO (oferta regular en curso).
+     * Resuelve el ciclo lectivo operativo asegurando que el frontend y el endpoint
+     * /api/v1/ciclos/operativo-oferta consuman exactamente la misma regla de negocio.
      */
     @Transactional(readOnly = true)
     public CicloOperativoDTO obtenerCicloParaOferta() {
-        // 1. Priorizar el ciclo formalmente ACTIVO en clases.
-        // Si no hay ninguno activo, se toma como alternativa el que esté en planificación.
-        Ciclo ciclo = cicloRepository.findCicloActivo()
-                .or(cicloRepository::findCicloEnPlanificacion)
-                .orElseThrow(() -> GrupoException.reglaNegocio(
-                        "No existe ningún ciclo en estado ACTIVO ni en PLANIFICACIÓN en el sistema."));
+        Ciclo ciclo = obtenerCicloParaNuevoIngreso();
 
         String estado = (ciclo.getEstadoCiclo() != null && ciclo.getEstadoCiclo().getEstadoCiclo() != null)
                 ? ciclo.getEstadoCiclo().getEstadoCiclo().trim().toUpperCase()
-                : "PLANIFICACION";
+                : "PLANIFICADO";
 
-        boolean esPlanificacion = "PLANIFICACION".equals(estado) || "PLANIFICADO".equals(estado);
+        boolean esPlanificacion = "PLANIFICACION".equals(estado)
+                || "EN_PLANIFICACION".equals(estado)
+                || "PLANIFICADO".equals(estado);
 
         return new CicloOperativoDTO(
                 ciclo.getIdCiclo(),
