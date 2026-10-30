@@ -17,196 +17,241 @@ public class ComprobantePdfService {
     public byte[] generarPdf(ComprobantePagoDTO comprobante) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
-            Document document = new Document(PageSize.A4, 50, 50, 60, 50);
+            Document document = new Document(PageSize.A4, 40, 40, 40, 40);
             PdfWriter.getInstance(document, out);
             document.open();
 
-            Color primaryColor = new Color(33, 33, 33);
-            Color secondaryColor = new Color(100, 100, 100);
-            Color accentColor = new Color(245, 245, 240);
+            // Colores Institucionales (Rojo UMA, Negro y Grises)
+            Color umaRed = new Color(179, 0, 0); // Rojo oscuro institucional
+            Color black = new Color(33, 33, 33);
+            Color darkGray = new Color(100, 100, 100);
+            Color lightGray = new Color(240, 240, 240);
+            Color white = Color.WHITE;
 
-            Font fontTitle = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22, primaryColor);
-            Font fontHeader = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, primaryColor);
-            Font fontNormal = FontFactory.getFont(FontFactory.HELVETICA, 10, secondaryColor);
-            Font fontBold = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, primaryColor);
+            // Fuentes
+            Font fontTitle = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 24, umaRed);
+            Font fontHeader = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, white);
+            Font fontNormal = FontFactory.getFont(FontFactory.HELVETICA, 10, black);
+            Font fontNormalGray = FontFactory.getFont(FontFactory.HELVETICA, 10, darkGray);
+            Font fontBold = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, black);
 
+            // ==========================================
+            // 1. CABECERA: Logo e Información vs. Título de Factura
+            // ==========================================
             PdfPTable headerTable = new PdfPTable(2);
             headerTable.setWidthPercentage(100);
-            headerTable.setWidths(new float[]{1f, 1f});
+            headerTable.setWidths(new float[]{1.2f, 1f});
 
-            PdfPCell titleCell = new PdfPCell();
-            titleCell.setBorder(Rectangle.NO_BORDER);
-            titleCell.addElement(new Paragraph("FACTURA", fontTitle));
+            // Lado Izquierdo: Logo y Datos de la Universidad
+            PdfPCell leftHeaderCell = new PdfPCell();
+            leftHeaderCell.setBorder(Rectangle.NO_BORDER);
 
-            PdfPTable nroTable = new PdfPTable(1);
-            nroTable.setWidthPercentage(70);
-            nroTable.setHorizontalAlignment(Element.ALIGN_LEFT);
-            PdfPCell nroCell = new PdfPCell(new Phrase("Nº: " + comprobante.getNumeroFactura(), fontBold));
-            nroCell.setBackgroundColor(accentColor);
-            nroCell.setPadding(8);
-            nroCell.setBorder(Rectangle.BOX);
-            nroCell.setBorderWidth(1.5f);
-            nroTable.addCell(nroCell);
-
-            titleCell.addElement(Chunk.NEWLINE);
-            titleCell.addElement(nroTable);
-            headerTable.addCell(titleCell);
-
-            PdfPCell logoCell = new PdfPCell();
-            logoCell.setBorder(Rectangle.NO_BORDER);
-            logoCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
             try {
+                // Carga la imagen directamente desde la URL
                 Image logo = Image.getInstance("https://www.uma.edu.sv/regionales/san-miguel/assets/logo25.png");
-                logo.scaleToFit(160, 60);
-                logo.setAlignment(Element.ALIGN_RIGHT);
-                logoCell.addElement(logo);
+                logo.scaleToFit(140, 50);
+                logo.setAlignment(Element.ALIGN_LEFT);
+                leftHeaderCell.addElement(logo);
             } catch (Exception e) {
-                Paragraph altText = new Paragraph("UMA", fontTitle);
-                altText.setAlignment(Element.ALIGN_RIGHT);
-                logoCell.addElement(altText);
+                Paragraph altText = new Paragraph("UNIVERSIDAD MODULAR ABIERTA", fontBold);
+                leftHeaderCell.addElement(altText);
             }
-            headerTable.addCell(logoCell);
+
+            leftHeaderCell.addElement(new Paragraph(" ", fontNormal)); // Espaciador
+            leftHeaderCell.addElement(new Paragraph("Universidad Modular Abierta", fontBold));
+            leftHeaderCell.addElement(new Paragraph("Centro Regional de Santa Ana", fontNormalGray));
+            leftHeaderCell.addElement(new Paragraph("www.uma.edu.sv", fontNormalGray));
+
+            headerTable.addCell(leftHeaderCell);
+
+            // Lado Derecho: Título y Cuadro de Número/Fecha
+            PdfPCell rightHeaderCell = new PdfPCell();
+            rightHeaderCell.setBorder(Rectangle.NO_BORDER);
+            rightHeaderCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+
+            Paragraph title = new Paragraph("FACTURA\n\n", fontTitle);
+            title.setAlignment(Element.ALIGN_RIGHT);
+            rightHeaderCell.addElement(title);
+
+            // Sub-tabla para N° Factura y Fecha (Diseño azul/blanco de la plantilla convertido a rojo)
+            PdfPTable infoInvoiceTable = new PdfPTable(2);
+            infoInvoiceTable.setWidthPercentage(100);
+
+            // Fila 1: Encabezados rojos
+            PdfPCell hNro = new PdfPCell(new Phrase("N.º DE FACTURA", fontHeader));
+            hNro.setBackgroundColor(umaRed);
+            hNro.setBorder(Rectangle.NO_BORDER);
+            hNro.setPadding(6f);
+            hNro.setHorizontalAlignment(Element.ALIGN_CENTER);
+
+            PdfPCell hFecha = new PdfPCell(new Phrase("FECHA", fontHeader));
+            hFecha.setBackgroundColor(umaRed);
+            hFecha.setBorder(Rectangle.NO_BORDER);
+            hFecha.setPadding(6f);
+            hFecha.setHorizontalAlignment(Element.ALIGN_CENTER);
+
+            // Fila 2: Valores
+            PdfPCell vNro = new PdfPCell(new Phrase(comprobante.getNumeroFactura(), fontNormal));
+            vNro.setBorder(Rectangle.NO_BORDER);
+            vNro.setPadding(6f);
+            vNro.setHorizontalAlignment(Element.ALIGN_CENTER);
+
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+            PdfPCell vFecha = new PdfPCell(new Phrase(comprobante.getFechaEmision().format(formatter), fontNormal));
+            vFecha.setBorder(Rectangle.NO_BORDER);
+            vFecha.setPadding(6f);
+            vFecha.setHorizontalAlignment(Element.ALIGN_CENTER);
+
+            infoInvoiceTable.addCell(hNro);
+            infoInvoiceTable.addCell(hFecha);
+            infoInvoiceTable.addCell(vNro);
+            infoInvoiceTable.addCell(vFecha);
+
+            rightHeaderCell.addElement(infoInvoiceTable);
+            headerTable.addCell(rightHeaderCell);
+
             document.add(headerTable);
+            document.add(new Paragraph("\n"));
 
-            document.add(new Paragraph("\n\n"));
+            // ==========================================
+            // 2. SECCIÓN: FACTURAR A (Datos del Estudiante)
+            // ==========================================
+            PdfPTable billToTable = new PdfPTable(2);
+            billToTable.setWidthPercentage(100);
+            billToTable.setWidths(new float[]{1f, 1f});
 
-            PdfPTable infoTable = new PdfPTable(2);
-            infoTable.setWidthPercentage(100);
-            infoTable.setWidths(new float[]{1f, 1f});
+            // Lado Izquierdo: Datos
+            PdfPCell clientCell = new PdfPCell();
+            clientCell.setBorder(Rectangle.NO_BORDER);
 
-            PdfPCell clienteCell = new PdfPCell();
-            clienteCell.setBorder(Rectangle.NO_BORDER);
-            clienteCell.addElement(new Paragraph("DATOS DEL ESTUDIANTE", fontHeader));
-            clienteCell.addElement(new Paragraph(comprobante.getNombreCompleto(), fontNormal));
-            clienteCell.addElement(new Paragraph("Carnet: " + comprobante.getCarnetEstudiante(), fontNormal));
+            PdfPCell clientHeader = new PdfPCell(new Phrase("FACTURAR A:", fontHeader));
+            clientHeader.setBackgroundColor(umaRed);
+            clientHeader.setBorder(Rectangle.NO_BORDER);
+            clientHeader.setPadding(5f);
+
+            PdfPTable innerClientTable = new PdfPTable(1);
+            innerClientTable.setWidthPercentage(100);
+            innerClientTable.addCell(clientHeader);
+
+            PdfPCell clientData = new PdfPCell();
+            clientData.setBorder(Rectangle.NO_BORDER);
+            clientData.setPaddingTop(5f);
+            clientData.addElement(new Paragraph(comprobante.getNombreCompleto(), fontBold));
+            clientData.addElement(new Paragraph("Carnet: " + comprobante.getCarnetEstudiante(), fontNormal));
             if (comprobante.getCorreoEstudiante() != null && !comprobante.getCorreoEstudiante().equals("N/A")) {
-                clienteCell.addElement(new Paragraph(comprobante.getCorreoEstudiante(), fontNormal));
+                clientData.addElement(new Paragraph(comprobante.getCorreoEstudiante(), fontNormal));
             }
-            infoTable.addCell(clienteCell);
+            innerClientTable.addCell(clientData);
 
-            PdfPCell empresaCell = new PdfPCell();
-            empresaCell.setBorder(Rectangle.LEFT);
-            empresaCell.setBorderColor(Color.LIGHT_GRAY);
-            empresaCell.setBorderWidthLeft(1.5f);
-            empresaCell.setPaddingLeft(20f);
-            empresaCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            clientCell.addElement(innerClientTable);
+            billToTable.addCell(clientCell);
 
-            Paragraph pEmpresaTitle = new Paragraph("UNIVERSIDAD MODULAR ABIERTA", fontHeader);
-            pEmpresaTitle.setAlignment(Element.ALIGN_RIGHT);
-            empresaCell.addElement(pEmpresaTitle);
+            // Lado Derecho: Vacío para equilibrar el diseño
+            PdfPCell emptyHeaderCell = new PdfPCell();
+            emptyHeaderCell.setBorder(Rectangle.NO_BORDER);
+            billToTable.addCell(emptyHeaderCell);
 
-            Paragraph pEmpresaSub = new Paragraph("Centro Regional de Santa Ana", fontNormal);
-            pEmpresaSub.setAlignment(Element.ALIGN_RIGHT);
-            empresaCell.addElement(pEmpresaSub);
-
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
-            Paragraph pFecha = new Paragraph("Emisión: " + comprobante.getFechaEmision().format(formatter), fontNormal);
-            pFecha.setAlignment(Element.ALIGN_RIGHT);
-            empresaCell.addElement(pFecha);
-
-            infoTable.addCell(empresaCell);
-            document.add(infoTable);
-
+            document.add(billToTable);
             document.add(new Paragraph("\n\n"));
 
-            PdfPTable table = new PdfPTable(2);
-            table.setWidthPercentage(100);
-            table.setWidths(new float[]{4f, 1f});
+            // ==========================================
+            // 3. TABLA DE DETALLES
+            // ==========================================
+            PdfPTable itemsTable = new PdfPTable(2);
+            itemsTable.setWidthPercentage(100);
+            itemsTable.setWidths(new float[]{4f, 1f});
 
-            PdfPCell h1 = new PdfPCell(new Phrase("Detalle", fontHeader));
-            h1.setBorder(Rectangle.TOP | Rectangle.BOTTOM);
-            h1.setBorderWidth(1.5f);
-            h1.setPaddingTop(8f);
-            h1.setPaddingBottom(8f);
+            // Encabezados de tabla
+            PdfPCell thDesc = new PdfPCell(new Phrase("DESCRIPCIÓN", fontHeader));
+            thDesc.setBackgroundColor(umaRed);
+            thDesc.setBorder(Rectangle.NO_BORDER);
+            thDesc.setPadding(8f);
 
-            PdfPCell h2 = new PdfPCell(new Phrase("Total", fontHeader));
-            h2.setBorder(Rectangle.TOP | Rectangle.BOTTOM);
-            h2.setBorderWidth(1.5f);
-            h2.setPaddingTop(8f);
-            h2.setPaddingBottom(8f);
-            h2.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            PdfPCell thMonto = new PdfPCell(new Phrase("MONTO", fontHeader));
+            thMonto.setBackgroundColor(umaRed);
+            thMonto.setBorder(Rectangle.NO_BORDER);
+            thMonto.setPadding(8f);
+            thMonto.setHorizontalAlignment(Element.ALIGN_RIGHT);
 
-            table.addCell(h1);
-            table.addCell(h2);
+            itemsTable.addCell(thDesc);
+            itemsTable.addCell(thMonto);
 
+            // Filas dinámicas
             for (ComprobantePagoDTO.DetalleComprobanteDTO detalle : comprobante.getDetalles()) {
-                PdfPCell cellConcepto = new PdfPCell(new Phrase(detalle.getConcepto(), fontNormal));
-                cellConcepto.setBorder(Rectangle.NO_BORDER);
-                cellConcepto.setPaddingTop(12f);
-                cellConcepto.setPaddingBottom(12f);
+                PdfPCell cellDesc = new PdfPCell(new Phrase(detalle.getConcepto(), fontNormal));
+                cellDesc.setBorder(Rectangle.BOTTOM);
+                cellDesc.setBorderColor(lightGray);
+                cellDesc.setPadding(8f);
 
-                PdfPCell cellMonto = new PdfPCell(new Phrase("$" + detalle.getMontoTotal().toString(), fontNormal));
-                cellMonto.setBorder(Rectangle.NO_BORDER);
-                cellMonto.setPaddingTop(12f);
-                cellMonto.setPaddingBottom(12f);
-                cellMonto.setHorizontalAlignment(Element.ALIGN_RIGHT);
+                PdfPCell cellMontoVal = new PdfPCell(new Phrase(String.format("%.2f", detalle.getMontoTotal()), fontNormal));
+                cellMontoVal.setBorder(Rectangle.BOTTOM);
+                cellMontoVal.setBorderColor(lightGray);
+                cellMontoVal.setPadding(8f);
+                cellMontoVal.setHorizontalAlignment(Element.ALIGN_RIGHT);
 
-                table.addCell(cellConcepto);
-                table.addCell(cellMonto);
+                itemsTable.addCell(cellDesc);
+                itemsTable.addCell(cellMontoVal);
             }
 
-            PdfPCell separator = new PdfPCell();
-            separator.setColspan(2);
-            separator.setBorder(Rectangle.TOP);
-            separator.setBorderColor(Color.LIGHT_GRAY);
-            separator.setBorderWidthTop(1.5f);
-            separator.setPaddingTop(15f);
-            table.addCell(separator);
+            // Filas vacías de relleno (para simular el diseño de la plantilla)
+            for (int i = 0; i < 3; i++) {
+                PdfPCell emptyRow = new PdfPCell(new Phrase(" ", fontNormal));
+                emptyRow.setBorder(Rectangle.BOTTOM);
+                emptyRow.setBorderColor(lightGray);
+                emptyRow.setPadding(8f);
+                itemsTable.addCell(emptyRow);
+                itemsTable.addCell(emptyRow);
+            }
+            document.add(itemsTable);
 
-            PdfPCell emptyCell = new PdfPCell();
-            emptyCell.setBorder(Rectangle.NO_BORDER);
+            // ==========================================
+            // 4. PIE Y TOTALES
+            // ==========================================
+            PdfPTable footerLayout = new PdfPTable(2);
+            footerLayout.setWidthPercentage(100);
+            footerLayout.setWidths(new float[]{2.5f, 1.5f});
+            footerLayout.setSpacingBefore(10f);
 
-            PdfPTable totalTable = new PdfPTable(2);
-            totalTable.setWidthPercentage(100);
-            totalTable.setWidths(new float[]{1f, 1f});
+            // Observaciones (Izquierda)
+            PdfPCell obsCell = new PdfPCell();
+            obsCell.setBorder(Rectangle.NO_BORDER);
+            obsCell.addElement(new Paragraph("Observaciones/Instrucciones:", fontNormalGray));
+            obsCell.addElement(new Paragraph("Atendido por: " + comprobante.getCajeroResponsable(), fontNormal));
+            obsCell.addElement(new Paragraph("Comprobante válido de pago electrónico.", fontNormal));
 
-            PdfPCell textTotal = new PdfPCell(new Phrase("TOTAL", fontBold));
-            textTotal.setBorder(Rectangle.BOX);
-            textTotal.setBorderWidth(1.5f);
-            textTotal.setPadding(10f);
+            Paragraph gracias = new Paragraph("\nGRACIAS", fontTitle);
+            gracias.setAlignment(Element.ALIGN_CENTER);
+            obsCell.addElement(gracias);
 
-            PdfPCell valTotal = new PdfPCell(new Phrase("$" + comprobante.getTotalCobrado().toString(), fontBold));
-            valTotal.setBorder(Rectangle.BOX);
-            valTotal.setBorderWidth(1.5f);
-            valTotal.setPadding(10f);
-            valTotal.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            footerLayout.addCell(obsCell);
 
-            totalTable.addCell(textTotal);
-            totalTable.addCell(valTotal);
+            // Totales (Derecha)
+            PdfPTable totalsTable = new PdfPTable(2);
+            totalsTable.setWidthPercentage(100);
+            totalsTable.setWidths(new float[]{1.5f, 1f});
 
-            PdfPCell outerTotalCell = new PdfPCell(totalTable);
-            outerTotalCell.setBorder(Rectangle.NO_BORDER);
-            outerTotalCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            // Fila Total
+            PdfPCell lblTotal = new PdfPCell(new Phrase("TOTAL", fontBold));
+            lblTotal.setBackgroundColor(lightGray);
+            lblTotal.setBorder(Rectangle.BOTTOM | Rectangle.TOP);
+            lblTotal.setBorderColor(Color.WHITE);
+            lblTotal.setPadding(8f);
 
-            table.addCell(emptyCell);
-            table.addCell(outerTotalCell);
+            PdfPCell valTotalCell = new PdfPCell(new Phrase("$ " + String.format("%.2f", comprobante.getTotalCobrado()), fontBold));
+            valTotalCell.setBackgroundColor(lightGray);
+            valTotalCell.setBorder(Rectangle.BOTTOM | Rectangle.TOP);
+            valTotalCell.setBorderColor(Color.WHITE);
+            valTotalCell.setPadding(8f);
+            valTotalCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
 
-            document.add(table);
+            totalsTable.addCell(lblTotal);
+            totalsTable.addCell(valTotalCell);
 
-            document.add(new Paragraph("\n\n"));
+            PdfPCell totalsWrapper = new PdfPCell(totalsTable);
+            totalsWrapper.setBorder(Rectangle.NO_BORDER);
+            footerLayout.addCell(totalsWrapper);
 
-            PdfPTable footerTable = new PdfPTable(1);
-            footerTable.setWidthPercentage(45);
-            footerTable.setHorizontalAlignment(Element.ALIGN_LEFT);
-
-            PdfPCell footerCell = new PdfPCell();
-            footerCell.setBorder(Rectangle.BOX);
-            footerCell.setBorderWidth(1.5f);
-            footerCell.setPadding(15f);
-
-            footerCell.addElement(new Paragraph("INFORMACIÓN DE PAGO", fontHeader));
-            footerCell.addElement(new Paragraph(" ", fontNormal));
-            footerCell.addElement(new Paragraph("Atendido por: " + comprobante.getCajeroResponsable(), fontNormal));
-            footerCell.addElement(new Paragraph("Documento válido como comprobante oficial de pago electrónico de la Universidad Modular Abierta.", fontNormal));
-
-            footerTable.addCell(footerCell);
-            document.add(footerTable);
-
-            document.add(new Paragraph("\n\n"));
-            Paragraph website = new Paragraph("WWW.UMA.EDU.SV", fontBold);
-            website.setAlignment(Element.ALIGN_CENTER);
-            document.add(website);
-
+            document.add(footerLayout);
             document.close();
 
             return out.toByteArray();

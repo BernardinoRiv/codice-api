@@ -74,7 +74,6 @@ public class AsistenciaService {
                 asistencia.setEstadoAsistencia(estadoPresente);
                 asistencia.setFechaRegistro(estudiantesPresentesMap.get(idEstudiante));
             } else {
-                // SOLUCIÓN: Buscar por idInscripcion y proteger contra NullPointerException
                 String estadoManual = manuales != null ? manuales.stream()
                         .filter(m -> m.getIdInscripcion() != null && m.getIdInscripcion().equals(inscripcion.getIdInscripcion()))
                         .map(FinalizarAsistenciaDTO.ActualizacionManualDTO::getEstado)
@@ -98,6 +97,7 @@ public class AsistenciaService {
             asistenciaRepository.save(asistencia);
         }
     }
+
     @Transactional(readOnly = true)
     public List<Asistencia> obtenerHistorialAsistencias(Long idGrupo) {
         return asistenciaRepository.findByGrupoIdGrupo(idGrupo);
@@ -127,10 +127,8 @@ public class AsistenciaService {
         Clase clase = claseRepository.findById(idClase)
                 .orElseThrow(() -> new RuntimeException("Clase no encontrada"));
 
-        // Traemos todos los inscritos de ese grupo
         List<Inscripcion> inscripciones = inscripcionRepository.findByGrupoIdGrupo(clase.getGrupo().getIdGrupo());
 
-        // Verificamos si el ID del estudiante que escanea está en la lista oficial
         return inscripciones.stream()
                 .anyMatch(i -> i.getMatricula().getEstudiante().getIdEstudiante().equals(idEstudiante));
     }
@@ -144,8 +142,7 @@ public class AsistenciaService {
                 .orElseThrow(() -> new RuntimeException("Estado no válido en la BD"));
 
         asistencia.setEstadoAsistencia(estado);
-        asistencia.setFechaRegistro(LocalDateTime.now()); // Actualiza la hora a la llegada real
+        asistencia.setFechaRegistro(LocalDateTime.now());
         asistenciaRepository.save(asistencia);
     }
-
 }

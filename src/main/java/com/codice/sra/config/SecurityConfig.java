@@ -50,7 +50,7 @@ public class SecurityConfig {
         configuration.setAllowedOriginPatterns(Arrays.asList(
                 "http://localhost:5173",
                 "http://192.168.1.144:5173",
-                "http://192.168.200.234:5173",
+                "http://192.168.40.30:5173",
                 "http://localhost:5174",
                 "http://localhost:5500",
                 "http://127.0.0.1:5500",
