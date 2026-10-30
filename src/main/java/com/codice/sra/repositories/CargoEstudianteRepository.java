@@ -2,11 +2,13 @@ package com.codice.sra.repositories;
 
 import com.codice.sra.models.CargoEstudiante;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface CargoEstudianteRepository extends JpaRepository<CargoEstudiante, Long> {
@@ -39,4 +41,23 @@ public interface CargoEstudianteRepository extends JpaRepository<CargoEstudiante
 
 
     List<CargoEstudiante> findByMatricula_Estudiante_IdEstudianteAndMatricula_Ciclo_IdCiclo(Long idEstudiante, Long idCiclo);
+
+
+    // Localiza el cargo de matrícula (tipo de cobro 1) ligado a la matrícula
+    Optional<CargoEstudiante> findByMatricula_IdMatriculaAndConceptoCobro_TipoCobro_IdTipoCobro(
+            Long idMatricula, Long idTipoCobro);
+
+
+    // Firma requerida para listar los cargos pendientes asociados a la matrícula
+    List<CargoEstudiante> findByMatricula_IdMatriculaAndEstadoCargo_EstadoCargo(Long idMatricula, String estadoCargo);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM CargoEstudiante c WHERE c.matricula.idMatricula = :idMatricula")
+    void deleteByMatriculaId(@Param("idMatricula") Long idMatricula);
+
+    List<CargoEstudiante> findByMatricula_IdMatriculaAndEstadoCargo_EstadoCargoOrderByNumeroCuotaAsc(
+            Long idMatricula,
+            String estadoCargo
+    );
+
 }

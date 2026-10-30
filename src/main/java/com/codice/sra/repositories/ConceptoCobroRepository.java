@@ -25,4 +25,8 @@ public interface ConceptoCobroRepository extends JpaRepository<ConceptoCobro, Lo
     void deleteByCiclo_IdCiclo(@Param("idCiclo") Long idCiclo);
 
     boolean existsByCiclo_IdCicloAndTipoCobro_IdTipoCobro(Long idCiclo, Long idTipoCobro);
+
+    // Firma requerida para localizar el arancel de matrícula del ciclo
+    Optional<ConceptoCobro> findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(Long idCiclo, Long idTipoCobro);
+
 }
