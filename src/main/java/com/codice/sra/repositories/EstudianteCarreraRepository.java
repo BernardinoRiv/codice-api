@@ -24,4 +24,12 @@ public interface EstudianteCarreraRepository extends JpaRepository<EstudianteCar
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM EstudianteCarrera ec WHERE ec.estudiante.idEstudiante = :idEstudiante")
     void deleteByEstudiante_IdEstudiante(@Param("idEstudiante") Long idEstudiante);
+
+
+
+    // Método requerido para recuperar o asociar la carrera-sede activa del estudiante
+    Optional<EstudianteCarrera> findByEstudiante_IdEstudianteAndCarreraSede_IdCarreraSede(
+            Long idEstudiante,
+            Long idCarreraSede
+    );
 }

@@ -67,11 +67,10 @@ public class AdmisionOnlineService {
     // =========================================================================
     @Transactional(readOnly = true)
     public VerificacionIdentidadPublicaResponseDTO verificarIdentidad(Long idTipoDoc, String numeroDoc) {
-        // 1. Normalización y Validación estricta usando la utilidad central del sistema
         String docLimpio = ValidadorDocumentoUtil.normalizar(numeroDoc);
         ValidadorDocumentoUtil.validar(idTipoDoc, docLimpio);
 
-        // 1.1 Si ya es un estudiante activo con credenciales asignadas en el sistema
+        // 1.1 Si ya es un estudiante activo con credenciales asignadas
         Optional<Estudiante> estudianteActivo = estudianteRepository
                 .findByPersona_NumeroDocumentoAndUsuarioIsNotNull(docLimpio);
 
@@ -80,11 +79,11 @@ public class AdmisionOnlineService {
                     .existePersona(true)
                     .esEstudianteActivo(true)
                     .requiereLogin(true)
-                    .mensaje("Ya posees un expediente y cuenta institucional activa. Inicia sesión en el portal académico para inscribir tus asignaturas.")
+                    .mensaje("Ya posees un expediente institucional y usuario activo. Inicia sesión en el portal académico para inscribir tus asignaturas.")
                     .build();
         }
 
-        // 1.2 Búsqueda en el censo civil base
+        // 1.2 Búsqueda en personas
         Optional<Persona> personaOpt = personaRepository.findByNumeroDocumento(docLimpio);
         if (personaOpt.isEmpty()) {
             return VerificacionIdentidadPublicaResponseDTO.builder()
@@ -97,17 +96,39 @@ public class AdmisionOnlineService {
 
         Persona persona = personaOpt.get();
 
-        // 1.3 Bloqueo de Segregación de Funciones (SoD) para Administradores
+        // 1.3 Bloqueo de Empleados / Administradores
         if (usuarioRepository.existsByPersona_IdPersonaAndRol_Rol(persona.getIdPersona(), "ADMINISTRADOR")) {
             return VerificacionIdentidadPublicaResponseDTO.builder()
                     .existePersona(true)
                     .esEstudianteActivo(false)
                     .requiereLogin(true)
-                    .mensaje("Restricción de seguridad: Los usuarios con rol ADMINISTRADOR no pueden matricularse mediante autoservicio.")
+                    .mensaje("Restricción: Los usuarios administrativos no pueden registrar pre-matrículas mediante este portal.")
                     .build();
         }
 
-        // 1.4 Respuesta sanitizada con enmascaramiento de canales de contacto
+        // 1.4 NUEVA REGLA FAIL-FAST: ¿Ya tiene pre-matrícula en el ciclo actual?
+        CicloMatriculaValidatorService.EvaluacionCicloMatricula evalCiclo =
+                cicloMatriculaValidatorService.resolverCicloHabilParaMatricula();
+
+        Optional<Estudiante> estudianteOpt = estudianteRepository.findByPersona_IdPersona(persona.getIdPersona());
+        if (estudianteOpt.isPresent()) {
+            boolean yaMatriculadoEnCiclo = matriculaRepository.existsByEstudiante_IdEstudianteAndCiclo_IdCiclo(
+                    estudianteOpt.get().getIdEstudiante(),
+                    evalCiclo.ciclo().getIdCiclo()
+            );
+
+            if (yaMatriculadoEnCiclo) {
+                return VerificacionIdentidadPublicaResponseDTO.builder()
+                        .existePersona(true)
+                        .esEstudianteActivo(false)
+                        .requiereLogin(false)
+                        .idPersona(persona.getIdPersona())
+                        .mensaje("Ya posees una pre-matrícula registrada para el ciclo " + evalCiclo.ciclo().getCodigoCiclo() + ". Procede con el pago en ventanilla o verifica tu correo.")
+                        .build();
+            }
+        }
+
+        // 1.5 Si existe la persona pero no tiene matrícula vigente en este ciclo
         return VerificacionIdentidadPublicaResponseDTO.builder()
                 .existePersona(true)
                 .esEstudianteActivo(false)
@@ -117,12 +138,15 @@ public class AdmisionOnlineService {
                 .apellidos(persona.getApellidos())
                 .correoEnmascarado(enmascararCorreo(persona.getCorreoPersonal()))
                 .telefonoEnmascarado(enmascararTelefono(persona.getTelefono()))
-                .mensaje("Identidad validada. Verifica tu información de contacto para continuar.")
+                .mensaje("Identidad validada. Datos cargados del expediente.")
                 .build();
     }
 
     // =========================================================================
     // CASO 2: PROCESAMIENTO DE PRE-MATRÍCULA Y RESERVA EN LÍNEA (Fase 1)
+    // =========================================================================
+    // =========================================================================
+    // CASO 2: PROCESAMIENTO DE PRE-MATRÍCULA Y RESERVA EN LÍNEA (Fase 1 - BLINDADO)
     // =========================================================================
     @Transactional(rollbackFor = Exception.class)
     public MatriculaOnlineResponseDTO procesarPreMatriculaOnline(MatriculaOnlineRequestDTO dto) {
@@ -131,26 +155,35 @@ public class AdmisionOnlineService {
         String docLimpio = ValidadorDocumentoUtil.normalizar(dto.getNumeroDocumento());
         ValidadorDocumentoUtil.validar(dto.getIdTipoDocumento(), docLimpio);
 
-        // 2. Validación de unicidad de correo en la tabla personas
-        String correoNormalizado = dto.getCorreoPersonal().trim().toLowerCase();
-        if (dto.getIdPersona() == null && personaRepository.existsByCorreoPersonal(correoNormalizado)) {
-            throw new IllegalArgumentException("Ya existe una persona registrada con el correo personal: " + correoNormalizado);
-        }
-
-        // 2.1 Validación del ciclo lectivo hábil y cálculo del período
+        // 2. Validación de ciclo lectivo hábil y cálculo del período
         CicloMatriculaValidatorService.EvaluacionCicloMatricula evalCiclo =
                 cicloMatriculaValidatorService.resolverCicloHabilParaMatricula();
         Ciclo cicloMatricula = evalCiclo.ciclo();
         boolean esExtraordinaria = evalCiclo.esExtraordinaria();
 
-        // 2.2 Gestión de la entidad Persona
+        // 2.1 Validación de unicidad de correo en la tabla personas (excluyendo a la misma persona si ya existe)
+        String correoNormalizado = dto.getCorreoPersonal().trim().toLowerCase();
+        Optional<Persona> personaPorCorreo = personaRepository.findByCorreoPersonal(correoNormalizado);
+        if (personaPorCorreo.isPresent() && !personaPorCorreo.get().getNumeroDocumento().equalsIgnoreCase(docLimpio)) {
+            throw new IllegalArgumentException("Ya existe una persona registrada con el correo personal: " + correoNormalizado);
+        }
+
+        // =========================================================================
+        // 2.2 GESTIÓN DEFENSIVA DE PERSONA (PATRÓN FIND-OR-CREATE)
+        // Evita el error 23505 (personas_numero_documento_key) reutilizando o actualizando
+        // =========================================================================
         Persona persona;
         if (dto.getIdPersona() != null) {
             persona = personaRepository.findById(dto.getIdPersona())
                     .orElseThrow(() -> new IllegalArgumentException("Identificador de persona no encontrado: " + dto.getIdPersona()));
         } else {
-            persona = new Persona();
-            persona.setFechaRegistro(OffsetDateTime.now());
+            // Si el frontend no envió idPersona, se busca por documento antes de intentar insertar
+            persona = personaRepository.findByNumeroDocumento(docLimpio)
+                    .orElseGet(() -> {
+                        Persona nueva = new Persona();
+                        nueva.setFechaRegistro(OffsetDateTime.now());
+                        return nueva;
+                    });
         }
 
         persona.setTipoDocumento(tipoDocumentoRepository.findById(dto.getIdTipoDocumento())
@@ -171,33 +204,85 @@ public class AdmisionOnlineService {
         persona.setEstadoRegistro(estadoReg);
         persona = personaRepository.save(persona);
 
-        // 2.3 Creación del expediente del aspirante (id_usuario = NULL hasta liquidar pago)
-        EstadoEstudiante estadoEst = estadoEstudianteRepository.findByEstadoEstudiante("ACTIVO")
-                .orElseGet(() -> estadoEstudianteRepository.findById(1L).orElseThrow());
+        // =========================================================================
+        // 2.3 GESTIÓN DEFENSIVA DE ESTUDIANTE (PATRÓN FIND-OR-CREATE)
+        // =========================================================================
 
-        Estudiante estudiante = new Estudiante();
-        estudiante.setPersona(persona);
-        estudiante.setUsuario(null);
-        estudiante.setFechaIngreso(LocalDate.now());
-        estudiante.setEstadoEstudiante(estadoEst);
-        estudiante.setCarnet(generarCarnetDeterministico(persona.getNombres(), persona.getApellidos(), cicloMatricula.getAnio()));
-        estudiante = estudianteRepository.save(estudiante);
+        // 2.3 GESTIÓN DEFENSIVA DE ESTUDIANTE (PATRÓN FIND-OR-CREATE)
 
-        // 2.4 Registro de la trayectoria académica activa
+        // Referencia final para utilizar dentro de las expresiones lambda
+        final Persona personaGuardada = persona;
+
+        Estudiante estudiante = estudianteRepository
+                .findByPersona_IdPersona(personaGuardada.getIdPersona())
+                .orElseGet(() -> {
+                    EstadoEstudiante estadoEst = estadoEstudianteRepository
+                            .findByEstadoEstudiante("ACTIVO")
+                            .orElseGet(() -> estadoEstudianteRepository
+                                    .findById(1L)
+                                    .orElseThrow());
+
+                    Estudiante nuevo = new Estudiante();
+                    nuevo.setPersona(personaGuardada);
+                    nuevo.setUsuario(null);
+                    nuevo.setFechaIngreso(LocalDate.now());
+                    nuevo.setEstadoEstudiante(estadoEst);
+                    nuevo.setCarnet(generarCarnetDeterministico(
+                            personaGuardada.getNombres(),
+                            personaGuardada.getApellidos(),
+                            cicloMatricula.getAnio()));
+
+                    return estudianteRepository.save(nuevo);
+                });
+
+
+        // 2.3.1 Verificación de rol y credenciales existentes
+        if (estudiante.getUsuario() != null) {
+            throw new IllegalStateException("El estudiante ya posee credenciales activas. Debe realizar su inscripción desde el portal institucional.");
+        }
+
+        // =========================================================================
+        // 2.3.2 CONTROL DE IDEMPOTENCIA: VALIDAR MATRÍCULA DUPLICADA EN ESTE CICLO
+        // =========================================================================
+        boolean yaMatriculadoEnCiclo = matriculaRepository.existsByEstudiante_IdEstudianteAndCiclo_IdCiclo(
+                estudiante.getIdEstudiante(),
+                cicloMatricula.getIdCiclo()
+        );
+
+        if (yaMatriculadoEnCiclo) {
+            throw new IllegalArgumentException(String.format(
+                    "El aspirante con documento %s ya cuenta con una matrícula o trámite registrado para el ciclo %s.",
+                    docLimpio, cicloMatricula.getCodigoCiclo()
+            ));
+        }
+
+        // =========================================================================
+        // 2.4 REGISTRO DE LA TRAYECTORIA ACADÉMICA ACTIVA
+        // =========================================================================
         EstadoTrayectoria estadoTray = estadoTrayectoriaRepository.findByEstadoTrayectoria("ACTIVA")
                 .orElseGet(() -> estadoTrayectoriaRepository.findById(1L).orElseThrow());
 
-        EstudianteCarrera trayectoria = new EstudianteCarrera();
-        trayectoria.setEstudiante(estudiante);
-        trayectoria.setCarreraSede(carreraSedeRepository.findById(dto.getIdCarreraSede())
-                .orElseThrow(() -> new IllegalArgumentException("Oferta carrera-sede no encontrada.")));
-        trayectoria.setPensum(pensumRepository.findByIdPensumLong(dto.getIdPensum())
-                .orElseThrow(() -> new IllegalArgumentException("Plan de estudios no encontrado.")));
-        trayectoria.setFechaInicio(LocalDate.now());
-        trayectoria.setEstadoTrayectoria(estadoTray);
-        trayectoria = estudianteCarreraRepository.save(trayectoria);
+        CarreraSede carreraSede = carreraSedeRepository.findById(dto.getIdCarreraSede())
+                .orElseThrow(() -> new IllegalArgumentException("Oferta carrera-sede no encontrada."));
+        Pensum pensum = pensumRepository.findByIdPensumLong(dto.getIdPensum())
+                .orElseThrow(() -> new IllegalArgumentException("Plan de estudios no encontrado."));
 
-        // 2.5 Matrícula en estado PENDIENTE_PAGO
+        // Se reutiliza la trayectoria si ya existe para esa carrera-sede o se crea una nueva
+        EstudianteCarrera trayectoria = estudianteCarreraRepository
+                .findByEstudiante_IdEstudianteAndCarreraSede_IdCarreraSede(estudiante.getIdEstudiante(), carreraSede.getIdCarreraSede())
+                .orElseGet(() -> {
+                    EstudianteCarrera nuevaTrayectoria = new EstudianteCarrera();
+                    nuevaTrayectoria.setEstudiante(estudiante);
+                    nuevaTrayectoria.setCarreraSede(carreraSede);
+                    nuevaTrayectoria.setPensum(pensum);
+                    nuevaTrayectoria.setFechaInicio(LocalDate.now());
+                    nuevaTrayectoria.setEstadoTrayectoria(estadoTray);
+                    return estudianteCarreraRepository.save(nuevaTrayectoria);
+                });
+
+        // =========================================================================
+        // 2.5 CREACIÓN DE MATRÍCULA (PENDIENTE_PAGO)
+        // =========================================================================
         EstadoMatricula estadoMat = estadoMatriculaRepository.findByEstadoMatricula("PENDIENTE_PAGO")
                 .orElseGet(() -> estadoMatriculaRepository.findById(1L).orElseThrow());
 
@@ -209,7 +294,9 @@ public class AdmisionOnlineService {
         matricula.setEstadoMatricula(estadoMat);
         matricula = matriculaRepository.save(matricula);
 
-        // 2.6 Reserva de cupos con validación pesimista
+        // =========================================================================
+        // 2.6 RESERVA ATÓMICA DE CUPOS CON BLOQUEO PESIMISTA
+        // =========================================================================
         EstadoInscripcion estadoInsc = estadoInscripcionRepository.findByEstadoInscripcion("ACTIVA")
                 .orElseGet(() -> estadoInscripcionRepository.findById(1L).orElseThrow());
         EstadoMateriaEstudiante estadoMatEst = estadoMateriaEstudianteRepository.findByEstadoMateria("CURSANDO")
@@ -250,19 +337,19 @@ public class AdmisionOnlineService {
         EstadoCargo estadoPendiente = estadoCargoRepository.findByEstadoCargo("PENDIENTE")
                 .orElseGet(() -> estadoCargoRepository.findById(1L).orElseThrow());
 
-        // Concepto: Matrícula de Pregrado[cite: 2]
+        // Concepto: Matrícula de Pregrado[cite: 3]
         ConceptoCobro arancelMatricula = conceptoCobroRepository
                 .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(cicloMatricula.getIdCiclo(), ID_TIPO_COBRO_MATRICULA)
                 .orElseThrow(() -> new IllegalStateException("El arancel de Matrícula no está configurado para el ciclo " + cicloMatricula.getCodigoCiclo()));
 
-        // Concepto: Cuota Mensual de Pregrado[cite: 2]
+        // Concepto: Cuota Mensual de Pregrado[cite: 3]
         ConceptoCobro arancelCuota = conceptoCobroRepository
                 .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(cicloMatricula.getIdCiclo(), 2L)
                 .orElseThrow(() -> new IllegalStateException("La cuota mensual no está configurada para el ciclo " + cicloMatricula.getCodigoCiclo()));
 
         LocalDate fechaLimitePreMatricula = LocalDate.now().plusDays(2); // 48 horas de vigencia
 
-        // 1. Cargo: Matrícula (numeroCuota = 1 para respetar chk_numero_cuota >= 1)
+        // 1. Cargo: Matrícula
         CargoEstudiante cargoMatricula = new CargoEstudiante();
         cargoMatricula.setMatricula(matricula);
         cargoMatricula.setConceptoCobro(arancelMatricula);
@@ -316,7 +403,7 @@ public class AdmisionOnlineService {
             cargoEstudianteRepository.save(cuota);
         }
 
-        // Regla de Negocio 1 + 1: Matrícula ($70.00) + Primera Cuota Mensual ($70.00) obligatorias[cite: 2]
+        // Regla de Negocio 1 + 1: Matrícula ($70.00) + Primera Cuota Mensual ($70.00) obligatorias[cite: 3]
         BigDecimal totalInicialExigible = arancelMatricula.getMontoBase()
                 .add(arancelCuota.getMontoBase())
                 .add(totalExtraordinaria);
@@ -629,4 +716,6 @@ public class AdmisionOnlineService {
         }
         return candidato;
     }
+
+
 }

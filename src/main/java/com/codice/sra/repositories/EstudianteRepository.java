@@ -40,4 +40,8 @@ public interface EstudianteRepository extends JpaRepository<Estudiante, Long> {
 
     @Query("SELECT COALESCE(MAX(e.idEstudiante), 0) FROM Estudiante e")
     Long obtenerUltimoIdEstudiante();
+
+
+    // Método requerido para resolver el expediente a partir de la entidad Persona
+    Optional<Estudiante> findByPersona_IdPersona(Long idPersona);
 }

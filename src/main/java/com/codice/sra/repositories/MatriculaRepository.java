@@ -15,4 +15,8 @@ public interface MatriculaRepository extends JpaRepository<Matricula, Long> {
     // Firma requerida para obtener las matrículas asociadas al expediente
     List<Matricula> findByEstudiante_IdEstudiante(Long idEstudiante);
 
+
+    // Método requerido para control de idempotencia y prevención de doble matrícula en el ciclo
+    boolean existsByEstudiante_IdEstudianteAndCiclo_IdCiclo(Long idEstudiante, Long idCiclo);
+
 }
