@@ -2,6 +2,7 @@ package com.codice.sra.repositories;
 
 import com.codice.sra.models.EstudianteCarrera;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -16,4 +17,19 @@ public interface EstudianteCarreraRepository extends JpaRepository<EstudianteCar
             "JOIN cs.carrera c " +
             "WHERE ec.estudiante.idEstudiante = :idEstudiante")
     Optional<String> findNombreCarreraByEstudianteId(@Param("idEstudiante") Long idEstudiante);
+
+    Optional<EstudianteCarrera> findFirstByEstudiante_IdEstudianteOrderByFechaInicioDesc(Long idEstudiante);
+
+    // Firma requerida para desvincular la trayectoria durante la purga o cancelación
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM EstudianteCarrera ec WHERE ec.estudiante.idEstudiante = :idEstudiante")
+    void deleteByEstudiante_IdEstudiante(@Param("idEstudiante") Long idEstudiante);
+
+
+
+    // Método requerido para recuperar o asociar la carrera-sede activa del estudiante
+    Optional<EstudianteCarrera> findByEstudiante_IdEstudianteAndCarreraSede_IdCarreraSede(
+            Long idEstudiante,
+            Long idCarreraSede
+    );
 }

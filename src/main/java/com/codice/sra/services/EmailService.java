@@ -10,6 +10,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.core.io.ByteArrayResource;
 import lombok.extern.slf4j.Slf4j;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+
 @Slf4j
 @Service
 public class EmailService {
@@ -357,6 +361,97 @@ public class EmailService {
             log.info("Recordatorio docente enviado a {}", correoDestino);
         } catch (Exception e) {
             log.error("Error al enviar recordatorio docente a {}: {}", correoDestino, e.getMessage());
+        }
+    }
+    public void enviarCredencialesYBienvenida(String correoDestino, String nombreCompleto, String carnet, String correoInstitucional, String passwordTemporal) {
+        try {
+            MimeMessage mensaje = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mensaje, true, "UTF-8");
+
+            helper.setTo(correoDestino);
+            helper.setSubject("¡Bienvenido a UMA! - Credenciales de Acceso");
+
+            String htmlMsg = "<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;'>"
+                    + "<h2 style='color: #2E7D32;'>¡Bienvenido a la Universidad Modular Abierta!</h2>"
+                    + "<p>Hola <strong>" + nombreCompleto + "</strong>,</p>"
+                    + "<p>Tu proceso de matrícula ha finalizado con éxito. Oficialmente eres parte de nuestra comunidad estudiantil.</p>"
+                    + "<div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #2E7D32;'>"
+                    + "<p style='margin: 0 0 10px 0;'><strong>Tu Carnet de Estudiante:</strong> " + carnet + "</p>"
+                    + "<p style='margin: 0 0 10px 0;'><strong>Correo Institucional:</strong> " + correoInstitucional + "</p>"
+                    + "<p style='margin: 0;'><strong>Contraseña Temporal:</strong> " + passwordTemporal + "</p>"
+                    + "</div>"
+                    + "<p>Por seguridad, te recomendamos iniciar sesión en el portal académico y cambiar tu contraseña inmediatamente.</p>"
+                    + "<p>Saludos cordiales,<br><strong>Departamento de Administración Académica</strong></p>"
+                    + "</div>";
+
+            helper.setText(htmlMsg, true);
+            mailSender.send(mensaje);
+
+            log.info("Correo de bienvenida y credenciales enviado a: {}", correoDestino);
+
+        } catch (MessagingException e) {
+            log.error("Error al enviar correo de bienvenida a {}: {}", correoDestino, e.getMessage());
+        }
+    }
+
+    public void enviarBoletaPreMatriculaNpe(
+            String correoDestinatario,
+            String nombreAspirante,
+            String npe,
+            BigDecimal monto,
+            LocalDate fechaVencimiento) {
+
+        try {
+            MimeMessage mensaje = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mensaje, true, "UTF-8");
+
+            helper.setTo(correoDestinatario);
+            helper.setSubject("Orden de Pre-Matrícula - Universidad Modular Abierta");
+
+            String fechaFormateada = fechaVencimiento.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+
+            String contenidoHtml = """
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                    <div style="background-color: #0d47a1; color: white; padding: 20px; text-align: center;">
+                        <h2 style="margin: 0;">Universidad Modular Abierta</h2>
+                        <p style="margin: 5px 0 0 0; font-size: 14px;">Módulo de Admisiones y Matrícula en Línea</p>
+                    </div>
+                    <div style="padding: 24px; color: #333333; line-height: 1.6;">
+                        <p>Estimado/a <strong>%s</strong>,</p>
+                        <p>Tu solicitud de pre-matrícula ha sido registrada exitosamente. Para asegurar tus cupos en los grupos seleccionados, debes efectuar el pago correspondiente antes de la fecha límite.</p>
+                        
+                        <div style="background-color: #f5f5f5; border-left: 4px solid #0d47a1; padding: 16px; margin: 20px 0;">
+                            <p style="margin: 0 0 8px 0;"><strong>Número de Pago Electrónico (NPE):</strong></p>
+                            <p style="margin: 0; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #0d47a1;">%s</p>
+                            <hr style="border: 0; border-top: 1px solid #ddd; margin: 12px 0;">
+                            <p style="margin: 0 0 4px 0;"><strong>Monto Total a Cancelar:</strong> $%s</p>
+                            <p style="margin: 0; color: #d32f2f;"><strong>Fecha Límite de Pago:</strong> %s (48 horas hábiles)</p>
+                        </div>
+
+                        <p><strong>Instrucciones para Colecturía / Agencias Bancarias:</strong></p>
+                        <ol style="padding-left: 20px;">
+                            <li>Presenta este correo o tu documento de identidad en ventanilla de Colecturía.</li>
+                            <li>Indica al cajero el código NPE provisto arriba.</li>
+                            <li>Una vez acreditado el pago, el sistema activará tu matrícula y enviará tus credenciales institucionales de acceso a este correo.</li>
+                        </ol>
+
+                        <p style="font-size: 12px; color: #777777; margin-top: 24px;">
+                            <strong>Aviso Importante:</strong> Si el abono no se registra antes del %s, la pre-matrícula y los cupos reservados serán liberados de manera automática.
+                        </p>
+                    </div>
+                    <div style="background-color: #eeeeee; padding: 12px; text-align: center; font-size: 11px; color: #888888;">
+                        Este es un mensaje generado de forma automática. Por favor no responder a este remitente.
+                    </div>
+                </div>
+            """.formatted(nombreAspirante, npe, monto.toString(), fechaFormateada, fechaFormateada);
+
+            helper.setText(contenidoHtml, true);
+            mailSender.send(mensaje);
+            log.info("Correo con NPE despachado con éxito a {}", correoDestinatario);
+
+        } catch (MessagingException e) {
+            log.error("Fallo al construir o enviar el correo de boleta NPE a {}: {}", correoDestinatario, e.getMessage(), e);
+            throw new RuntimeException("Error en el envío de la notificación de pre-matrícula.", e);
         }
     }
 }

@@ -64,4 +64,27 @@ public interface CicloRepository extends JpaRepository<Ciclo, Long> {
      * Valida si un código oficial de ciclo ya existe (evita duplicidad).
      */
     boolean existsByCodigoCiclo(String codigoCiclo);
+
+    // 1. Busca el ciclo listo para pre-matrícula ordinaria (Aprobado por Junta Directiva)
+    @Query("SELECT c FROM Ciclo c " +
+            "WHERE c.estadoCiclo.estadoCiclo = 'PLANIFICADO' " +
+            "ORDER BY c.fechaInicio ASC")
+    Optional<Ciclo> findCicloPlanificadoParaAdmision();
+
+    // 2. Busca el ciclo formalmente en curso (Estado ACTIVO en BD)
+    @Query("SELECT c FROM Ciclo c " +
+            "WHERE c.estadoCiclo.estadoCiclo = 'ACTIVO'")
+    Optional<Ciclo> findCicloEnCursoPorEstado();
+
+    /**
+     * Localiza el ciclo aprobado por Junta Directiva en estado 'PLANIFICADO'
+     * listo para recibir pre-matrícula anticipada.
+     */
+    @Query("SELECT c FROM Ciclo c " +
+            "WHERE UPPER(c.estadoCiclo.estadoCiclo) = 'PLANIFICADO' " +
+            "ORDER BY c.fechaInicio ASC LIMIT 1")
+    Optional<Ciclo> findCicloPlanificadoParaMatricula();
+
+    Optional<Ciclo> findByEstadoCiclo_EstadoCicloIgnoreCase(String estadoCiclo);
+
 }

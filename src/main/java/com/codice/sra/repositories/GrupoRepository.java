@@ -2,7 +2,9 @@ package com.codice.sra.repositories;
 
 import com.codice.sra.dtos.ResumenCarreraOfertaDTO;
 import com.codice.sra.models.Grupo;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -103,4 +105,10 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
     List<Grupo> findGruposParaOfertaAcademica(@Param("idMaterias") List<Long> idMaterias,
                                               @Param("idSede") Long idSede,
                                               @Param("idCiclo") Long idCiclo);
+
+
+    // Bloqueo pesimista para lectura y reserva atómica de cupo
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT g FROM Grupo g WHERE g.idGrupo = :idGrupo")
+    Optional<Grupo> findByIdWithLock(@Param("idGrupo") Long idGrupo);
 }
