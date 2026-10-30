@@ -27,7 +27,7 @@ public class PersonaController {
     }
 
     @GetMapping("/buscar-por-documento")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'EMPLEADO')")
     public ResponseEntity<PersonaConsultaResponseDTO> buscarPorDocumento(@RequestParam String numeroDocumento) {
         return personaService.buscarPorDocumento(numeroDocumento)
                 .map(ResponseEntity::ok)

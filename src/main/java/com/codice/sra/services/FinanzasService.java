@@ -47,6 +47,9 @@ public class FinanzasService {
     private final RolRepository rolRepository;
     private final EstadoUsuarioRepository estadoUsuarioRepository;
 
+    // Repositorio para cambiar el estado de la matrícula
+    private final EstadoMatriculaRepository estadoMatriculaRepository;
+
     @Transactional(rollbackFor = Exception.class)
     public int clonarArancelesCicloAnterior(Long idCicloAnterior, Long idCicloNuevo) {
         Ciclo cicloNuevo = cicloRepository.findById(idCicloNuevo)
@@ -78,7 +81,7 @@ public class FinanzasService {
         Ciclo ciclo = cicloRepository.findById(request.getIdCiclo())
                 .orElseThrow(() -> new RuntimeException("El ciclo especificado no existe."));
 
-        EstadoCargo estadoPendiente = estadoCargoRepository.findByEstadoCargo("PENDIENTE")
+        EstadoCargo estadoPendiente = estadoCargoRepository.findById(1L)
                 .orElseThrow(() -> new RuntimeException("El estado PENDIENTE no existe."));
 
         List<Estudiante> estudiantesProcesar = estudianteRepository
@@ -342,8 +345,8 @@ public class FinanzasService {
             Matricula matriculaActiva = matriculaRepository.findFirstByEstudiante_IdEstudianteOrderByFechaMatriculaDesc(request.getIdEstudiante())
                     .orElseThrow(() -> new RuntimeException("El estudiante no posee una matrícula registrada para asociarle el arancel."));
 
-            EstadoCargo estadoPagado = estadoCargoRepository.findByEstadoCargo("PAGADO")
-                    .orElseThrow(() -> new RuntimeException("Estado PAGADO no configurado."));
+            EstadoCargo estadoPagado = estadoCargoRepository.findById(2L)
+                    .orElseThrow(() -> new RuntimeException("Estado PAGADO no configurado (ID 2)."));
 
             Map<Long, Integer> cuotasAsignadasEnMemoria = new HashMap<>();
 
@@ -425,11 +428,12 @@ public class FinanzasService {
 
         pagoRepository.save(nuevoPago);
 
-        EstadoCargo estadoPagado = estadoCargoRepository.findByEstadoCargo("PAGADO")
-                .orElseThrow(() -> new RuntimeException("Estado PAGADO no configurado."));
+        // OBTENEMOS EL ESTADO PAGADO (ID 2 de la tabla estado_cargo)
+        EstadoCargo estadoPagado = estadoCargoRepository.findById(2L)
+                .orElseThrow(() -> new RuntimeException("Estado PAGADO no configurado (ID 2)."));
 
         for (CargoEstudiante cargo : cargosProcesados) {
-            if (!cargo.getEstadoCargo().getEstadoCargo().equals("PAGADO")) {
+            if (cargo.getEstadoCargo().getIdEstadoCargo() != 2L) {
                 cargo.setEstadoCargo(estadoPagado);
                 cargoEstudianteRepository.save(cargo);
             }
@@ -439,6 +443,28 @@ public class FinanzasService {
             pagoCargo.setCargo(cargo);
             pagoCargo.setMontoAplicado(cargo.getMontoTotal());
             pagoCargoRepository.save(pagoCargo);
+
+            // ========================================================
+            // ACTIVAR LA MATRÍCULA A "MATRICULADA" (ID 2)
+            // ========================================================
+            String nombreCobro = cargo.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase();
+            if (nombreCobro.contains("matrícula") || nombreCobro.contains("matricula")) {
+                Matricula matriculaPagada = cargo.getMatricula();
+
+                // Si la matrícula actual está en PENDIENTE_PAGO (ID 1)
+                if (matriculaPagada != null && matriculaPagada.getEstadoMatricula() != null &&
+                        matriculaPagada.getEstadoMatricula().getIdEstadoMatricula() == 1L) {
+
+                    // Asignamos el estado MATRICULADA (ID 2 de la tabla estado_matricula)
+                    EstadoMatricula estadoMatriculada = estadoMatriculaRepository.findById(2L)
+                            .orElseThrow(() -> new RuntimeException("Estado de matrícula MATRICULADA no configurado (ID 2)."));
+
+                    matriculaPagada.setEstadoMatricula(estadoMatriculada);
+                    matriculaRepository.save(matriculaPagada);
+                    log.info("Matrícula ID {} actualizada exitosamente a MATRICULADA tras efectuar el pago.", matriculaPagada.getIdMatricula());
+                }
+            }
+            // ========================================================
         }
 
         Factura factura = new Factura();
@@ -460,6 +486,7 @@ public class FinanzasService {
         factura.setRecargo(totalRecargo);
         factura.setTotal(totalEsperado);
 
+        // ESTADO DE LA FACTURA EMITIDA (ID 1 de la tabla estado_factura)
         EstadoFactura estadoFactura = new EstadoFactura();
         estadoFactura.setIdEstadoFactura(1L);
         factura.setEstadoFactura(estadoFactura);
@@ -467,36 +494,31 @@ public class FinanzasService {
         facturaRepository.save(factura);
 
         // ========================================================
-        // CREACIÓN DE USUARIO PARA NUEVOS INGRESOS (No tienen usuario)
+        // CREACIÓN DE USUARIO PARA NUEVOS INGRESOS
         // ========================================================
         boolean esNuevoIngreso = (estudiantePagador.getUsuario() == null);
         String correoInstitucionalGenerado = null;
         String claveTemporal = null;
 
         if (esNuevoIngreso) {
-            // 1. Generar Credenciales
             correoInstitucionalGenerado = estudiantePagador.getCarnet().toLowerCase() + "@uma.edu.sv";
             claveTemporal = estudiantePagador.getCarnet() + "Uma*";
 
-            // 2. Crear y guardar el nuevo usuario
             Usuario nuevoUsuario = new Usuario();
             nuevoUsuario.setPersona(personaEstudiante);
             nuevoUsuario.setCorreoInstitucional(correoInstitucionalGenerado);
             nuevoUsuario.setPasswordHash(passwordEncoder.encode(claveTemporal));
 
-            // Asignar el Rol Estudiante (ID 2 según la imagen)
             Rol rolEstudiante = rolRepository.findById(2L)
                     .orElseThrow(() -> new RuntimeException("Rol ESTUDIANTE no configurado (ID 2)."));
             nuevoUsuario.setRol(rolEstudiante);
 
-            // Asignar Estado Activo (Ajusta el 1L si tu ID es otro)
             EstadoUsuario estadoActivoUsuario = estadoUsuarioRepository.findById(1L)
                     .orElseThrow(() -> new RuntimeException("Estado de usuario ACTIVO no configurado (ID 1)."));
             nuevoUsuario.setEstadoUsuario(estadoActivoUsuario);
 
             usuarioRepository.save(nuevoUsuario);
 
-            // 3. Enlazar el usuario al estudiante y actualizar
             estudiantePagador.setUsuario(nuevoUsuario);
             estudianteRepository.save(estudiantePagador);
 

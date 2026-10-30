@@ -19,7 +19,7 @@ public class NuevoIngresoController {
     private final NuevoIngresoService nuevoIngresoService;
 
     @PostMapping("/pre-matricula")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'REGISTRO_ACADEMICO')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'REGISTRO_ACADEMICO', 'EMPLEADO')")
     public ResponseEntity<?> registrarPreMatricula(@RequestBody NuevoIngresoRequestDTO request) {
         try {
             // El servicio ejecutará toda la lógica transaccional de la Fase 1
