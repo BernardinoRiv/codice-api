@@ -81,11 +81,5 @@ public class MatriculaOnlineRequestDTO {
     @Schema(description = "Arreglo con los IDs de grupos a reservar para el Ciclo 1", example = "[10, 19, 20]")
     private List<Long> idGruposSeleccionados;
 
-    // --- Modalidad de Pago ---
-
-    @NotBlank(message = "Debe indicar la modalidad de pago.")
-    @Pattern(regexp = "^(EN_LINEA|VENTANILLA)$", message = "La modalidad debe ser 'EN_LINEA' o 'VENTANILLA'.")
-    @Schema(description = "Modo de liquidación elegido por el aspirante", example = "EN_LINEA")
-    private String modalidadPago;
 
 }

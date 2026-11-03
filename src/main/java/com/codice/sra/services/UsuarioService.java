@@ -126,6 +126,7 @@ public class UsuarioService {
             );
         }
 
+
         String passwordPlano = UserUtils.generarPasswordAleatorio(longitudPassword);
 
         Usuario usuario = new Usuario();

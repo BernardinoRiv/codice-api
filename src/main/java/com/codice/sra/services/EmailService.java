@@ -364,6 +364,67 @@ public class EmailService {
         }
     }
 
+//    public void enviarBoletaPreMatriculaNpe(
+//            String correoDestinatario,
+//            String nombreAspirante,
+//            String npe,
+//            BigDecimal monto,
+//            LocalDate fechaVencimiento) {
+//
+//        try {
+//            MimeMessage mensaje = mailSender.createMimeMessage();
+//            MimeMessageHelper helper = new MimeMessageHelper(mensaje, true, "UTF-8");
+//
+//            helper.setTo(correoDestinatario);
+//            helper.setSubject("Orden de Pre-Matrícula - Universidad Modular Abierta");
+//
+//            String fechaFormateada = fechaVencimiento.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+//
+//            String contenidoHtml = """
+//                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+//                    <div style="background-color: #0d47a1; color: white; padding: 20px; text-align: center;">
+//                        <h2 style="margin: 0;">Universidad Modular Abierta</h2>
+//                        <p style="margin: 5px 0 0 0; font-size: 14px;">Módulo de Admisiones y Matrícula en Línea</p>
+//                    </div>
+//                    <div style="padding: 24px; color: #333333; line-height: 1.6;">
+//                        <p>Estimado/a <strong>%s</strong>,</p>
+//                        <p>Tu solicitud de pre-matrícula ha sido registrada exitosamente. Para asegurar tus cupos en los grupos seleccionados, debes efectuar el pago correspondiente antes de la fecha límite.</p>
+//
+//                        <div style="background-color: #f5f5f5; border-left: 4px solid #0d47a1; padding: 16px; margin: 20px 0;">
+//                            <p style="margin: 0 0 8px 0;"><strong>Número de Pago Electrónico (NPE):</strong></p>
+//                            <p style="margin: 0; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #0d47a1;">%s</p>
+//                            <hr style="border: 0; border-top: 1px solid #ddd; margin: 12px 0;">
+//                            <p style="margin: 0 0 4px 0;"><strong>Monto Total a Cancelar:</strong> $%s</p>
+//                            <p style="margin: 0; color: #d32f2f;"><strong>Fecha Límite de Pago:</strong> %s (48 horas hábiles)</p>
+//                        </div>
+//
+//                        <p><strong>Instrucciones para Colecturía / Agencias Bancarias:</strong></p>
+//                        <ol style="padding-left: 20px;">
+//                            <li>Presenta este correo o tu documento de identidad en ventanilla de Colecturía.</li>
+//                            <li>Una vez acreditado el pago, el sistema activará tu matrícula y enviará tus credenciales institucionales de acceso a este correo.</li>
+//                        </ol>
+//
+//                        <p style="font-size: 12px; color: #777777; margin-top: 24px;">
+//                            <strong>Aviso Importante:</strong> Si el abono no se registra antes del %s, la pre-matrícula y los cupos reservados serán liberados de manera automática.
+//                        </p>
+//                    </div>
+//                    <div style="background-color: #eeeeee; padding: 12px; text-align: center; font-size: 11px; color: #888888;">
+//                        Este es un mensaje generado de forma automática. Por favor no responder a este remitente.
+//                    </div>
+//                </div>
+//            """.formatted(nombreAspirante, npe, monto.toString(), fechaFormateada, fechaFormateada);
+//
+//            helper.setText(contenidoHtml, true);
+//            mailSender.send(mensaje);
+//            log.info("Correo con NPE despachado con éxito a {}", correoDestinatario);
+//
+//        } catch (MessagingException e) {
+//            log.error("Fallo al construir o enviar el correo de boleta NPE a {}: {}", correoDestinatario, e.getMessage(), e);
+//            throw new RuntimeException("Error en el envío de la notificación de pre-matrícula.", e);
+//        }
+//    }
+
+    // 3. Correo de Boleta de Pre-Matrícula con NPE
     public void enviarBoletaPreMatriculaNpe(
             String correoDestinatario,
             String nombreAspirante,
@@ -379,43 +440,60 @@ public class EmailService {
             helper.setSubject("Orden de Pre-Matrícula - Universidad Modular Abierta");
 
             String fechaFormateada = fechaVencimiento.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+            // Se asegura el formato de moneda con 2 decimales (ej: 150.00)
+            String montoFormateado = String.format("%.2f", monto);
 
-            String contenidoHtml = """
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
-                    <div style="background-color: #0d47a1; color: white; padding: 20px; text-align: center;">
-                        <h2 style="margin: 0;">Universidad Modular Abierta</h2>
-                        <p style="margin: 5px 0 0 0; font-size: 14px;">Módulo de Admisiones y Matrícula en Línea</p>
-                    </div>
-                    <div style="padding: 24px; color: #333333; line-height: 1.6;">
-                        <p>Estimado/a <strong>%s</strong>,</p>
-                        <p>Tu solicitud de pre-matrícula ha sido registrada exitosamente. Para asegurar tus cupos en los grupos seleccionados, debes efectuar el pago correspondiente antes de la fecha límite.</p>
-                        
-                        <div style="background-color: #f5f5f5; border-left: 4px solid #0d47a1; padding: 16px; margin: 20px 0;">
-                            <p style="margin: 0 0 8px 0;"><strong>Número de Pago Electrónico (NPE):</strong></p>
-                            <p style="margin: 0; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #0d47a1;">%s</p>
-                            <hr style="border: 0; border-top: 1px solid #ddd; margin: 12px 0;">
-                            <p style="margin: 0 0 4px 0;"><strong>Monto Total a Cancelar:</strong> $%s</p>
-                            <p style="margin: 0; color: #d32f2f;"><strong>Fecha Límite de Pago:</strong> %s (48 horas hábiles)</p>
+            String htmlContent = String.format("""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>%s</style>
+                </head>
+                <body>
+                    <div class="email-container">
+                        <div class="email-header">
+                            <img src="https://www.uma.edu.sv/regionales/san-miguel/assets/logo25.png" alt="Escudo UMA">
                         </div>
+                        <div class="email-body">
+                            <h2>Orden de Pre-Matrícula</h2>
+                            <p>Estimado/a <strong>%s</strong>,</p>
+                            <p>Tu solicitud de pre-matrícula ha sido registrada exitosamente. Para asegurar tus cupos en los grupos seleccionados, debes efectuar el pago correspondiente antes de la fecha límite.</p>
+                            
+                            <div class="highlight-box">
+                                <p style="margin: 0 0 8px 0;"><strong>Número de Pago Electrónico (NPE):</strong></p>
+                                <p style="margin: 0; font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #b30000;">%s</p>
+                                <hr style="border: 0; border-top: 1px solid #ddd; margin: 12px 0;">
+                                <p style="margin: 0 0 4px 0;"><strong>Monto Total a Cancelar:</strong> $%s</p>
+                                <p style="margin: 0; color: #b30000;"><strong>Fecha Límite de Pago:</strong> %s (48 horas hábiles)</p>
+                            </div>
 
-                        <p><strong>Instrucciones para Colecturía / Agencias Bancarias:</strong></p>
-                        <ol style="padding-left: 20px;">
-                            <li>Presenta este correo o tu documento de identidad en ventanilla de Colecturía.</li>
-                            <li>Indica al cajero el código NPE provisto arriba.</li>
-                            <li>Una vez acreditado el pago, el sistema activará tu matrícula y enviará tus credenciales institucionales de acceso a este correo.</li>
-                        </ol>
+                            <p><strong>Instrucciones para Colecturía / Agencias Bancarias:</strong></p>
+                            <ol style="padding-left: 20px; margin-top: 10px;">
+                                <li>Presenta este correo o tu documento de identidad en ventanilla de Colecturía.</li>
+                                <li>Una vez acreditado el pago, el sistema activará tu matrícula y enviará tus credenciales institucionales de acceso a este correo.</li>
+                            </ol>
 
-                        <p style="font-size: 12px; color: #777777; margin-top: 24px;">
-                            <strong>Aviso Importante:</strong> Si el abono no se registra antes del %s, la pre-matrícula y los cupos reservados serán liberados de manera automática.
-                        </p>
+                            <p style="font-size: 13px; color: #6b7280; margin-top: 24px;">
+                                <strong>Aviso Importante:</strong> Si el abono no se registra antes del %s, la pre-matrícula y los cupos reservados serán liberados de manera automática.
+                            </p>
+                            
+                            <p style="margin-top: 30px;">Atentamente,<br><strong>Dirección de Admisiones - UMA</strong></p>
+                        </div>
+                        <div class="email-footer">&copy; 2026 Universidad Modular Abierta (UMA). Todos los derechos reservados.</div>
                     </div>
-                    <div style="background-color: #eeeeee; padding: 12px; text-align: center; font-size: 11px; color: #888888;">
-                        Este es un mensaje generado de forma automática. Por favor no responder a este remitente.
-                    </div>
-                </div>
-            """.formatted(nombreAspirante, npe, monto.toString(), fechaFormateada, fechaFormateada);
+                </body>
+                </html>
+                """,
+                    CSS_BASE,
+                    nombreAspirante,
+                    npe,
+                    montoFormateado,
+                    fechaFormateada,
+                    fechaFormateada
+            );
 
-            helper.setText(contenidoHtml, true);
+            helper.setText(htmlContent, true);
             mailSender.send(mensaje);
             log.info("Correo con NPE despachado con éxito a {}", correoDestinatario);
 
