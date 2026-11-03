@@ -86,7 +86,8 @@ public class FinanzasController {
             Number idSedeNumber = jwtService.extractClaim(token, claims -> claims.get("idSede", Number.class));
             Long idSedeCajero = idSedeNumber != null ? idSedeNumber.longValue() : 1L;
 
-            Map<String, Object> resultado = finanzasService.procesarPagoVentanilla(request, correoCajero, idSedeCajero);
+            // EL 1L AL FINAL INDICA CANAL "VENTANILLA"
+            Map<String, Object> resultado = finanzasService.procesarPagoGral(request, correoCajero, idSedeCajero, 1L);
 
             return ResponseEntity.ok(resultado);
         } catch (RuntimeException e) {
@@ -175,6 +176,33 @@ public class FinanzasController {
             Map<String, String> errorResponse = new HashMap<>();
             errorResponse.put("error", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+        }
+    }
+
+    // ====================================================================
+    // NUEVO: PAGO EN LÍNEA PARA ESTUDIANTES (Self-Service)
+    // ====================================================================
+    @PostMapping("/estudiantes/pagos/en-linea")
+    @PreAuthorize("hasRole('ESTUDIANTE')")
+    public ResponseEntity<?> procesarPagoEnLinea(
+            @Valid @RequestBody ProcesarPagoRequestDTO request,
+            @RequestHeader("Authorization") String authHeader) {
+        try {
+            String token = authHeader.substring(7);
+            String correoEstudiante = jwtService.extractUsername(token);
+
+            // EL 2L AL FINAL INDICA CANAL "PORTAL"
+            Map<String, Object> resultado = finanzasService.procesarPagoGral(request, correoEstudiante, 1L, 2L);
+
+            return ResponseEntity.ok(resultado);
+        } catch (RuntimeException e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+        } catch (Exception e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Error interno al procesar el pago online: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
     }
 

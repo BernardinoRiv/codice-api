@@ -288,7 +288,7 @@ public class FinanzasService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> procesarPagoVentanilla(ProcesarPagoRequestDTO request, String usuarioCajero, Long idSedeCajero) {
+    public Map<String, Object> procesarPagoGral(ProcesarPagoRequestDTO request, String correoUsuarioEjecutor, Long idSede, Long idCanalPago) {
         boolean tieneFijos = request.getIdsCargosAPagar() != null && !request.getIdsCargosAPagar().isEmpty();
         boolean tieneAdicionales = request.getArancelesAdicionales() != null && !request.getArancelesAdicionales().isEmpty();
 
@@ -395,9 +395,6 @@ public class FinanzasService {
         MetodoPago metodoPago = metodoPagoRepository.findById(Long.valueOf(request.getIdMetodoPago().toString()))
                 .orElseThrow(() -> new RuntimeException("El método de pago proporcionado no es válido."));
 
-        PuntoRecaudo punto = puntoRecaudoRepository.findFirstBySede_IdSedeAndActivoTrue(idSedeCajero)
-                .orElseThrow(() -> new RuntimeException("No se encontró una caja activa para procesar el pago."));
-
         Pago nuevoPago = new Pago();
         nuevoPago.setMontoPagado(totalEsperado);
         nuevoPago.setFechaPago(LocalDateTime.now());
@@ -412,23 +409,35 @@ public class FinanzasService {
         nuevoPago.setEstudiante(estudiantePagador);
         nuevoPago.setMetodoPago(metodoPago);
 
+        // AQUÍ ASIGNAMOS EL CANAL DINÁMICO (Ventanilla o Portal)
         CanalPago canal = new CanalPago();
-        canal.setIdCanalPago(1L);
+        canal.setIdCanalPago(idCanalPago);
         nuevoPago.setCanalPago(canal);
 
         EstadoPago estado = new EstadoPago();
         estado.setIdEstadoPago(1L);
         nuevoPago.setEstadoPago(estado);
 
-        nuevoPago.setPuntoRecaudo(punto);
+        // =========================================================================
+        // LÓGICA DE CAJA: Solo exigimos caja activa si es pago en VENTANILLA (ID 1)
+        // =========================================================================
+        if (idCanalPago == 1L) {
+            PuntoRecaudo punto = puntoRecaudoRepository.findFirstBySede_IdSedeAndActivoTrue(idSede)
+                    .orElseThrow(() -> new RuntimeException("No se encontró una caja activa para procesar el pago."));
+            nuevoPago.setPuntoRecaudo(punto);
+        } else {
+            // Si es por PORTAL (ID 2), lo dejamos en NULL o buscamos una "Caja Virtual" si tuvieras una configurada.
+            nuevoPago.setPuntoRecaudo(null);
+        }
 
-        Usuario usuarioCajeroEntity = usuarioRepository.findByCorreoInstitucional(usuarioCajero)
-                .orElseThrow(() -> new RuntimeException("Usuario cajero no encontrado."));
-        nuevoPago.setUsuarioRegistro(usuarioCajeroEntity);
+        Usuario usuarioEjecutorEntity = usuarioRepository.findByCorreoInstitucional(correoUsuarioEjecutor)
+                .orElseThrow(() -> new RuntimeException("Usuario ejecutor no encontrado."));
+        nuevoPago.setUsuarioRegistro(usuarioEjecutorEntity);
 
         pagoRepository.save(nuevoPago);
 
-        // OBTENEMOS EL ESTADO PAGADO (ID 2 de la tabla estado_cargo)
+        // (El resto del código del método se mantiene exactamente igual...)
+
         EstadoCargo estadoPagado = estadoCargoRepository.findById(2L)
                 .orElseThrow(() -> new RuntimeException("Estado PAGADO no configurado (ID 2)."));
 
@@ -444,18 +453,13 @@ public class FinanzasService {
             pagoCargo.setMontoAplicado(cargo.getMontoTotal());
             pagoCargoRepository.save(pagoCargo);
 
-            // ========================================================
-            // ACTIVAR LA MATRÍCULA A "MATRICULADA" (ID 2)
-            // ========================================================
             String nombreCobro = cargo.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase();
             if (nombreCobro.contains("matrícula") || nombreCobro.contains("matricula")) {
                 Matricula matriculaPagada = cargo.getMatricula();
 
-                // Si la matrícula actual está en PENDIENTE_PAGO (ID 1)
                 if (matriculaPagada != null && matriculaPagada.getEstadoMatricula() != null &&
                         matriculaPagada.getEstadoMatricula().getIdEstadoMatricula() == 1L) {
 
-                    // Asignamos el estado MATRICULADA (ID 2 de la tabla estado_matricula)
                     EstadoMatricula estadoMatriculada = estadoMatriculaRepository.findById(2L)
                             .orElseThrow(() -> new RuntimeException("Estado de matrícula MATRICULADA no configurado (ID 2)."));
 
@@ -464,7 +468,6 @@ public class FinanzasService {
                     log.info("Matrícula ID {} actualizada exitosamente a MATRICULADA tras efectuar el pago.", matriculaPagada.getIdMatricula());
                 }
             }
-            // ========================================================
         }
 
         Factura factura = new Factura();
@@ -486,16 +489,12 @@ public class FinanzasService {
         factura.setRecargo(totalRecargo);
         factura.setTotal(totalEsperado);
 
-        // ESTADO DE LA FACTURA EMITIDA (ID 1 de la tabla estado_factura)
         EstadoFactura estadoFactura = new EstadoFactura();
         estadoFactura.setIdEstadoFactura(1L);
         factura.setEstadoFactura(estadoFactura);
 
         facturaRepository.save(factura);
 
-        // ========================================================
-        // CREACIÓN DE USUARIO PARA NUEVOS INGRESOS
-        // ========================================================
         boolean esNuevoIngreso = (estudiantePagador.getUsuario() == null);
         String correoInstitucionalGenerado = null;
         String claveTemporal = null;
@@ -524,7 +523,6 @@ public class FinanzasService {
 
             log.info("Nuevo usuario institucional creado exitosamente para: {}", correoInstitucionalGenerado);
         }
-        // ========================================================
 
         final BigDecimal totalCobradoFinal = totalEsperado;
 
@@ -548,7 +546,9 @@ public class FinanzasService {
 
         String correoReal = personaEstudiante.getCorreoPersonal();
         String nombreCompletoEst = personaEstudiante.getNombres() + " " + personaEstudiante.getApellidos();
-        String nombreCajero = usuarioCajeroEntity.getPersona().getNombres() + " " + usuarioCajeroEntity.getPersona().getApellidos();
+
+        // MOSTRAR PORTAL EN EL RECIBO SI ES ONLINE
+        String nombreCajero = (idCanalPago == 2L) ? "PAGO EN LÍNEA (PORTAL)" : (usuarioEjecutorEntity.getPersona().getNombres() + " " + usuarioEjecutorEntity.getPersona().getApellidos());
 
         String carnetComprobante = estudiantePagador.getCarnet();
         String nroFactura = factura.getNumeroFactura();
@@ -716,6 +716,7 @@ public class FinanzasService {
                 .orElse("Carrera no asignada");
 
         EstadoCuentaCicloDTO.EstudianteInfo infoEstudiante = EstadoCuentaCicloDTO.EstudianteInfo.builder()
+                .idEstudiante(estudiante.getIdEstudiante()) // <--- SOLUCIÓN AL ERROR 422
                 .carnet(estudiante.getCarnet())
                 .nombreCompleto(estudiante.getPersona().getNombres() + " " + estudiante.getPersona().getApellidos())
                 .carrera(nombreCarrera)
@@ -739,7 +740,9 @@ public class FinanzasService {
                 recargoMora = new BigDecimal("5.00");
             }
 
-            BigDecimal montoFinalCargo = cargo.getMontoBase().subtract(cargo.getMontoDescuento()).add(recargoMora);
+            BigDecimal montoBaseNeto = cargo.getMontoBase().subtract(cargo.getMontoDescuento());
+            BigDecimal montoFinalCargo = montoBaseNeto.add(recargoMora);
+
             deudaTotal = deudaTotal.add(montoFinalCargo);
 
             String mesAsignado = cargo.getFechaVencimiento() != null ? nombresMeses[cargo.getFechaVencimiento().getMonthValue() - 1] : "N/A";
@@ -753,6 +756,8 @@ public class FinanzasService {
                         .mes(mesAsignado)
                         .fechaVencimiento(cargo.getFechaVencimiento())
                         .monto(montoFinalCargo)
+                        .montoBase(montoBaseNeto)      // <--- ENVIAMOS BASE SEPARADA
+                        .montoRecargo(recargoMora)     // <--- ENVIAMOS MORA SEPARADA
                         .build());
             }
         }
@@ -762,7 +767,6 @@ public class FinanzasService {
 
         for (PagoCargo pc : pagosAplicados) {
             totalPagado = totalPagado.add(pc.getMontoAplicado());
-
             Pago pago = pc.getPago();
             String conceptoPagado = pc.getCargo().getConceptoCobro().getTipoCobro().getTipoCobro();
 
