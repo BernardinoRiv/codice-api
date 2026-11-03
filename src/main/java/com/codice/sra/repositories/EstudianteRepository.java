@@ -23,8 +23,11 @@ public interface EstudianteRepository extends JpaRepository<Estudiante, Long> {
 
     Optional<Estudiante> findByPersona_NumeroDocumento(String numeroDocumento);
 
+    @Query("SELECT e FROM Estudiante e WHERE e.usuario.idUsuario = :idUsuario")
+    Optional<Estudiante> findByIdUsuario(@Param("idUsuario") Long idUsuario);
 
 
+    Optional<Estudiante> findByUsuario_IdUsuario(Long idUsuario);
 
     // Valida si la persona ya es un estudiante activo con usuario asignado
     Optional<Estudiante> findByPersona_NumeroDocumentoAndUsuarioIsNotNull(String numeroDocumento);

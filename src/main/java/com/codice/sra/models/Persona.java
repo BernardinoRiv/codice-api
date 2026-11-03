@@ -54,4 +54,7 @@ public class Persona {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "id_distrito", nullable = false)
     private Distrito distrito;
+
+    @Column(name = "url_foto", length = 500)
+    private String urlFoto;
 }

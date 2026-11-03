@@ -101,4 +101,6 @@ public interface HorarioRepository extends JpaRepository<Horario, Long> {
             "LEFT JOIN FETCH h.aula a " +
             "WHERE h.grupo.idGrupo = :idGrupo")
     List<Horario> findHorariosParaOfertaAcademica(@Param("idGrupo") Long idGrupo);
+
+    List<Horario> findByGrupo_IdGrupo(Long idGrupo);
 }

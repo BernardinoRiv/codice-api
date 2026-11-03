@@ -19,6 +19,7 @@ public class EstadoCuentaCicloDTO {
     @Data
     @Builder
     public static class EstudianteInfo {
+        private Long idEstudiante;
         private String carnet;
         private String nombreCompleto;
         private String carrera;
@@ -40,6 +41,8 @@ public class EstadoCuentaCicloDTO {
         private String mes;
         private LocalDate fechaVencimiento;
         private BigDecimal monto;
+        private BigDecimal montoBase;    // <--- AGREGAR ESTO (Cuota sin mora)
+        private BigDecimal montoRecargo;
     }
 
     @Data
