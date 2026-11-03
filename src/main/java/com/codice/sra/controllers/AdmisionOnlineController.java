@@ -15,6 +15,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/v1/public/admision-online")
 @RequiredArgsConstructor
@@ -23,6 +25,8 @@ import org.springframework.web.bind.annotation.*;
 public class AdmisionOnlineController {
 
     private final AdmisionOnlineService admisionOnlineService;
+
+
 
     // =========================================================================
     // ENDPOINT 1: VERIFICACIÓN PÚBLICA DE IDENTIDAD (Pantalla 1)
@@ -116,4 +120,35 @@ public class AdmisionOnlineController {
         admisionOnlineService.cancelarTramiteVoluntario(idMatricula);
         return ResponseEntity.noContent().build();
     }
+
+    @Operation(
+            summary = "Generar boleta NPE y enviar por correo",
+            description = "Ejecutado en el Paso 3 cuando el aspirante selecciona pago en Ventanilla."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Boleta NPE generada y enviada correctamente."
+            ),
+            @ApiResponse(
+                    responseCode = "404",
+                    description = "Matrícula no encontrada."
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "No se puede generar la boleta para el estado actual de la matrícula."
+            )
+    })
+    @PostMapping("/{idMatricula}/generar-boleta-npe")
+    public ResponseEntity<Map<String, String>> generarBoletaNpe(
+            @PathVariable Long idMatricula) {
+
+        String npe = admisionOnlineService.generarYDespacharBoletaNpe(idMatricula);
+
+        return ResponseEntity.ok(Map.of(
+                "npe", npe,
+                "mensaje", "Boleta generada y enviada al correo del aspirante."
+        ));
+    }
+
 }

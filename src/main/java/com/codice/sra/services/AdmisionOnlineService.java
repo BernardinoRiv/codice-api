@@ -408,46 +408,16 @@ public class AdmisionOnlineService {
                 .add(arancelCuota.getMontoBase())
                 .add(totalExtraordinaria);
 
-        // =========================================================================
-        // 2.8 BIFURCACIÓN DE CANAL (Ventanilla vs Pasarela en Línea)
-        // =========================================================================
-        String npeGenerado = null;
-        String mensajeRetorno;
-
-        if ("VENTANILLA".equalsIgnoreCase(dto.getModalidadPago())) {
-            npeGenerado = String.format("0981%08d%06d%04d",
-                    estudiante.getIdEstudiante(),
-                    cargoMatricula.getIdCargoEstudiante(),
-                    cicloMatricula.getAnio());
-
-            mensajeRetorno = "Pre-matrícula confirmada. Tienes 48 horas para cancelar en Colecturía tu Matrícula + Primera Cuota con tu documento o NPE.";
-
-            final String npeFinal = npeGenerado;
-            final String correoAspirante = persona.getCorreoPersonal();
-            final String nombreAspirante = persona.getNombres() + " " + persona.getApellidos();
-            final BigDecimal montoFinal = totalInicialExigible;
-
-            CompletableFuture.runAsync(() -> {
-                try {
-                    emailService.enviarBoletaPreMatriculaNpe(correoAspirante, nombreAspirante, npeFinal, montoFinal, fechaLimitePreMatricula);
-                    log.info("Boleta digital con NPE despachada a: {}", correoAspirante);
-                } catch (Exception e) {
-                    log.error("Fallo al despachar correo de orden NPE: {}", e.getMessage(), e);
-                }
-            });
-        } else {
-            mensajeRetorno = "Cupos reservados exitosamente. Procede al pago en línea de Matrícula + Primera Cuota mediante tarjeta de crédito o débito.";
-        }
-
+        // Retorno limpio sin enviar correos ni validar el canal de pago aquí
         return MatriculaOnlineResponseDTO.builder()
                 .idMatricula(matricula.getIdMatricula())
-                .modalidadPago(dto.getModalidadPago())
                 .totalAPagar(totalInicialExigible)
                 .fechaVencimiento(fechaLimitePreMatricula)
-                .npe(npeGenerado)
-                .mensaje(mensajeRetorno)
+                .mensaje("Cupos reservados exitosamente. Procede a seleccionar tu método de pago.")
                 .build();
     }
+
+
 
     // =========================================================================
     // CASO 3: LIQUIDACIÓN EN LÍNEA, DETONANTE IAM Y FACTURACIÓN (Fase 2)
@@ -701,21 +671,92 @@ public class AdmisionOnlineService {
         return "****-" + tel.substring(tel.length() - 4);
     }
 
+//    private synchronized String generarCarnetDeterministico(String nombres, String apellidos, int anio) {
+//        String inA = (apellidos != null && !apellidos.isBlank()) ? apellidos.substring(0, 1).toUpperCase() : "X";
+//        String inN = (nombres != null && !nombres.isBlank()) ? nombres.substring(0, 1).toUpperCase() : "X";
+//
+//        // Se toma el ID más alto existente para asegurar que el correlativo siempre crezca de forma monotónica
+//        long correlativo = estudianteRepository.obtenerUltimoIdEstudiante() + 1;
+//        String anioCorto = String.valueOf(anio).substring(2);
+//        String candidato = String.format("%s%s%s%04d", inA, inN, anioCorto, correlativo);
+//
+//        while (estudianteRepository.existsByCarnet(candidato)) {
+//            correlativo++;
+//            candidato = String.format("%s%s%s%04d", inA, inN, anioCorto, correlativo);
+//        }
+//        return candidato;
+//    }
+
+    // --- Generación de Carnet Institucional ---
     private synchronized String generarCarnetDeterministico(String nombres, String apellidos, int anio) {
-        String inA = (apellidos != null && !apellidos.isBlank()) ? apellidos.substring(0, 1).toUpperCase() : "X";
-        String inN = (nombres != null && !nombres.isBlank()) ? nombres.substring(0, 1).toUpperCase() : "X";
-
-        // Se toma el ID más alto existente para asegurar que el correlativo siempre crezca de forma monotónica
-        long correlativo = estudianteRepository.obtenerUltimoIdEstudiante() + 1;
+        String inicialApellido = (apellidos != null && !apellidos.trim().isEmpty()) ? apellidos.trim().substring(0, 1).toUpperCase() : "X";
+        String inicialNombre = (nombres != null && !nombres.trim().isEmpty()) ? nombres.trim().substring(0, 1).toUpperCase() : "X";
         String anioCorto = String.valueOf(anio).substring(2);
-        String candidato = String.format("%s%s%s%04d", inA, inN, anioCorto, correlativo);
 
+        // PRÁCTICA EMPRESARIAL: Usar el correlativo más alto, nunca count(), para soportar eliminaciones de registros.
+        long correlativo = estudianteRepository.obtenerUltimoIdEstudiante() + 1;
+        String numeroFormateado = String.format("%04d", correlativo);
+        String candidato = inicialApellido + inicialNombre + anioCorto + numeroFormateado;
+
+        // BUCLE DE SEGURIDAD: Prevención definitiva de colisiones en concurrencia masiva
         while (estudianteRepository.existsByCarnet(candidato)) {
             correlativo++;
-            candidato = String.format("%s%s%s%04d", inA, inN, anioCorto, correlativo);
+            numeroFormateado = String.format("%04d", correlativo);
+            candidato = inicialApellido + inicialNombre + anioCorto + numeroFormateado;
         }
+
         return candidato;
     }
 
+    @Transactional(readOnly = true)
+    public String generarYDespacharBoletaNpe(Long idMatricula) {
+        Matricula matricula = matriculaRepository.findById(idMatricula)
+                .orElseThrow(() -> new IllegalArgumentException("Matrícula no encontrada."));
+
+        if (!"PENDIENTE_PAGO".equalsIgnoreCase(matricula.getEstadoMatricula().getEstadoMatricula())) {
+            throw new IllegalStateException("La matrícula ya no se encuentra pendiente de pago.");
+        }
+
+        Estudiante estudiante = matricula.getEstudiante();
+        Persona persona = estudiante.getPersona();
+
+        // Obtener el cargo de Matrícula (ID 1) para armar el NPE
+        CargoEstudiante cargoMatricula = cargoEstudianteRepository
+                .findByMatricula_IdMatriculaAndEstadoCargo_EstadoCargoOrderByNumeroCuotaAsc(idMatricula, "PENDIENTE")
+                .stream()
+                .filter(c -> c.getNumeroCuota() == 1 && c.getConceptoCobro().getTipoCobro().getIdTipoCobro() == 1L)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Cargo de matrícula base no encontrado."));
+
+        // Calcular el monto 1+1 (Matrícula + Cuota 1)
+        BigDecimal totalExigible = cargoEstudianteRepository
+                .findByMatricula_IdMatriculaAndEstadoCargo_EstadoCargoOrderByNumeroCuotaAsc(idMatricula, "PENDIENTE")
+                .stream()
+                .filter(c -> c.getNumeroCuota() == 1)
+                .map(CargoEstudiante::getMontoTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        String npeGenerado = String.format("0981%08d%06d%04d",
+                estudiante.getIdEstudiante(),
+                cargoMatricula.getIdCargoEstudiante(),
+                matricula.getCiclo().getAnio());
+
+        final String correoDestino = persona.getCorreoPersonal();
+        final String nombreCompleto = persona.getNombres() + " " + persona.getApellidos();
+        final String npeFinal = npeGenerado;
+        final BigDecimal montoFinal = totalExigible;
+        final LocalDate fechaLimite = cargoMatricula.getFechaVencimiento();
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                emailService.enviarBoletaPreMatriculaNpe(correoDestino, nombreCompleto, npeFinal, montoFinal, fechaLimite);
+                log.info("Boleta NPE despachada con éxito a: {}", correoDestino);
+            } catch (Exception e) {
+                log.error("Fallo al enviar correo NPE a {}: {}", correoDestino, e.getMessage());
+            }
+        });
+
+        return npeGenerado;
+    }
 
 }
