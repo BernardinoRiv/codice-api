@@ -16,7 +16,7 @@ public class EstadoAulaController {
 
     @GetMapping
     public ResponseEntity<List<EstadoAula>> listar() {
-        return ResponseEntity.ok(service.obtenerActivos());
+        return ResponseEntity.ok(service.obtenerTodos());
     }
 
     @PostMapping

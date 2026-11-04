@@ -16,7 +16,7 @@ public class EstadoBeneficioController {
 
     @GetMapping
     public ResponseEntity<List<EstadoBeneficio>> listar() {
-        return ResponseEntity.ok(service.obtenerActivos());
+        return ResponseEntity.ok(service.obtenerTodos());
     }
 
     @PostMapping

@@ -15,4 +15,7 @@ public class EstadoFactura {
 
     @Column(name = "estado_factura", nullable = false, unique = true, length = 50)
     private String estadoFactura;
+
+    @Column(nullable = false)
+    private Boolean activo = true;
 }

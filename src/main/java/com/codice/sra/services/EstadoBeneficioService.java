@@ -16,6 +16,10 @@ public class EstadoBeneficioService {
         return repository.findByActivoTrue();
     }
 
+    public List<EstadoBeneficio> obtenerTodos() {
+        return repository.findAll();
+    }
+
     public EstadoBeneficio guardar(EstadoBeneficio estado) {
         estado.setIdEstadoBeneficio(null);
         estado.setActivo(true);

@@ -50,4 +50,7 @@ public class EstadoCiclo {
                 ? ((HibernateProxy) this).getHibernateLazyInitializer().getPersistentClass().hashCode()
                 : getClass().hashCode();
     }
+
+    @Column(nullable = false)
+    private Boolean activo = true;
 }

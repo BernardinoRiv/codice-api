@@ -16,4 +16,7 @@ public class EstadoDocente {
 
     @Column(name = "estado_docente", nullable = false, unique = true)
     private String estadoDocente;
+
+    @Column(nullable = false)
+    private Boolean activo = true;
 }

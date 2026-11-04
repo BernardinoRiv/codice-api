@@ -15,4 +15,7 @@ public class EstadoPensum {
 
     @Column(name = "estado_pensum", nullable = false, unique = true, length = 50)
     private String estadoPensum;
+
+    @Column(nullable = false)
+    private Boolean activo = true;
 }

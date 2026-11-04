@@ -15,4 +15,7 @@ public class EstadoCarrera {
 
     @Column(name = "estado_carrera", nullable = false, unique = true, length = 50)
     private String estadoCarrera;
+
+    @Column(nullable = false)
+    private Boolean activo = true;
 }
