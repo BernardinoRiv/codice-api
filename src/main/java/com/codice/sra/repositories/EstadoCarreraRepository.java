@@ -8,6 +8,6 @@ import java.util.Optional;
 
 @Repository
 public interface EstadoCarreraRepository extends JpaRepository<EstadoCarrera, Long> {
-    Optional<EstadoCarrera> findByEstadoCarrera(String estadoCarrera);
+    Optional<EstadoCarrera> findByEstadoCarreraIgnoreCase(String estadoCarrera);
     List<EstadoCarrera> findByActivoTrue();
 }
