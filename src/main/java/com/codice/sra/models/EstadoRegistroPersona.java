@@ -14,6 +14,7 @@ import java.time.OffsetDateTime;
 public class EstadoRegistroPersona {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id_estado_registro")
     private Long idEstadoRegistro;
 
@@ -25,4 +26,7 @@ public class EstadoRegistroPersona {
 
     @Column(name = "fecha_creacion", updatable = false)
     private OffsetDateTime fechaCreacion;
+
+    @Column(nullable = false)
+    private Boolean activo = true;
 }

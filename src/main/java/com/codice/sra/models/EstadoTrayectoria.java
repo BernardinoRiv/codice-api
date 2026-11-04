@@ -15,4 +15,7 @@ public class EstadoTrayectoria {
 
     @Column(name = "estado_trayectoria", nullable = false, unique = true, length = 50)
     private String estadoTrayectoria;
+
+    @Column(nullable = false)
+    private Boolean activo = true;
 }

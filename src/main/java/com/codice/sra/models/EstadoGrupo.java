@@ -15,4 +15,7 @@ public class EstadoGrupo {
 
     @Column(name = "estado_grupo", nullable = false, unique = true, length = 50)
     private String estadoGrupo;
+
+    @Column(nullable = false)
+    private Boolean activo = true;
 }
