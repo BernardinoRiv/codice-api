@@ -48,3 +48,4 @@ build/
 
 # Ignorar configuraciones locales con secretos
 application-local.properties
+uploads
