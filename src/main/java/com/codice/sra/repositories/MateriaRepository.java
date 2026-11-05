@@ -29,4 +29,16 @@ public interface MateriaRepository extends JpaRepository<Materia, Long> {
             "AND m.estadoMateria = true " +
             "ORDER BY pm.cicloRecomendado ASC, m.nombreMateria ASC")
     List<MateriaPensumResponseDTO> findMateriasActivasPorCarrera(@Param("idCarrera") Long idCarrera);
+
+    @Query("""
+        SELECT DISTINCT c.nombreCarrera
+        FROM PensumMateria pm
+        JOIN pm.pensum p
+        JOIN p.carrera c
+        JOIN p.estadoPensum ep
+        WHERE pm.materia.idMateria = :idMateria
+          AND UPPER(TRIM(ep.estadoPensum)) = 'VIGENTE'
+    """)
+    List<String> findCarrerasVigentesPorMateria(@Param("idMateria") Long idMateria);
+    
 }

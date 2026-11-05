@@ -3,10 +3,7 @@ package com.codice.sra.services;
 import com.codice.sra.dtos.EmpleadoRegistroRequestDTO;
 import com.codice.sra.dtos.EmpleadoRegistroResponseDTO;
 import com.codice.sra.models.*;
-import com.codice.sra.repositories.AreaRepository;
-import com.codice.sra.repositories.CargoRepository;
-import com.codice.sra.repositories.EmpleadoRepository;
-import com.codice.sra.repositories.EstadoEmpleadoRepository;
+import com.codice.sra.repositories.*;
 import com.codice.sra.utils.UserUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,25 +24,31 @@ public class EmpleadoService {
     private final EstadoEmpleadoRepository estadoEmpleadoRepository;
     private final PersonaService personaService;
     private final UsuarioService usuarioService;
+    private final SedeRepository sedeRepository;
 
     public EmpleadoService(EmpleadoRepository empleadoRepository,
                            AreaRepository areaRepository,
                            CargoRepository cargoRepository,
                            EstadoEmpleadoRepository estadoEmpleadoRepository,
                            PersonaService personaService,
-                           UsuarioService usuarioService) {
+                           UsuarioService usuarioService,
+                           SedeRepository sedeRepository) {
         this.empleadoRepository = empleadoRepository;
         this.areaRepository = areaRepository;
         this.cargoRepository = cargoRepository;
         this.estadoEmpleadoRepository = estadoEmpleadoRepository;
         this.personaService = personaService;
         this.usuarioService = usuarioService;
+        this.sedeRepository = sedeRepository;
     }
 
     @Transactional
     public EmpleadoRegistroResponseDTO registrarEmpleado(EmpleadoRegistroRequestDTO request) {
         // 1. Obtener o crear persona mediante el contrato PersonaInputDTO
         Persona persona = personaService.obtenerOCrearPersona(request);
+
+        Sede sede = sedeRepository.findById(request.getIdSede())
+                .orElseThrow(() -> new IllegalArgumentException("No existe ninguna sede registrada con el ID: " + request.getIdSede()));
 
         // 2. Aprovisionar credenciales y cuenta de usuario delegando en UsuarioService
         Usuario usuario = usuarioService.aprovisionarUsuario(persona, ROL_EMPLEADO, LONGITUD_PASSWORD);
@@ -75,6 +78,7 @@ public class EmpleadoService {
         Empleado empleado = new Empleado();
         empleado.setPersona(persona);
         empleado.setUsuario(usuario);
+        empleado.setSede(sede);
         empleado.setArea(area);
         empleado.setCargo(cargo);
         empleado.setEstadoEmpleado(estadoEmpleado);

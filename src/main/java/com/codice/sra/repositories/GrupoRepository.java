@@ -1,7 +1,11 @@
 package com.codice.sra.repositories;
 
+import com.codice.sra.dtos.ResumenCarreraOfertaDTO;
 import com.codice.sra.models.Grupo;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -40,4 +44,71 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
 
     Optional<Grupo> findById(Long id);
     List<Grupo> findByDocenteIdDocenteAndCicloIdCiclo(Long idDocente, Long idCiclo);
+
+    // Verifica si existen secciones asociadas al ciclo
+    boolean existsByCiclo_IdCiclo(Long idCiclo);
+
+    // Consulta los grupos de un ciclo específico para gestión o limpieza
+    List<Grupo> findByCiclo_IdCiclo(Long idCiclo);
+
+    @Query("""
+        SELECT new com.codice.sra.dtos.ResumenCarreraOfertaDTO(
+            c.idCarrera,
+            c.codigoCarrera,
+            c.nombreCarrera,
+            COUNT(DISTINCT g.idGrupo)
+        )
+        FROM Grupo g
+        JOIN g.materia m
+        JOIN PensumMateria pm ON pm.materia.idMateria = m.idMateria
+        JOIN pm.pensum p
+        JOIN p.estadoPensum ep
+        JOIN p.carrera c
+        JOIN CarreraSede cs ON cs.carrera.idCarrera = c.idCarrera AND cs.sede.idSede = g.sede.idSede
+        WHERE g.ciclo.idCiclo = :idCiclo
+          AND UPPER(TRIM(ep.estadoPensum)) = 'VIGENTE'
+        GROUP BY c.idCarrera, c.codigoCarrera, c.nombreCarrera
+        ORDER BY c.nombreCarrera ASC
+    """)
+    List<ResumenCarreraOfertaDTO> contarSeccionesPorCarreraEnCiclo(@Param("idCiclo") Long idCiclo);
+
+    @Query("""
+        SELECT COUNT(g) FROM Grupo g
+        WHERE g.docente.idDocente = :idDocente
+          AND g.ciclo.idCiclo = :idCiclo
+    """)
+    long countByDocenteIdDocenteAndCicloIdCiclo(@Param("idDocente") Long idDocente, @Param("idCiclo") Long idCiclo);
+
+
+    // Obtener únicamente los IDs para no cargar entidades pesadas a la memoria de Hibernate
+    @Query("SELECT g.idGrupo FROM Grupo g WHERE g.ciclo.idCiclo = :idCiclo")
+    List<Long> findIdsByCiclo_IdCiclo(@Param("idCiclo") Long idCiclo);
+
+    // Borrado directo en BD sin ensuciar el contexto de persistencia
+    @Modifying
+    @Query("DELETE FROM Grupo g WHERE g.ciclo.idCiclo = :idCiclo")
+    void deleteByCiclo_IdCiclo(@Param("idCiclo") Long idCiclo);
+
+    // Trae los grupos activos de una lista de materias en una sede y ciclo específicos
+    @Query("SELECT g FROM Grupo g JOIN FETCH g.docente d JOIN FETCH d.persona p WHERE g.materia.idMateria IN :idMaterias AND g.sede.idSede = :idSede AND g.ciclo.idCiclo = :idCiclo AND g.estadoGrupo.estadoGrupo = 'ACTIVO'")
+    List<Grupo> findGruposDisponiblesParaMaterias(@Param("idMaterias") List<Long> idMaterias, @Param("idSede") Long idSede, @Param("idCiclo") Long idCiclo);
+
+    @Query("SELECT g FROM Grupo g " +
+            "JOIN FETCH g.materia m " +
+            "LEFT JOIN FETCH g.docente d " +
+            "LEFT JOIN FETCH d.persona p " +
+            "JOIN FETCH g.estadoGrupo eg " +
+            "WHERE m.idMateria IN :idMaterias " +
+            "AND g.sede.idSede = :idSede " +
+            "AND g.ciclo.idCiclo = :idCiclo " +
+            "AND UPPER(eg.estadoGrupo) IN ('ABIERTO', 'ACTIVO')")
+    List<Grupo> findGruposParaOfertaAcademica(@Param("idMaterias") List<Long> idMaterias,
+                                              @Param("idSede") Long idSede,
+                                              @Param("idCiclo") Long idCiclo);
+
+
+    // Bloqueo pesimista para lectura y reserva atómica de cupo
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT g FROM Grupo g WHERE g.idGrupo = :idGrupo")
+    Optional<Grupo> findByIdWithLock(@Param("idGrupo") Long idGrupo);
 }

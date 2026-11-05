@@ -1,19 +1,23 @@
 package com.codice.sra.services;
 
-import com.codice.sra.dtos.PersonaConsultaResponseDTO;
-import com.codice.sra.dtos.PersonaInputDTO;
-import com.codice.sra.dtos.PersonaRegistroRequestDTO;
-import com.codice.sra.dtos.PersonaResponseDTO;
+import com.codice.sra.dtos.*;
+import com.codice.sra.exceptions.DuplicateResourceException;
+import com.codice.sra.exceptions.ResourceNotFoundException;
 import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
 import com.codice.sra.utils.ValidadorDocumentoUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
+@Slf4j
 @Service
 public class PersonaService {
 
@@ -26,31 +30,54 @@ public class PersonaService {
     private final UsuarioRepository usuarioRepository;
     private final DocenteRepository docenteRepository;
     private final DistritoRepository distritoRepository;
+    private final EmpleadoRepository empleadoRepository;
 
     public PersonaService(PersonaRepository personaRepository,
                           EstadoRegistroPersonaRepository estadoRegistroRepository,
                           TipoDocumentoRepository tipoDocumentoRepository,
                           UsuarioRepository usuarioRepository,
                           DocenteRepository docenteRepository,
-                          DistritoRepository distritoRepository) {
+                          DistritoRepository distritoRepository,
+                          EmpleadoRepository empleadoRepository) {
         this.personaRepository = personaRepository;
         this.estadoRegistroRepository = estadoRegistroRepository;
         this.tipoDocumentoRepository = tipoDocumentoRepository;
         this.usuarioRepository = usuarioRepository;
         this.docenteRepository = docenteRepository;
         this.distritoRepository = distritoRepository;
+        this.empleadoRepository = empleadoRepository;
     }
 
 
     @Transactional(readOnly = true)
     public Optional<PersonaConsultaResponseDTO> buscarPorDocumento(String numeroDocumento) {
-        return personaRepository.findByNumeroDocumento(numeroDocumento)
+        return personaRepository.findByNumeroDocumentoConUbicacion(numeroDocumento)
                 .map(persona -> {
+                    // 1. Roles de usuario asignados
                     List<String> roles = usuarioRepository.findRolesByPersonaId(persona.getIdPersona());
 
-                    // Trae el docente, la sede y el tipo de contratación en una sola sentencia SQL
+                    // 2. Perfiles laborales concurrentes (un solo viaje de red cada uno)
                     Optional<Docente> docenteOpt = docenteRepository.findByPersonaIdConRelaciones(persona.getIdPersona());
+                    Optional<Empleado> empleadoOpt = empleadoRepository.findByPersonaIdConRelaciones(persona.getIdPersona());
 
+                    // 3. Resolución polimórfica de Sede (Docente -> Empleado)
+                    Sede sedeFinal = docenteOpt
+                            .map(Docente::getSede)
+                            .or(() -> empleadoOpt.map(Empleado::getSede))
+                            .orElse(null);
+
+                    // 4. Resolución polimórfica de Vigencia Laboral (Docente -> Empleado)
+                    LocalDate fechaInicioFinal = docenteOpt
+                            .map(Docente::getFechaInicio)
+                            .or(() -> empleadoOpt.map(Empleado::getFechaIngreso))
+                            .orElse(null);
+
+                    LocalDate fechaFinFinal = docenteOpt
+                            .map(Docente::getFechaFin)
+                            .or(() -> empleadoOpt.map(Empleado::getFechaFin))
+                            .orElse(null);
+
+                    // 5. Ubicación Geográfica (Segura contra nulos gracias al fetch temprano)
                     Distrito dist = persona.getDistrito();
                     Departamento dep = (dist != null) ? dist.getDepartamento() : null;
 
@@ -73,15 +100,19 @@ public class PersonaService {
                             .nombreDepartamento(dep != null ? dep.getNombre() : null)
                             .idDistrito(dist != null ? dist.getIdDistrito() : null)
                             .nombreDistrito(dist != null ? dist.getNombre() : null)
-                            // Atributos de enlace para el formulario del frontend
-                            .idSede(docenteOpt.map(d -> d.getSede() != null ? d.getSede().getIdSede() : null).orElse(null))
-                            .nombreSede(docenteOpt.map(d -> d.getSede() != null ? d.getSede().getNombreSede() : null).orElse(null))
-                            .idTipoContratacion(docenteOpt.map(d -> d.getTipoContratacion() != null ? d.getTipoContratacion().getIdTipoContratacion() : null).orElse(null))
-                            .tipoContratacion(docenteOpt.map(d -> d.getTipoContratacion() != null ? d.getTipoContratacion().getTipoContratacion() : null).orElse(null))
+                            // Campus / Sede física unificada
+                            .idSede(sedeFinal != null ? sedeFinal.getIdSede() : null)
+                            .nombreSede(sedeFinal != null ? sedeFinal.getNombreSede() : null)
+                            // Atributos de Contratación (Exclusivos de Docente)
+                            .idTipoContratacion(docenteOpt.map(d -> d.getTipoContratacion() != null
+                                    ? d.getTipoContratacion().getIdTipoContratacion() : null).orElse(null))
+                            .tipoContratacion(docenteOpt.map(d -> d.getTipoContratacion() != null
+                                    ? d.getTipoContratacion().getTipoContratacion() : null).orElse(null))
                             .idEspecialidad(null)
                             .especialidad(docenteOpt.map(Docente::getEspecialidad).orElse(null))
-                            .fechaInicioContrato(docenteOpt.map(Docente::getFechaInicio).orElse(null))
-                            .fechaFinContrato(docenteOpt.map(Docente::getFechaFin).orElse(null))
+                            // Vigencia laboral compartida
+                            .fechaInicioContrato(fechaInicioFinal)
+                            .fechaFinContrato(fechaFinFinal)
                             .build();
                 });
     }
@@ -144,6 +175,43 @@ public class PersonaService {
                 .orElseThrow(() -> new IllegalStateException("El estado '" + ESTADO_COMPLETADO + "' no está configurado en la base de datos"));
         persona.setEstadoRegistro(estadoCompletado);
         personaRepository.save(persona);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRED)
+    public boolean actualizarDatosContacto(Long idPersona, PersonaContactoEdicionDTO dto) {
+        Persona persona = personaRepository.findById(idPersona)
+                .orElseThrow(() -> new IllegalArgumentException("No se encontró la persona con ID: " + idPersona));
+
+        String telefonoLimpio = dto.getTelefono().trim().replaceAll("[\\s-]", "");
+        String telefonoNormalizado = telefonoLimpio.substring(0, 4) + "-" + telefonoLimpio.substring(4);
+        String correoNormalizado = dto.getCorreoPersonal().trim().toLowerCase();
+        String direccionNormalizada = dto.getDireccion().trim();
+
+        boolean telefonoIgual = Objects.equals(persona.getTelefono(), telefonoNormalizado);
+        boolean correoIgual = Objects.equals(persona.getCorreoPersonal(), correoNormalizado);
+        boolean direccionIgual = Objects.equals(persona.getDireccion(), direccionNormalizada);
+        boolean distritoIgual = persona.getDistrito() != null &&
+                Objects.equals(persona.getDistrito().getIdDistrito(), dto.getIdDistrito());
+
+        if (telefonoIgual && correoIgual && direccionIgual && distritoIgual) {
+            return false; // Indicamos que no hubo mutación
+        }
+
+        if (!correoIgual && personaRepository.existsByCorreoPersonalAndIdPersonaNot(correoNormalizado, idPersona)) {
+            throw new IllegalArgumentException("El correo personal '" + correoNormalizado + "' ya está registrado por otra persona en el sistema");
+        }
+
+        if (!distritoIgual) {
+            Distrito nuevoDistrito = distritoRepository.findById(dto.getIdDistrito())
+                    .orElseThrow(() -> new IllegalArgumentException("Distrito no válido con ID: " + dto.getIdDistrito()));
+            persona.setDistrito(nuevoDistrito);
+        }
+
+        persona.setTelefono(telefonoNormalizado);
+        persona.setCorreoPersonal(correoNormalizado);
+        persona.setDireccion(direccionNormalizada);
+
+        return true; // Hubo cambio
     }
 
     private PersonaResponseDTO mapToResponseDTO(Persona persona) {

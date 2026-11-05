@@ -1,9 +1,7 @@
 package com.codice.sra.services;
 
-import com.codice.sra.dtos.DocenteListaResponseDTO;
-import com.codice.sra.dtos.DocenteRegistroRequestDTO;
-import com.codice.sra.dtos.DocenteRegistroResponseDTO;
-import com.codice.sra.dtos.GrupoResponseDTO;
+import com.codice.sra.dtos.*;
+import com.codice.sra.exceptions.ResourceNotFoundException;
 import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
 import com.codice.sra.repositories.DocenteRepository;
@@ -12,10 +10,12 @@ import com.codice.sra.repositories.SedeRepository;
 import com.codice.sra.repositories.TipoContratacionDocenteRepository;
 import com.codice.sra.utils.UserUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,7 +34,8 @@ public class DocenteService {
     private final UsuarioService usuarioService;
     private final GrupoRepository grupoRepository;
     private final UsuarioRepository usuarioRepository;
-    private final CicloRepository cicloRepository; // Agregado para poder obtener el ciclo activo
+    private final CicloRepository cicloRepository;
+    private final AuditoriaService auditoriaService;
 
     public DocenteService(DocenteRepository docenteRepository,
                           SedeRepository sedeRepository,
@@ -44,7 +45,8 @@ public class DocenteService {
                           UsuarioService usuarioService,
                           GrupoRepository grupoRepository,
                           UsuarioRepository usuarioRepository,
-                          CicloRepository cicloRepository) {
+                          CicloRepository cicloRepository,
+                          AuditoriaService auditoriaService) {
         this.docenteRepository = docenteRepository;
         this.sedeRepository = sedeRepository;
         this.tipoContratacionRepository = tipoContratacionRepository;
@@ -53,18 +55,15 @@ public class DocenteService {
         this.usuarioService = usuarioService;
         this.grupoRepository = grupoRepository;
         this.usuarioRepository = usuarioRepository;
-        this.cicloRepository = cicloRepository; // Inyección de dependencia
+        this.cicloRepository = cicloRepository;
+        this.auditoriaService = auditoriaService;
     }
 
     @Transactional
     public DocenteRegistroResponseDTO registrarDocente(DocenteRegistroRequestDTO request) {
-        // 1. Obtener o crear persona mediante el contrato PersonaInputDTO
         Persona persona = personaService.obtenerOCrearPersona(request);
-
-        // 2. Aprovisionar credenciales y cuenta de usuario delegando en UsuarioService
         Usuario usuario = usuarioService.aprovisionarUsuario(persona, ROL_DOCENTE, LONGITUD_PASSWORD);
 
-        // 3. Resolver catálogos específicos del dominio Docente
         Sede sede = sedeRepository.findById(request.getIdSede())
                 .orElseThrow(() -> new IllegalArgumentException("Sede no encontrada con ID: " + request.getIdSede()));
 
@@ -74,7 +73,6 @@ public class DocenteService {
         EstadoDocente estadoDocente = estadoDocenteRepository.findByEstadoDocente(ESTADO_ACTIVO)
                 .orElseThrow(() -> new IllegalStateException("Estado '" + ESTADO_ACTIVO + "' para Docente no encontrado en la base de datos"));
 
-        // 4. Construir y persistir la entidad Docente
         String codigoDocente = UserUtils.generarCodigoUnico(PREFIJO_CODIGO);
         LocalDate fechaIngresoActual = LocalDate.now();
         LocalDate fechaFinContrato = request.getFechaFin();
@@ -98,7 +96,6 @@ public class DocenteService {
         docente.setFechaFin(fechaFinContrato);
         docente = docenteRepository.save(docente);
 
-        // 5. Finalizar el ciclo de registro de la persona física
         personaService.marcarComoCompletada(persona);
 
         return new DocenteRegistroResponseDTO(
@@ -111,7 +108,6 @@ public class DocenteService {
         );
     }
 
-    // MÉTODO ACTUALIZADO: Ahora filtra por ciclo activo
     public List<Grupo> obtenerGruposPorDocente(Long idUsuario) {
         Docente docente = docenteRepository.findByUsuarioIdUsuario(idUsuario)
                 .orElseThrow(() -> new IllegalArgumentException(
@@ -120,7 +116,6 @@ public class DocenteService {
         Ciclo cicloActivo = cicloRepository.findCicloActivo()
                 .orElseThrow(() -> new RuntimeException("No hay ciclo activo en el sistema."));
 
-        // Se usa el repositorio con ambos parámetros (idDocente e idCiclo)
         return grupoRepository.findByDocenteIdDocenteAndCicloIdCiclo(docente.getIdDocente(), cicloActivo.getIdCiclo());
     }
 
@@ -128,9 +123,6 @@ public class DocenteService {
         List<Grupo> grupos = obtenerGruposPorDocente(idUsuario);
 
         return grupos.stream().map(grupo -> {
-            String nombreDocente = grupo.getDocente().getPersona().getNombres() + " " +
-                    grupo.getDocente().getPersona().getApellidos();
-
             return new GrupoResponseDTO(
                     grupo.getIdGrupo(),
                     grupo.getCodigoGrupo(),
@@ -148,17 +140,101 @@ public class DocenteService {
         List<Docente> docentes = docenteRepository.findAll();
 
         return docentes.stream().map(docente -> {
+            Persona persona = docente.getPersona();
+            Long idDistrito = persona.getDistrito() != null ? persona.getDistrito().getIdDistrito() : null;
+
             return new DocenteListaResponseDTO(
                     docente.getIdDocente(),
                     docente.getCodigoDocente(),
-                    docente.getPersona().getNombres(),
-                    docente.getPersona().getApellidos(),
+                    persona.getNombres(),
+                    persona.getApellidos(),
                     docente.getUsuario().getCorreoInstitucional(),
                     docente.getEspecialidad(),
                     docente.getSede().getNombreSede(),
                     docente.getTipoContratacion().getTipoContratacion(),
-                    docente.getEstadoDocente().getEstadoDocente()
+                    docente.getEstadoDocente().getEstadoDocente(),
+                    persona.getTelefono(),
+                    persona.getCorreoPersonal(),
+                    persona.getDireccion(),
+                    idDistrito,
+                    docente.getSede().getIdSede(),
+                    docente.getTipoContratacion().getIdTipoContratacion(),
+                    persona.getNumeroDocumento(),
+                    docente.getFechaInicio(),
+                    docente.getFechaFin()
             );
         }).collect(Collectors.toList());
+    }
+
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void actualizarDocente(Long idDocente, DocenteEdicionRequestDTO dto) {
+        if (idDocente == null || idDocente <= 0) {
+            throw new IllegalArgumentException("El ID del docente debe ser positivo");
+        }
+
+        Docente docente = docenteRepository.findByIdConRelaciones(idDocente)
+                .orElseThrow(() -> new IllegalArgumentException("Docente no encontrado con ID: " + idDocente));
+
+        boolean cambiosPersona = personaService.actualizarDatosContacto(docente.getPersona().getIdPersona(), dto);
+
+        boolean sedeIgual = docente.getSede() != null &&
+                Objects.equals(docente.getSede().getIdSede(), dto.getIdSede());
+
+        boolean tipoContratoIgual = docente.getTipoContratacion() != null &&
+                Objects.equals(docente.getTipoContratacion().getIdTipoContratacion(), dto.getIdTipoContratacion());
+
+        boolean cambiosDocente = false;
+
+        if (!sedeIgual) {
+            Sede nuevaSede = sedeRepository.findById(dto.getIdSede())
+                    .orElseThrow(() -> new IllegalArgumentException("Sede no encontrada con ID: " + dto.getIdSede()));
+            docente.setSede(nuevaSede);
+            cambiosDocente = true;
+        }
+
+        if (!tipoContratoIgual) {
+            TipoContratacionDocente nuevoTipo = tipoContratacionRepository.findById(dto.getIdTipoContratacion())
+                    .orElseThrow(() -> new IllegalArgumentException("Tipo de contratación no encontrado con ID: " + dto.getIdTipoContratacion()));
+            docente.setTipoContratacion(nuevoTipo);
+            cambiosDocente = true;
+        }
+
+        if (cambiosPersona || cambiosDocente) {
+            auditoriaService.registrarEvento(
+                    "ACTUALIZACION_DOCENTE",
+                    "docentes",
+                    docente.getIdDocente(),
+                    "El administrador actualizó sede=" + dto.getIdSede() + ", tipoContrato=" + dto.getIdTipoContratacion()
+            );
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void cambiarEstadoDocente(Long idDocente, DocenteEstadoRequestDTO dto) {
+        if (idDocente == null || idDocente <= 0) {
+            throw new IllegalArgumentException("El ID del docente debe ser positivo");
+        }
+
+        Docente docente = docenteRepository.findById(idDocente)
+                .orElseThrow(() -> new IllegalArgumentException("Docente no encontrado con ID: " + idDocente));
+
+        EstadoDocente nuevoEstado = estadoDocenteRepository.findById(dto.getIdEstadoDocente())
+                .orElseThrow(() -> new IllegalArgumentException("Estado de docente no válido con ID: " + dto.getIdEstadoDocente()));
+
+        if (docente.getEstadoDocente() != null &&
+                Objects.equals(docente.getEstadoDocente().getIdEstadoDocente(), nuevoEstado.getIdEstadoDocente())) {
+            throw new IllegalArgumentException(
+                    "El docente con ID " + idDocente + " ya posee el estado '" + nuevoEstado.getEstadoDocente() + "'"
+            );
+        }
+
+        docente.setEstadoDocente(nuevoEstado);
+
+        auditoriaService.registrarEvento(
+                "CAMBIO_ESTADO_DOCENTE",
+                "docentes",
+                docente.getIdDocente(),
+                String.format("Transición a estado '%s'. Motivo: %s", nuevoEstado.getEstadoDocente(), dto.getMotivo().trim())
+        );
     }
 }

@@ -42,4 +42,8 @@ public class Empleado {
 
     @Column(name = "fecha_fin")
     private LocalDate fechaFin;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_sede", nullable = false)
+    private Sede sede;
 }

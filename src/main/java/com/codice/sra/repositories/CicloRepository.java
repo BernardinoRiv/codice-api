@@ -26,4 +26,65 @@ public interface CicloRepository extends JpaRepository<Ciclo, Long> {
             "WHERE c.fechaInicio <= CURRENT_DATE " +
             "AND c.fechaFin >= CURRENT_DATE")
     Optional<Ciclo> findCicloActivo();
+
+
+    //Recupera el ciclo institucional en estado formal PLANIFICACION.
+
+    @Query("SELECT c FROM Ciclo c JOIN FETCH c.estadoCiclo ec " +
+            "WHERE UPPER(TRIM(ec.estadoCiclo)) = 'PLANIFICACION'")
+    Optional<Ciclo> findCicloEnPlanificacion();
+
+    @Query("SELECT c FROM Ciclo c JOIN FETCH c.estadoCiclo ec " +
+            "WHERE UPPER(TRIM(ec.estadoCiclo)) IN ('PLANIFICACION', 'EN_PLANIFICACION', 'PLANIFICADO') " +
+            "ORDER BY c.anio ASC, c.numeroCiclo ASC")
+    List<Ciclo> findAllEnPlanificacion();
+
+    //Verifica la existencia de un semestre específico para impedir registros duplicados.
+    boolean existsByAnioAndNumeroCiclo(Integer anio, Integer numeroCiclo);
+
+    /**
+     * Obtiene el ciclo más reciente cronológicamente para calcular de forma
+     * determinista la progresión del siguiente semestre.
+     */
+    @Query("SELECT c FROM Ciclo c " +
+            "ORDER BY c.anio DESC, c.numeroCiclo DESC " +
+            "LIMIT 1")
+    Optional<Ciclo> findUltimoCicloRegistrado();
+
+    //Ciclos activos
+    @Query("SELECT c FROM Ciclo c WHERE UPPER(c.estadoCiclo.estadoCiclo) = 'ACTIVO'")
+    Optional<Ciclo> findCicloPorEstadoActivo();
+
+    /**
+     * Fallback determinista: obtiene el último ciclo registrado por ID decreciente.
+     */
+    Optional<Ciclo> findTopByOrderByIdCicloDesc();
+
+    /**
+     * Valida si un código oficial de ciclo ya existe (evita duplicidad).
+     */
+    boolean existsByCodigoCiclo(String codigoCiclo);
+
+    // 1. Busca el ciclo listo para pre-matrícula ordinaria (Aprobado por Junta Directiva)
+    @Query("SELECT c FROM Ciclo c " +
+            "WHERE c.estadoCiclo.estadoCiclo = 'PLANIFICADO' " +
+            "ORDER BY c.fechaInicio ASC")
+    Optional<Ciclo> findCicloPlanificadoParaAdmision();
+
+    // 2. Busca el ciclo formalmente en curso (Estado ACTIVO en BD)
+    @Query("SELECT c FROM Ciclo c " +
+            "WHERE c.estadoCiclo.estadoCiclo = 'ACTIVO'")
+    Optional<Ciclo> findCicloEnCursoPorEstado();
+
+    /**
+     * Localiza el ciclo aprobado por Junta Directiva en estado 'PLANIFICADO'
+     * listo para recibir pre-matrícula anticipada.
+     */
+    @Query("SELECT c FROM Ciclo c " +
+            "WHERE UPPER(c.estadoCiclo.estadoCiclo) = 'PLANIFICADO' " +
+            "ORDER BY c.fechaInicio ASC LIMIT 1")
+    Optional<Ciclo> findCicloPlanificadoParaMatricula();
+
+    Optional<Ciclo> findByEstadoCiclo_EstadoCicloIgnoreCase(String estadoCiclo);
+
 }

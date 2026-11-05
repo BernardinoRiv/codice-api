@@ -3,6 +3,7 @@ package com.codice.sra.dtos;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.time.LocalDate;
 
 @Data
 @AllArgsConstructor
@@ -18,4 +19,13 @@ public class DocenteListaResponseDTO {
     private String nombreSede;
     private String tipoContratacion;
     private String estadoDocente;
+    private String telefono;
+    private String correoPersonal;
+    private String direccion;
+    private Long idDistrito;
+    private Long idSede;
+    private Long idTipoContratacion;
+    private String numeroDocumento;
+    private LocalDate fechaInicio;
+    private LocalDate fechaFin;
 }

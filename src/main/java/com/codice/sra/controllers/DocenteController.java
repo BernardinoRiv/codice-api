@@ -1,14 +1,12 @@
 package com.codice.sra.controllers;
 
-import com.codice.sra.dtos.DocenteListaResponseDTO;
-import com.codice.sra.dtos.DocenteRegistroRequestDTO;
-import com.codice.sra.dtos.DocenteRegistroResponseDTO;
-import com.codice.sra.dtos.GrupoResponseDTO;
+import com.codice.sra.dtos.*;
 import com.codice.sra.models.Grupo;
 import com.codice.sra.services.DocenteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -52,5 +50,29 @@ public class DocenteController {
     private Long obtenerIdUsuarioAutenticado() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         return (Long) authentication.getPrincipal();
+    }
+
+    @PutMapping("/{idDocente}")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @Operation(summary = "Editar docente", description = "Actualiza los datos personales permitidos y la ficha contractual del docente.")
+    public ResponseEntity<Void> actualizarDocente(
+            @PathVariable Long idDocente,
+            @Valid @RequestBody DocenteEdicionRequestDTO request) {
+        docenteService.actualizarDocente(idDocente, request);
+        return ResponseEntity.noContent().build(); // Retorna HTTP 204 sin cuerpo
+    }
+
+    @PatchMapping("/{idDocente}/estado")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @Operation(
+            summary = "Cambiar estado del docente",
+            description = "Permite a un Administrador bloquear o reactivar a un docente justificando el motivo en auditoría."
+    )
+    public ResponseEntity<Void> cambiarEstadoDocente(
+            @PathVariable Long idDocente,
+            @Valid @RequestBody DocenteEstadoRequestDTO request) {
+
+        docenteService.cambiarEstadoDocente(idDocente, request);
+        return ResponseEntity.noContent().build(); // HTTP 204 No Content
     }
 }

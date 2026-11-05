@@ -1,41 +1,54 @@
 package com.codice.sra.models;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.ToString;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "auditoria")
-@Data
+@Table(name = "auditoria", schema = "public")
+@Getter
+@Setter
+@NoArgsConstructor
 public class Auditoria {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "id_auditoria")
+    @Column(name = "id_auditoria", updatable = false)
     private Long idAuditoria;
 
-    @ToString.Exclude
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "id_usuario")
+    @JoinColumn(name = "id_usuario", updatable = false)
     private Usuario usuario;
 
-    @Column(name = "accion", nullable = false, length = 100)
-    private String accion;
+    @Column(name = "accion", nullable = false, updatable = false, length = 50)
+    private String accion; // Ej: "CAMBIO_ESTADO_DOCENTE", "ACTUALIZACION_DOCENTE"
 
-    @Column(name = "tabla", length = 100)
-    private String tabla;
+    @Column(name = "tabla", updatable = false, length = 50)
+    private String tabla; // "docentes"
 
-    @Column(name = "id_registro")
-    private Long idRegistro;
+    @Column(name = "id_registro", updatable = false)
+    private Long idRegistro; // idDocente
 
-    @Column(name = "fecha_hora", nullable = false)
-    private LocalDateTime fechaHora;
+    @Column(name = "fecha_hora", nullable = false, updatable = false)
+    private OffsetDateTime fechaHora;
 
-    @Column(name = "direccion_ip", length = 45)
+    // Mapeo transparente del tipo nativo inet de PostgreSQL en Hibernate 6
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "direccion_ip", updatable = false, columnDefinition = "inet")
     private String direccionIp;
 
-    @Column(name = "descripcion", columnDefinition = "TEXT")
+    @Column(name = "descripcion", columnDefinition = "text", updatable = false)
     private String descripcion;
+
+    @PrePersist
+    protected void onCreate() {
+        if (this.fechaHora == null) {
+            this.fechaHora = OffsetDateTime.now();
+        }
+    }
 }

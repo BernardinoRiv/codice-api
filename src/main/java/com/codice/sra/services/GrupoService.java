@@ -4,25 +4,29 @@ import com.codice.sra.dtos.*;
 import com.codice.sra.exceptions.GrupoException;
 import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
+import com.codice.sra.security.JwtService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class GrupoService {
 
-    // --- Repositorios existentes (Trabajo previo de consulta) ---
     private final InscripcionRepository inscripcionRepository;
     private final EvaluacionRepository evaluacionRepository;
     private final CalificacionRepository calificacionRepository;
-
-    // --- Repositorios requeridos para la apertura de secciones y validaciones ---
     private final GrupoRepository grupoRepository;
     private final HorarioRepository horarioRepository;
     private final PlantillaHorarioRepository plantillaHorarioRepository;
@@ -33,10 +37,7 @@ public class GrupoService {
     private final ModalidadRepository modalidadRepository;
     private final AulaRepository aulaRepository;
     private final EstadoGrupoRepository estadoGrupoRepository;
-
-    // =========================================================================
-    // MÉTODOS DE CONSULTA EXISTENTES
-    // =========================================================================
+    private final JwtService jwtService;
 
     public List<InscripcionResponseDTO> obtenerInscripcionesConEstudiantes(Long idGrupo) {
         return inscripcionRepository.findByGrupoIdGrupo(idGrupo).stream().map(inscripcion -> {
@@ -49,6 +50,90 @@ public class GrupoService {
                     persona.getApellidos()
             );
         }).collect(Collectors.toList());
+    }
+
+    /**
+     * Devuelve el consolidado de secciones aperturadas agrupadas por carrera.
+     */
+    @Transactional(readOnly = true)
+    public List<ResumenCarreraOfertaDTO> obtenerConteoPorCarrera(Long idCiclo) {
+        return grupoRepository.contarSeccionesPorCarreraEnCiclo(idCiclo);
+    }
+
+    /**
+     * Elimina una sección específica de forma transaccional protegiendo la integridad referencial.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void eliminarGrupo(Long idGrupo) {
+        Grupo grupo = grupoRepository.findById(idGrupo)
+                .orElseThrow(() -> GrupoException.noEncontrado("La sección especificada no existe."));
+
+        // 1. REGLA DE NEGOCIO: Solo se permite eliminar si el ciclo está en PLANIFICACIÓN
+        String estadoCiclo = grupo.getCiclo().getEstadoCiclo().getEstadoCiclo().trim().toUpperCase();
+        if (!"PLANIFICACION".equals(estadoCiclo)) {
+            throw GrupoException.reglaNegocio(String.format(
+                    "Operación denegada: No se puede eliminar la sección '%s' porque su ciclo ('%s') tiene estado '%s'.",
+                    grupo.getCodigoGrupo(), grupo.getCiclo().getCodigoCiclo(), estadoCiclo));
+        }
+
+        // 2. REGLA DE INTEGRIDAD: No eliminar si ya existen estudiantes inscritos
+        if (inscripcionRepository.existsByGrupoIdGrupo(idGrupo)) {
+            throw GrupoException.reglaNegocio("No es posible eliminar la sección porque ya cuenta con alumnos inscritos.");
+        }
+
+        // 3. Purga atómica de horarios asociados
+        horarioRepository.deleteByGrupo_IdGrupo(idGrupo);
+
+        // 4. Purga del grupo
+        grupoRepository.delete(grupo);
+        log.info("Sección [{}] eliminada satisfactoriamente del ciclo [{}]",
+                grupo.getCodigoGrupo(), grupo.getCiclo().getCodigoCiclo());
+    }
+
+    @Transactional(readOnly = true)
+    public List<GrupoDetalleResponseDTO> listarGruposPorCiclo(Long idCiclo) {
+        return grupoRepository.findByCiclo_IdCiclo(idCiclo).stream()
+                .map(g -> {
+                    List<FranjaHorariaResponseDTO> franjas = horarioRepository.findByGrupoIdGrupo(g.getIdGrupo()).stream()
+                            .map(h -> FranjaHorariaResponseDTO.builder()
+                                    .idHorario(h.getIdHorario())
+                                    .dia(h.getDia().getDia())
+                                    .horaInicio(h.getHoraInicio())
+                                    .horaFin(h.getHoraFin())
+                                    .modalidad(h.getModalidad().getModalidad())
+                                    .aula(h.getAula() != null ? h.getAula().getCodigoAula() : "Virtual")
+                                    .enlaceVirtual(h.getEnlaceVirtual())
+                                    .build())
+                            .toList();
+
+                    String espacio = !franjas.isEmpty() && franjas.get(0).getAula() != null
+                            ? franjas.get(0).getAula()
+                            : (!franjas.isEmpty() ? franjas.get(0).getEnlaceVirtual() : "N/A");
+
+                    String carreraNombre = materiaRepository.findCarrerasVigentesPorMateria(g.getMateria().getIdMateria())
+                            .stream()
+                            .findFirst()
+                            .orElse("Carrera General");
+
+                    return new GrupoDetalleResponseDTO(
+                            g.getIdGrupo(),
+                            g.getCodigoGrupo(),
+                            g.getMateria().getIdMateria(),
+                            g.getMateria().getCodigoMateria(),
+                            g.getMateria().getNombreMateria(),
+                            carreraNombre,
+                            g.getDocente().getIdDocente(),
+                            g.getDocente().getPersona().getNombres() + " " + g.getDocente().getPersona().getApellidos(),
+                            g.getSede().getIdSede(),
+                            g.getSede().getNombreSede(),
+                            !franjas.isEmpty() ? franjas.get(0).getModalidad() : "PRESENCIAL",
+                            espacio,
+                            g.getCupoMaximo(),
+                            g.getEstadoGrupo().getEstadoGrupo(),
+                            franjas
+                    );
+                })
+                .toList();
     }
 
     public List<EvaluacionResponseDTO> obtenerEvaluacionesPorGrupo(Long idGrupo) {
@@ -102,7 +187,10 @@ public class GrupoService {
     }
 
     @Transactional(readOnly = true)
-    public List<DocenteSeleccionDTO> obtenerDocentesParaSeleccion() {
+    public List<DocenteSeleccionDTO> obtenerDocentesParaSeleccion(Long idSede) {
+        if (idSede != null && idSede > 0) {
+            return docenteRepository.findDocentesParaSeleccionPorSede(idSede);
+        }
         return docenteRepository.findDocentesParaSeleccion();
     }
 
@@ -132,9 +220,44 @@ public class GrupoService {
     @Transactional(rollbackFor = Exception.class)
     public SeccionResponseDTO aperturarSeccionPorPlantilla(AperturaSeccionRequestDTO request) {
 
-        // 1. Verificación de existencia de catálogos base
+        ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attrs != null) {
+            HttpServletRequest httpRequest = attrs.getRequest();
+            String authHeader = httpRequest.getHeader("Authorization");
+
+            if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                String token = authHeader.substring(7);
+
+                String rol = jwtService.extractRol(token);
+                Long idSedeToken = jwtService.extractIdSede(token);
+
+                if (!"ADMINISTRADOR".equalsIgnoreCase(rol)) {
+                    if (idSedeToken == null) {
+                        throw GrupoException.reglaNegocio("El usuario no tiene una sede operativa asignada.");
+                    }
+                    if (!idSedeToken.equals(request.getIdSede())) {
+                        throw GrupoException.reglaNegocio(String.format(
+                                "Operación denegada: Solo tiene autorización para aperturar en la sede ID %d.",
+                                idSedeToken
+                        ));
+                    }
+                }
+            }
+        }
+
+        //Verificación de existencia de catálogos base
         Ciclo ciclo = cicloRepository.findById(request.getIdCiclo())
                 .orElseThrow(() -> GrupoException.noEncontrado("El ciclo lectivo especificado no existe."));
+
+        String estadoCiclo = ciclo.getEstadoCiclo().getEstadoCiclo().trim().toUpperCase();
+
+        if (!"PLANIFICACION".equals(estadoCiclo)) {
+            throw GrupoException.reglaNegocio(String.format(
+                    "Operación rechazada: No se pueden aperturar secciones en el ciclo '%s' porque su estado es '%s'. " +
+                            "La oferta académica únicamente puede aperturarse sobre ciclos en estado 'PLANIFICACION'.",
+                    ciclo.getCodigoCiclo(), estadoCiclo
+            ));
+        }
 
         Sede sede = sedeRepository.findById(request.getIdSede())
                 .orElseThrow(() -> GrupoException.noEncontrado("La sede especificada no existe."));
@@ -183,7 +306,7 @@ public class GrupoService {
         String modalidadKey = modalidad.getModalidad().toUpperCase().trim();
 
         switch (modalidadKey) {
-            case "PRESENCIAL", "SEMIPRESENCIAL" -> {
+            case "PRESENCIAL", "HIBRIDA" -> {
                 if (request.getIdAula() == null) {
                     throw GrupoException.reglaNegocio("Debe asignar un aula física para modalidades presenciales o semipresenciales.");
                 }
@@ -287,6 +410,151 @@ public class GrupoService {
                 .estado(estadoAbierto.getEstadoGrupo())
                 .cupoMaximo(cupoFinal)
                 .horarios(franjasResponse)
+                .build();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public SeccionResponseDTO editarGrupo(Long idGrupo, EditarGrupoRequestDTO request) {
+
+        // 1. Obtener la cabecera Grupo
+        Grupo grupo = grupoRepository.findById(idGrupo)
+                .orElseThrow(() -> GrupoException.noEncontrado("La sección especificada no existe."));
+
+        // 2. Invariante de Ciclo: Solo se editan secciones en fase de PLANIFICACIÓN
+        String estadoCiclo = grupo.getCiclo().getEstadoCiclo().getEstadoCiclo().trim().toUpperCase();
+        if (!"PLANIFICACION".equals(estadoCiclo)) {
+            throw GrupoException.reglaNegocio(String.format(
+                    "Operación denegada: La sección pertenece al ciclo '%s' con estado '%s'. Solo los ciclos en PLANIFICACIÓN admiten edición.",
+                    grupo.getCiclo().getCodigoCiclo(), estadoCiclo));
+        }
+
+        // 3. Resolución del nuevo Docente y validación de carga laboral
+        Docente nuevoDocente = docenteRepository.findByIdConContratacion(request.idDocente())
+                .orElseThrow(() -> GrupoException.noEncontrado("El docente especificado no existe o no está activo."));
+
+        boolean esCambioDocente = !grupo.getDocente().getIdDocente().equals(nuevoDocente.getIdDocente());
+        if (esCambioDocente) {
+            long gruposAsignados = grupoRepository.countGruposActivosPorDocenteYCiclo(
+                    nuevoDocente.getIdDocente(), grupo.getCiclo().getIdCiclo());
+            int maximoPermitido = nuevoDocente.getTipoContratacion().getMaximoMaterias();
+
+            if (gruposAsignados >= maximoPermitido) {
+                throw GrupoException.reglaNegocio(String.format(
+                        "El docente %s %s ha alcanzado su límite de contratación (%d/%d materias).",
+                        nuevoDocente.getPersona().getNombres(), nuevoDocente.getPersona().getApellidos(),
+                        gruposAsignados, maximoPermitido));
+            }
+        }
+
+        // 4. RECUPERAR FRANJAS DESDE EL REPOSITORIO (Aquí viven las modalidades y horarios)
+        List<Horario> horarios = horarioRepository.findByGrupoIdGrupo(idGrupo);
+        if (horarios.isEmpty()) {
+            throw GrupoException.reglaNegocio("La sección no posee franjas horarias configuradas.");
+        }
+
+        // Determinar la modalidad desde la primera franja horaria real
+        String modalidadKey = horarios.get(0).getModalidad().getModalidad().trim().toUpperCase();
+        boolean esVirtual = modalidadKey.contains("VIRTUAL");
+
+        // 5. Resolución y validación del Espacio (Presencial vs Virtual)
+        Aula nuevaAula = null;
+        Integer cupoFinal = request.cupoMaximo();
+
+        if (esVirtual) {
+            if (request.enlaceVirtual() == null || request.enlaceVirtual().isBlank()) {
+                throw GrupoException.reglaNegocio("Debe ingresar la URL de la sesión para la modalidad virtual.");
+            }
+        } else {
+            if (request.idAula() == null) {
+                throw GrupoException.reglaNegocio("Debe asignar un aula física para modalidades presenciales o semipresenciales.");
+            }
+            nuevaAula = aulaRepository.findById(request.idAula())
+                    .orElseThrow(() -> GrupoException.noEncontrado("El aula física especificada no existe."));
+
+            // Territorialidad: El aula debe pertenecer a la misma sede del grupo
+            if (!nuevaAula.getEdificio().getSede().getIdSede().equals(grupo.getSede().getIdSede())) {
+                throw GrupoException.reglaNegocio("El aula física seleccionada no pertenece al campus de la sede de la sección.");
+            }
+
+            if (cupoFinal > nuevaAula.getCapacidad()) {
+                throw GrupoException.reglaNegocio(String.format(
+                        "El cupo solicitado (%d) excede la capacidad física del aula %s (%d asientos).",
+                        cupoFinal, nuevaAula.getCodigoAula(), nuevaAula.getCapacidad()));
+            }
+        }
+
+        // 6. Validación de traslapes en cada franja horaria (excluyendo el grupo actual)
+        Long idCiclo = grupo.getCiclo().getIdCiclo();
+
+        for (Horario h : horarios) {
+            Long idDia = h.getDia().getIdDia();
+            LocalTime inicio = h.getHoraInicio();
+            LocalTime fin = h.getHoraFin();
+
+            // Validar choque de docente solo si cambió
+            if (esCambioDocente) {
+                boolean choqueDocente = horarioRepository.existeTraslapeDocenteEnOtroGrupo(
+                        idCiclo, nuevoDocente.getIdDocente(), idDia, idGrupo, inicio, fin);
+
+                if (choqueDocente) {
+                    throw GrupoException.conflicto(String.format(
+                            "Conflicto de horario: El docente %s %s ya tiene una clase asignada el día %s entre %s y %s.",
+                            nuevoDocente.getPersona().getNombres(), nuevoDocente.getPersona().getApellidos(),
+                            h.getDia().getDia(), inicio, fin));
+                }
+            }
+
+            // Validar choque de aula física (solo en presencial)
+            if (nuevaAula != null) {
+                boolean choqueAula = horarioRepository.existeTraslapeAulaEnOtroGrupo(
+                        idCiclo, nuevaAula.getIdAula(), idDia, idGrupo, inicio, fin);
+
+                if (choqueAula) {
+                    throw GrupoException.conflicto(String.format(
+                            "Conflicto de espacio: El aula %s ya está reservada el día %s entre %s y %s.",
+                            nuevaAula.getCodigoAula(), h.getDia().getDia(), inicio, fin));
+                }
+            }
+
+            // Actualizar los atributos correspondientes en la franja
+            h.setAula(nuevaAula);
+            h.setEnlaceVirtual(esVirtual ? request.enlaceVirtual() : null);
+        }
+
+        // 7. Persistencia atómica
+        grupo.setDocente(nuevoDocente);
+        grupo.setCupoMaximo(cupoFinal);
+
+        grupoRepository.save(grupo);
+        horarioRepository.saveAll(horarios);
+
+        return mapearASeccionResponseDTO(grupo, horarios);
+    }
+
+    //Mapea la entidad persistida Grupo y sus entidades hijas Horario
+
+    private SeccionResponseDTO mapearASeccionResponseDTO(Grupo grupo, List<Horario> horarios) {
+        List<FranjaHorariaResponseDTO> franjas = horarios.stream()
+                .map(h -> FranjaHorariaResponseDTO.builder()
+                        .idHorario(h.getIdHorario())
+                        .dia(h.getDia().getDia())
+                        .horaInicio(h.getHoraInicio())
+                        .horaFin(h.getHoraFin())
+                        .modalidad(h.getModalidad().getModalidad())
+                        .aula(h.getAula() != null ? h.getAula().getCodigoAula() : "Virtual")
+                        .enlaceVirtual(h.getEnlaceVirtual())
+                        .build())
+                .toList();
+
+        return SeccionResponseDTO.builder()
+                .idGrupo(grupo.getIdGrupo())
+                .codigoGrupo(grupo.getCodigoGrupo())
+                .materia(grupo.getMateria().getNombreMateria())
+                .docente(grupo.getDocente().getPersona().getNombres() + " " + grupo.getDocente().getPersona().getApellidos())
+                .sede(grupo.getSede().getNombreSede())
+                .estado(grupo.getEstadoGrupo().getEstadoGrupo())
+                .cupoMaximo(grupo.getCupoMaximo())
+                .horarios(franjas)
                 .build();
     }
 }

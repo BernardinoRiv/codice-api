@@ -1,6 +1,9 @@
 package com.codice.sra.security;
 
 import com.codice.sra.models.Usuario;
+import com.codice.sra.repositories.DocenteRepository;
+import com.codice.sra.repositories.EmpleadoRepository;
+import com.codice.sra.repositories.EstudianteRepository; // <-- IMPORTANTE
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
@@ -25,18 +28,65 @@ public class JwtService {
     @Value("${security.jwt.expiration-time}")
     private long jwtExpiration;
 
+    private final EmpleadoRepository empleadoRepository;
+    private final DocenteRepository docenteRepository;
+    private final EstudianteRepository estudianteRepository; // <-- AÑADIDO
+
+    // <-- CONSTRUCTOR ACTUALIZADO
+    public JwtService(EmpleadoRepository empleadoRepository,
+                      DocenteRepository docenteRepository,
+                      EstudianteRepository estudianteRepository) {
+        this.empleadoRepository = empleadoRepository;
+        this.docenteRepository = docenteRepository;
+        this.estudianteRepository = estudianteRepository;
+    }
+
     public String generateToken(Usuario usuario) {
-        Map<String, Object> extraClaims = new HashMap<>();
-        extraClaims.put("idUsuario", usuario.getIdUsuario());
-        extraClaims.put("rol", usuario.getRol().getRol());
-        return generateToken(extraClaims, usuario.getCorreoInstitucional());
+        return generateToken(usuario, null);
     }
 
     public String generateToken(Usuario usuario, Long idSesion) {
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("idUsuario", usuario.getIdUsuario());
-        extraClaims.put("rol", usuario.getRol().getRol());
-        extraClaims.put("idSesion", idSesion);
+
+        String rol = usuario.getRol().getRol();
+        extraClaims.put("rol", rol);
+
+        if (idSesion != null) {
+            extraClaims.put("idSesion", idSesion);
+        }
+
+        if ("EMPLEADO".equalsIgnoreCase(rol) ||
+                "FINANZAS".equalsIgnoreCase(rol) ||
+                "ADMINISTRADOR".equalsIgnoreCase(rol)
+        ) {
+
+            empleadoRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
+                    .ifPresent(empleado -> {
+                        if (empleado.getSede() != null) {
+                            extraClaims.put("idSede", empleado.getSede().getIdSede());
+                            extraClaims.put("nombreSede", empleado.getSede().getNombreSede());
+                        }
+                        if (empleado.getCargo() != null) {
+                            extraClaims.put("idCargo", empleado.getCargo().getIdCargo());
+                            extraClaims.put("nombreCargo", empleado.getCargo().getCargo());
+                        }
+                    });
+        } else if ("DOCENTE".equalsIgnoreCase(rol)) {
+            docenteRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
+                    .ifPresent(docente -> {
+                        if (docente.getSede() != null) {
+                            extraClaims.put("idSede", docente.getSede().getIdSede());
+                        }
+                    });
+        } else if ("ESTUDIANTE".equalsIgnoreCase(rol)) {
+            // <-- NUEVA LÓGICA PARA INYECTAR EL CARNET
+            estudianteRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
+                    .ifPresent(estudiante -> {
+                        extraClaims.put("carnet", estudiante.getCarnet());
+                    });
+        }
+
         return generateToken(extraClaims, usuario.getCorreoInstitucional());
     }
 
@@ -71,15 +121,26 @@ public class JwtService {
         return extractClaim(token, claims -> claims.get("idSesion", Long.class));
     }
 
+    public Long extractIdSede(String token) {
+        return extractClaim(token, claims -> claims.get("idSede", Long.class));
+    }
+
+    public Long extractIdCargo(String token) {
+        return extractClaim(token, claims -> claims.get("idCargo", Long.class));
+    }
+
+    // <-- NUEVO MÉTODO PARA EXTRAER EL CARNET EN EL BACKEND SI SE NECESITA
+    public String extractCarnet(String token) {
+        return extractClaim(token, claims -> claims.get("carnet", String.class));
+    }
+
     public boolean isTokenValid(String token, String username) {
         try {
             final String tokenUsername = extractUsername(token);
             return (tokenUsername.equals(username)) && !isTokenExpired(token);
         } catch (ExpiredJwtException e) {
-            // El token expiró, por lo tanto no es válido (evita el Error 500)
             return false;
         } catch (Exception e) {
-            // Cualquier otro error (firma inválida, formato malformado)
             return false;
         }
     }

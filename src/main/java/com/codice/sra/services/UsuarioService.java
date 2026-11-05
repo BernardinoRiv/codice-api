@@ -83,29 +83,86 @@ public class UsuarioService {
         return crearCuentaUsuario(persona, rol, longitudPassword);
     }
 
-    /**
-     * Lógica atómica de aprovisionamiento de credenciales y persistencia.
-     */
-    private Usuario crearCuentaUsuario(Persona persona, Rol rol, int longitudPassword) {
-        // 1. REGLA SoD: Si la persona física ya es Administrador, no puede recibir roles operativos
-        boolean esAdminActual = usuarioRepository.existsByPersona_IdPersonaAndRol_Rol(
-                persona.getIdPersona(),
-                ROL_ADMINISTRADOR
-        );
+//    /**
+//     * Lógica atómica de aprovisionamiento de credenciales y persistencia.
+//     */
+//    private Usuario crearCuentaUsuario(Persona persona, Rol rol, int longitudPassword) {
+//        // 1. REGLA SoD: Si la persona física ya es Administrador, no puede recibir roles operativos
+//        boolean esAdminActual = usuarioRepository.existsByPersona_IdPersonaAndRol_Rol(
+//                persona.getIdPersona(),
+//                ROL_ADMINISTRADOR
+//        );
+//
+//        if (esAdminActual && !ROL_ADMINISTRADOR.equalsIgnoreCase(rol.getRol())) {
+//            throw new IllegalArgumentException(
+//                    "Incompatibilidad de seguridad: Esta persona no puede recibir cuentas operativas."
+//            );
+//        }
+//
+//        // 2. REGLA SoD INVERSA: Si tiene roles operativos y se le intenta asignar rol ADMINISTRADOR
+//        if (ROL_ADMINISTRADOR.equalsIgnoreCase(rol.getRol())
+//                && usuarioRepository.existsByPersona_IdPersona(persona.getIdPersona())
+//                && !esAdminActual) {
+//            throw new IllegalArgumentException(
+//                    "Incompatibilidad de seguridad: Cuentas con roles operativos incompatibles."
+//            );
+//        }
+//
+//        // 3. IDEMPOTENCIA: Verificar duplicidad del mismo rol
+//        if (usuarioRepository.existsByPersona_IdPersonaAndRol_IdRol(persona.getIdPersona(), rol.getIdRol())) {
+//            throw new IllegalArgumentException("La persona ya tiene asignada una cuenta activa con ese rol");
+//        }
+//
+//        EstadoUsuario estadoActivo = estadoUsuarioRepository.findByEstadoUsuario(ESTADO_ACTIVO)
+//                .orElseThrow(() -> new IllegalStateException("El estado '" + ESTADO_ACTIVO + "' no está configurado en la base de datos"));
+//
+//        String correoInstitucional = UserUtils.generarCorreoInstitucional(persona.getNombres(), persona.getApellidos(), rol.getRol());
+//        if (usuarioRepository.existsByCorreoInstitucional(correoInstitucional)) {
+//            correoInstitucional = UserUtils.generarCorreoUnico(
+//                    persona.getNombres(),
+//                    persona.getApellidos(),
+//                    rol.getRol(),
+//                    usuarioRepository::existsByCorreoInstitucional
+//            );
+//        }
+//
+//
+//        String passwordPlano = UserUtils.generarPasswordAleatorio(longitudPassword);
+//
+//        Usuario usuario = new Usuario();
+//        usuario.setPersona(persona);
+//        usuario.setRol(rol);
+//        usuario.setEstadoUsuario(estadoActivo);
+//        usuario.setCorreoInstitucional(correoInstitucional);
+//        usuario.setPasswordHash(passwordEncoder.encode(passwordPlano));
+//        usuario.setIntentosFallidos(0);
+//        usuario = usuarioRepository.save(usuario);
+//
+//        if (persona.getCorreoPersonal() != null && !persona.getCorreoPersonal().isBlank()) {
+//            emailService.enviarCredenciales(
+//                    persona.getCorreoPersonal(),
+//                    persona.getNombres() + " " + persona.getApellidos(),
+//                    correoInstitucional,
+//                    passwordPlano
+//            );
+//        }
+//
+//        return usuario;
+//    }
 
+    /**
+     * TU MÉTODO ORIGINAL: Lógica atómica de validaciones (SoD), encriptación y persistencia.
+     */
+    private Usuario crearCuentaUsuario(Persona persona, Rol rol, String correoInstitucional, String passwordPlano) {
+        // 1. REGLA SoD: Si la persona física ya es Administrador, no puede recibir roles operativos
+        boolean esAdminActual = usuarioRepository.existsByPersona_IdPersonaAndRol_Rol(persona.getIdPersona(), ROL_ADMINISTRADOR);
         if (esAdminActual && !ROL_ADMINISTRADOR.equalsIgnoreCase(rol.getRol())) {
-            throw new IllegalArgumentException(
-                    "Incompatibilidad de seguridad: Esta persona no puede recibir cuentas operativas."
-            );
+            throw new IllegalArgumentException("Incompatibilidad de seguridad: Esta persona no puede recibir cuentas operativas.");
         }
 
         // 2. REGLA SoD INVERSA: Si tiene roles operativos y se le intenta asignar rol ADMINISTRADOR
-        if (ROL_ADMINISTRADOR.equalsIgnoreCase(rol.getRol())
-                && usuarioRepository.existsByPersona_IdPersona(persona.getIdPersona())
-                && !esAdminActual) {
-            throw new IllegalArgumentException(
-                    "Incompatibilidad de seguridad: Cuentas con roles operativos incompatibles."
-            );
+        if (ROL_ADMINISTRADOR.equalsIgnoreCase(rol.getRol()) && usuarioRepository.existsByPersona_IdPersona(persona.getIdPersona()) && !esAdminActual) {
+            throw new IllegalArgumentException("Incompatibilidad de seguridad: Cuentas con roles operativos incompatibles.");
         }
 
         // 3. IDEMPOTENCIA: Verificar duplicidad del mismo rol
@@ -114,38 +171,52 @@ public class UsuarioService {
         }
 
         EstadoUsuario estadoActivo = estadoUsuarioRepository.findByEstadoUsuario(ESTADO_ACTIVO)
-                .orElseThrow(() -> new IllegalStateException("El estado '" + ESTADO_ACTIVO + "' no está configurado en la base de datos"));
-
-        String correoInstitucional = UserUtils.generarCorreoInstitucional(persona.getNombres(), persona.getApellidos(), rol.getRol());
-        if (usuarioRepository.existsByCorreoInstitucional(correoInstitucional)) {
-            correoInstitucional = UserUtils.generarCorreoUnico(
-                    persona.getNombres(),
-                    persona.getApellidos(),
-                    rol.getRol(),
-                    usuarioRepository::existsByCorreoInstitucional
-            );
-        }
-
-        String passwordPlano = UserUtils.generarPasswordAleatorio(longitudPassword);
+                .orElseThrow(() -> new IllegalStateException("El estado '" + ESTADO_ACTIVO + "' no está en la base de datos"));
 
         Usuario usuario = new Usuario();
         usuario.setPersona(persona);
         usuario.setRol(rol);
         usuario.setEstadoUsuario(estadoActivo);
         usuario.setCorreoInstitucional(correoInstitucional);
+
+        // Cifrado obligatorio
         usuario.setPasswordHash(passwordEncoder.encode(passwordPlano));
         usuario.setIntentosFallidos(0);
+
         usuario = usuarioRepository.save(usuario);
 
         if (persona.getCorreoPersonal() != null && !persona.getCorreoPersonal().isBlank()) {
-            emailService.enviarCredenciales(
-                    persona.getCorreoPersonal(),
-                    persona.getNombres() + " " + persona.getApellidos(),
-                    correoInstitucional,
-                    passwordPlano
-            );
+            emailService.enviarCredenciales(persona.getCorreoPersonal(), persona.getNombres() + " " + persona.getApellidos(), correoInstitucional, passwordPlano);
         }
 
         return usuario;
     }
+
+    /**
+     * SOBRECARGA: Consumido por flujos operativos para generar credenciales dinámicas.
+     */
+    private Usuario crearCuentaUsuario(Persona persona, Rol rol, int longitudPassword) {
+        String correoInstitucional = UserUtils.generarCorreoInstitucional(persona.getNombres(), persona.getApellidos(), rol.getRol());
+        if (usuarioRepository.existsByCorreoInstitucional(correoInstitucional)) {
+            correoInstitucional = UserUtils.generarCorreoUnico(persona.getNombres(), persona.getApellidos(), rol.getRol(), usuarioRepository::existsByCorreoInstitucional);
+        }
+
+        String passwordPlano = UserUtils.generarPasswordAleatorio(longitudPassword);
+
+        // Llama a tu método original de validaciones
+        return crearCuentaUsuario(persona, rol, correoInstitucional, passwordPlano);
+    }
+
+    @Transactional
+    public Usuario aprovisionarUsuarioEstudiante(Persona persona, String carnet) {
+        Rol rolEstudiante = rolRepository.findByRol("ESTUDIANTE")
+                .orElseThrow(() -> new IllegalArgumentException("Rol no encontrado en el sistema: ESTUDIANTE"));
+
+        String passwordPlano = carnet + "Uma*";
+        String correoInstitucional = UserUtils.generarCorreoEstudiante(carnet);
+
+        // Llama a tu método original de validaciones
+        return crearCuentaUsuario(persona, rolEstudiante, correoInstitucional, passwordPlano);
+    }
+
 }
