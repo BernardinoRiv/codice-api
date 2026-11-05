@@ -556,12 +556,19 @@ public class AdmisionOnlineService {
                 .orElseGet(() -> estadoFacturaRepository.findById(1L).orElseThrow()));
         facturaRepository.save(factura);
 
-        // 8. Detonante IAM: Aprovisionamiento de credenciales institucionales[cite: 2]
-        Usuario nuevoUsuario = estudiante.getUsuario();
-        if (nuevoUsuario == null) {
-            nuevoUsuario = usuarioService.aprovisionarUsuario(persona, "ESTUDIANTE", 8);
-            estudiante.setUsuario(nuevoUsuario);
+        // 8. Detonante IAM: Aprovisionamiento de credenciales institucionales
+        Usuario usuarioFinal = estudiante.getUsuario();
+
+        // Solo aprovisionamos si el estudiante es de Nuevo Ingreso y no tiene usuario
+        if (usuarioFinal == null) {
+            // Delegamos toda la validación, seguridad y cifrado al servicio especialista
+            usuarioFinal = usuarioService.aprovisionarUsuarioEstudiante(persona, estudiante.getCarnet());
+
+            // Vinculamos la credencial al estudiante y guardamos
+            estudiante.setUsuario(usuarioFinal);
             estudianteRepository.save(estudiante);
+
+            log.info("Credenciales IAM aprovisionadas e integradas para el carnet: {}", estudiante.getCarnet());
         }
 
         // 9. FORMALIZAR LA MATRÍCULA (Resolución definitiva: saveAndFlush)
@@ -575,7 +582,7 @@ public class AdmisionOnlineService {
 
         return ConfirmacionMatriculaOnlineDTO.builder()
                 .carnet(estudiante.getCarnet())
-                .correoInstitucional(nuevoUsuario.getCorreoInstitucional())
+                .correoInstitucional(usuarioFinal.getCorreoInstitucional())
                 .numeroFactura(factura.getNumeroFactura())
                 .numeroAutorizacion(autorizacionPasarela)
                 .montoPagado(pago.getMontoPagado())
