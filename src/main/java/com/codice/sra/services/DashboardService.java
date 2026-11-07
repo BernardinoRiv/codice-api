@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Set;
 import java.util.LinkedHashSet;
+import java.util.ArrayList;
+import java.util.Comparator;
 
 @Service
 @RequiredArgsConstructor
@@ -252,6 +254,66 @@ public class DashboardService {
                     e.getKey(), primera.getNombreDocente(), primera.getTipoContratacion(),
                     materias.size(), materias);
         }).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public DashboardSeccionesDTO obtenerMetricasSecciones(String codigoCiclo, Long idSede) {
+        String ciclo = (codigoCiclo == null || codigoCiclo.isBlank())
+                ? cicloRepository.findCicloPorEstadoActivo()
+                    .map(c -> c.getCodigoCiclo())
+                    .orElseThrow(() -> new IllegalStateException("No existe un ciclo activo."))
+                : codigoCiclo.trim();
+
+        List<DashboardSeccionesDTO.Grupo> grupos = metricasRepository
+                .getDetalleSeccionesDashboard(ciclo, idSede).stream().map(f -> {
+                    long inscritos = f.getInscritos() == null ? 0 : f.getInscritos();
+                    long cupo = f.getCupoMaximo() == null ? 0 : f.getCupoMaximo();
+                    return new DashboardSeccionesDTO.Grupo(
+                            f.getIdGrupo(), f.getCodigoGrupo(), f.getIdMateria(),
+                            f.getMateria(), f.getDocente(), f.getJornada(), inscritos, cupo,
+                            Math.max(0, cupo - inscritos),
+                            cupo > 0 ? Math.round(inscritos * 1000.0 / cupo) / 10.0 : 0.0);
+                }).toList();
+        long cupos = grupos.stream().mapToLong(DashboardSeccionesDTO.Grupo::cupoMaximo).sum();
+        long inscritos = grupos.stream().mapToLong(DashboardSeccionesDTO.Grupo::inscritos).sum();
+        long disponibles = grupos.stream().mapToLong(DashboardSeccionesDTO.Grupo::cuposDisponibles).sum();
+        double ocupacion = cupos > 0 ? Math.round(inscritos * 1000.0 / cupos) / 10.0 : 0.0;
+
+        List<DashboardSeccionesDTO.Jornada> jornadas = List.of("DIURNA", "NOCTURNA", "MIXTA", "SIN HORARIO")
+                .stream().map(nombre -> new DashboardSeccionesDTO.Jornada(nombre,
+                        grupos.stream().filter(g -> nombre.equals(g.jornada())).count())).toList();
+
+        long llenos = grupos.stream().filter(g -> g.cupoMaximo() > 0 && g.inscritos() >= g.cupoMaximo()).count();
+        long vacios = grupos.stream().filter(g -> g.inscritos() == 0).count();
+        long conDisponibilidad = grupos.size() - llenos - vacios;
+
+        List<DashboardSeccionesDTO.Historico> historico = metricasRepository
+                .getHistoricoSeccionesDashboard(idSede).stream()
+                .filter(h -> compararCiclos(h.getCodigoCiclo(), ciclo) <= 0)
+                .sorted((a,b) -> compararCiclos(a.getCodigoCiclo(), b.getCodigoCiclo()))
+                .map(h -> new DashboardSeccionesDTO.Historico(h.getCodigoCiclo(), h.getCantidad()))
+                .toList();
+
+        Map<Long, List<SeccionCarreraProjection>> porCarrera = new LinkedHashMap<>();
+        metricasRepository.getSeccionesPorCarreraDashboard(ciclo, idSede).forEach(f ->
+                porCarrera.computeIfAbsent(f.getIdCarrera(), k -> new ArrayList<>()).add(f));
+        List<DashboardSeccionesDTO.Carrera> carreras = porCarrera.entrySet().stream().map(e -> {
+            List<SeccionCarreraProjection> filas = e.getValue();
+            Map<Long, List<SeccionCarreraProjection>> porMateria = new LinkedHashMap<>();
+            filas.forEach(f -> porMateria.computeIfAbsent(f.getIdMateria(), k -> new ArrayList<>()).add(f));
+            List<DashboardSeccionesDTO.Materia> materias = porMateria.entrySet().stream()
+                    .map(m -> new DashboardSeccionesDTO.Materia(m.getKey(),
+                            m.getValue().get(0).getNombreMateria(),
+                            m.getValue().stream().map(SeccionCarreraProjection::getIdGrupo).distinct().count()))
+                    .toList();
+            return new DashboardSeccionesDTO.Carrera(e.getKey(), filas.get(0).getNombreCarrera(),
+                    filas.stream().map(SeccionCarreraProjection::getIdGrupo).distinct().count(), materias);
+        }).sorted(Comparator.comparingLong(DashboardSeccionesDTO.Carrera::cantidadGrupos).reversed()).toList();
+
+        return new DashboardSeccionesDTO(grupos.size(), cupos, inscritos, disponibles,
+                ocupacion, jornadas, historico,
+                new DashboardSeccionesDTO.Ocupacion(llenos, conDisponibilidad, vacios),
+                carreras, grupos);
     }
 
     // Orden cronológico para códigos de la forma 1-2026, 2-2026 o 01-2027.

@@ -1,6 +1,9 @@
 
 package com.codice.sra.repositories;
 
+import com.codice.sra.dtos.DashboardDTO.SeccionDetalleProjection;
+import com.codice.sra.dtos.DashboardDTO.SeccionCarreraProjection;
+import com.codice.sra.dtos.DashboardDTO.HistoricoSeccionesProjection;
 import com.codice.sra.dtos.DashboardDTO.AsistenciaSemanalProjection;
 import com.codice.sra.dtos.DashboardDTO.DistribucionProjection;
 import com.codice.sra.dtos.DashboardDTO.CarreraMatriculaProjection;
@@ -382,6 +385,99 @@ public interface DashboardRepository extends JpaRepository<MvDashboardGerencial,
             ORDER BY "nombreCarrera", "nombreDocente", "nombreMateria", "idGrupo"
             """, nativeQuery = true)
     List<DocenteAsignacionProjection> getAsignacionesDocentesCarreraDashboard(
+            @Param("codigoCiclo") String codigoCiclo, @Param("idSede") Long idSede);
+
+
+    // FASE 3: SECCIONES ABIERTAS
+    // La ocupacion se calcula por grupo, sin multiplicar filas por horarios.
+    @Query(value = """
+        WITH base AS (
+            SELECT g.id_grupo, g.codigo_grupo, g.id_materia, g.id_docente,
+                   g.id_plantilla, COALESCE(g.cupo_maximo, 0) AS cupo_maximo,
+                   mat.nombre_materia
+            FROM grupos g
+            JOIN ciclos ci ON ci.id_ciclo = g.id_ciclo
+            JOIN materias mat ON mat.id_materia = g.id_materia
+            JOIN estados_grupo eg ON eg.id_estado_grupo = g.id_estado_grupo
+            WHERE ci.codigo_ciclo = :codigoCiclo
+              AND (:idSede IS NULL OR g.id_sede = :idSede)
+              AND UPPER(eg.estado_grupo) = 'ABIERTO'
+        ), sesiones AS (
+            SELECT b.id_grupo, h.hora_inicio FROM base b
+            JOIN horarios h ON h.id_grupo = b.id_grupo
+            UNION ALL
+            SELECT b.id_grupo, phd.hora_inicio FROM base b
+            JOIN plantillas_horarios_detalle phd ON phd.id_plantilla = b.id_plantilla
+            WHERE NOT EXISTS (SELECT 1 FROM horarios h WHERE h.id_grupo = b.id_grupo)
+        ), jornadas AS (
+            SELECT id_grupo,
+                CASE
+                    WHEN BOOL_OR(hora_inicio < TIME '17:00')
+                     AND BOOL_OR(hora_inicio >= TIME '17:00') THEN 'MIXTA'
+                    WHEN BOOL_OR(hora_inicio >= TIME '17:00') THEN 'NOCTURNA'
+                    WHEN BOOL_OR(hora_inicio < TIME '17:00') THEN 'DIURNA'
+                    ELSE 'SIN HORARIO'
+                END AS jornada
+            FROM sesiones GROUP BY id_grupo
+        ), ocupacion AS (
+            SELECT i.id_grupo, COUNT(DISTINCT i.id_inscripcion) AS inscritos
+            FROM inscripciones i
+            JOIN matriculas m ON m.id_matricula = i.id_matricula
+            JOIN base b ON b.id_grupo = i.id_grupo
+            WHERE i.id_estado_inscripcion = 1 AND m.id_estado_matricula = 2
+            GROUP BY i.id_grupo
+        )
+        SELECT b.id_grupo AS "idGrupo", b.codigo_grupo AS "codigoGrupo",
+               b.id_materia AS "idMateria", b.nombre_materia AS "materia",
+               CONCAT_WS(' ', p.nombres, p.apellidos) AS "docente",
+               COALESCE(j.jornada, 'SIN HORARIO') AS "jornada",
+               COALESCE(o.inscritos, 0) AS "inscritos",
+               b.cupo_maximo AS "cupoMaximo"
+        FROM base b
+        LEFT JOIN docentes d ON d.id_docente = b.id_docente
+        LEFT JOIN personas p ON p.id_persona = d.id_persona
+        LEFT JOIN jornadas j ON j.id_grupo = b.id_grupo
+        LEFT JOIN ocupacion o ON o.id_grupo = b.id_grupo
+        ORDER BY b.nombre_materia, b.codigo_grupo, b.id_grupo
+        """, nativeQuery = true)
+    List<SeccionDetalleProjection> getDetalleSeccionesDashboard(
+            @Param("codigoCiclo") String codigoCiclo, @Param("idSede") Long idSede);
+
+    @Query(value = """
+        SELECT ci.codigo_ciclo AS "codigoCiclo", COUNT(g.id_grupo) AS "cantidad"
+        FROM ciclos ci
+        LEFT JOIN grupos g ON g.id_ciclo = ci.id_ciclo
+          AND (:idSede IS NULL OR g.id_sede = :idSede)
+          AND g.id_estado_grupo IN (
+              SELECT eg.id_estado_grupo FROM estados_grupo eg
+              WHERE UPPER(eg.estado_grupo) = 'ABIERTO'
+          )
+        GROUP BY ci.id_ciclo, ci.codigo_ciclo, ci.anio, ci.numero_ciclo
+        ORDER BY ci.anio, ci.numero_ciclo
+        """, nativeQuery = true)
+    List<HistoricoSeccionesProjection> getHistoricoSeccionesDashboard(@Param("idSede") Long idSede);
+
+    // Una misma seccion puede asociarse a varias carreras por sus alumnos.
+    @Query(value = """
+        SELECT DISTINCT g.id_grupo AS "idGrupo", car.id_carrera AS "idCarrera",
+               car.nombre_carrera AS "nombreCarrera", mat.id_materia AS "idMateria",
+               mat.nombre_materia AS "nombreMateria"
+        FROM grupos g
+        JOIN ciclos ci ON ci.id_ciclo = g.id_ciclo
+        JOIN estados_grupo eg ON eg.id_estado_grupo = g.id_estado_grupo
+        JOIN materias mat ON mat.id_materia = g.id_materia
+        JOIN inscripciones i ON i.id_grupo = g.id_grupo AND i.id_estado_inscripcion = 1
+        JOIN matriculas m ON m.id_matricula = i.id_matricula
+          AND m.id_ciclo = g.id_ciclo AND m.id_estado_matricula = 2
+        JOIN estudiantes_carreras ec ON ec.id_estudiante_carrera = m.id_estudiante_carrera
+        JOIN carreras_sedes cs ON cs.id_carrera_sede = ec.id_carrera_sede
+        JOIN carreras car ON car.id_carrera = cs.id_carrera
+        WHERE ci.codigo_ciclo = :codigoCiclo
+          AND UPPER(eg.estado_grupo) = 'ABIERTO'
+          AND (:idSede IS NULL OR (g.id_sede = :idSede AND cs.id_sede = :idSede))
+        ORDER BY "nombreCarrera", "nombreMateria", "idGrupo"
+        """, nativeQuery = true)
+    List<SeccionCarreraProjection> getSeccionesPorCarreraDashboard(
             @Param("codigoCiclo") String codigoCiclo, @Param("idSede") Long idSede);
 
 }
