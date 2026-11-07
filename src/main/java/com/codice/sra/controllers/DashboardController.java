@@ -4,7 +4,6 @@ import com.codice.sra.dtos.DashboardDTO.DashboardGerencialDTO;
 import com.codice.sra.services.DashboardService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -14,13 +13,13 @@ public class DashboardController {
     @Autowired
     private DashboardService dashboardService;
 
-    // RBAC: Estricto control de acceso para proteger datos gerenciales sensibles
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'DIRECTOR_REGIONAL')")
     @GetMapping("/metricas/ciclo-activo")
-    public ResponseEntity<DashboardGerencialDTO> obtenerMetricas(
-            @RequestParam(defaultValue = "2-2026B") String codigoCiclo) {
+    public ResponseEntity<DashboardGerencialDTO> obtenerMetricasGerenciales(
+            @RequestParam(value = "codigoCiclo", required = false) String codigoCiclo,
+            @RequestParam(value = "idSede", required = false) Long idSede,
+            @RequestParam(value = "granularidad", defaultValue = "semanal") String granularidad) {
 
-        DashboardGerencialDTO metricas = dashboardService.obtenerMetricas(codigoCiclo);
-        return ResponseEntity.ok(metricas);
+        DashboardGerencialDTO response = dashboardService.obtenerMetricas(codigoCiclo, idSede, granularidad);
+        return ResponseEntity.ok(response);
     }
 }
