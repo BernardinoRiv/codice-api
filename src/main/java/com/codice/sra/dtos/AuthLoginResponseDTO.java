@@ -24,4 +24,8 @@ public class AuthLoginResponseDTO {
     // Campos de control para saber el resultado de la petición
     private String mensaje;
     private boolean exito;
+    private Long idCargo;
+    private String nombreCargo;
+    private Long idCiclo;
+    private String codigoCiclo;
 }
