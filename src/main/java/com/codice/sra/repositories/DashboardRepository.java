@@ -7,6 +7,8 @@ import com.codice.sra.dtos.DashboardDTO.CarreraMatriculaProjection;
 import com.codice.sra.dtos.DashboardDTO.MateriaCarreraProjection;
 import com.codice.sra.dtos.DashboardDTO.HistoricoMatriculaProjection;
 import com.codice.sra.models.MvDashboardGerencial;
+import com.codice.sra.dtos.DashboardDTO.DocenteAsignacionProjection;
+import com.codice.sra.dtos.DashboardDTO.HistoricoDocentesProjection;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -280,4 +282,106 @@ public interface DashboardRepository extends JpaRepository<MvDashboardGerencial,
     List<DistribucionProjection> getAsistenciaPorFacultad(
             @Param("codigoCiclo") String codigoCiclo
     );
+
+    // ============================================================
+    // FASE 2: DOCENTES (consultas independientes, con filtro sede)
+    // ============================================================
+
+    @Query(value = """
+            SELECT tc.tipo_contratacion AS nombre,
+                   COUNT(DISTINCT d.id_docente) AS cantidad
+            FROM grupos g
+            JOIN ciclos c ON c.id_ciclo = g.id_ciclo
+            JOIN docentes d ON d.id_docente = g.id_docente
+            JOIN estados_docente ed ON ed.id_estado_docente = d.id_estado_docente
+            JOIN estados_grupo eg ON eg.id_estado_grupo = g.id_estado_grupo
+            JOIN tipos_contratacion_docente tc ON tc.id_tipo_contratacion = d.id_tipo_contratacion
+            WHERE c.codigo_ciclo = :codigoCiclo
+              AND (:idSede IS NULL OR g.id_sede = :idSede)
+              AND UPPER(ed.estado_docente) = 'ACTIVO'
+              AND UPPER(eg.estado_grupo) = 'ABIERTO'
+            GROUP BY tc.tipo_contratacion
+            ORDER BY tc.tipo_contratacion
+            """, nativeQuery = true)
+    List<DistribucionProjection> getContratosDocentesDashboard(
+            @Param("codigoCiclo") String codigoCiclo, @Param("idSede") Long idSede);
+
+    @Query(value = """
+            SELECT c.codigo_ciclo AS "codigoCiclo",
+                   COUNT(DISTINCT d.id_docente) FILTER
+                       (WHERE tc.tipo_contratacion = 'TIEMPO COMPLETO') AS "tiempoCompleto",
+                   COUNT(DISTINCT d.id_docente) FILTER
+                       (WHERE tc.tipo_contratacion = 'POR HORAS') AS "porHoras"
+            FROM ciclos c
+            LEFT JOIN grupos g ON g.id_ciclo = c.id_ciclo
+                AND (:idSede IS NULL OR g.id_sede = :idSede)
+                AND g.id_estado_grupo IN
+                    (SELECT id_estado_grupo FROM estados_grupo WHERE UPPER(estado_grupo) = 'ABIERTO')
+            LEFT JOIN docentes d ON d.id_docente = g.id_docente
+                AND d.id_estado_docente IN
+                    (SELECT id_estado_docente FROM estados_docente WHERE UPPER(estado_docente) = 'ACTIVO')
+            LEFT JOIN tipos_contratacion_docente tc
+                ON tc.id_tipo_contratacion = d.id_tipo_contratacion
+            GROUP BY c.id_ciclo, c.codigo_ciclo, c.anio, c.numero_ciclo
+            ORDER BY c.anio, c.numero_ciclo
+            """, nativeQuery = true)
+    List<HistoricoDocentesProjection> getHistoricoDocentesDashboard(@Param("idSede") Long idSede);
+
+    // Todas las materias/grupos asignados a docentes del ciclo y sede.
+    @Query(value = """
+            SELECT NULL::bigint AS "idCarrera", NULL::varchar AS "nombreCarrera",
+                   d.id_docente AS "idDocente",
+                   CONCAT_WS(' ', p.nombres, p.apellidos) AS "nombreDocente",
+                   tc.tipo_contratacion AS "tipoContratacion",
+                   mat.id_materia AS "idMateria", mat.nombre_materia AS "nombreMateria",
+                   g.id_grupo AS "idGrupo"
+            FROM grupos g
+            JOIN ciclos c ON c.id_ciclo = g.id_ciclo
+            JOIN docentes d ON d.id_docente = g.id_docente
+            JOIN personas p ON p.id_persona = d.id_persona
+            JOIN materias mat ON mat.id_materia = g.id_materia
+            JOIN tipos_contratacion_docente tc ON tc.id_tipo_contratacion = d.id_tipo_contratacion
+            JOIN estados_docente ed ON ed.id_estado_docente = d.id_estado_docente
+            JOIN estados_grupo eg ON eg.id_estado_grupo = g.id_estado_grupo
+            WHERE c.codigo_ciclo = :codigoCiclo
+              AND (:idSede IS NULL OR g.id_sede = :idSede)
+              AND UPPER(ed.estado_docente) = 'ACTIVO'
+              AND UPPER(eg.estado_grupo) = 'ABIERTO'
+            ORDER BY "nombreDocente", "nombreMateria", "idGrupo"
+            """, nativeQuery = true)
+    List<DocenteAsignacionProjection> getAsignacionesDocentesDashboard(
+            @Param("codigoCiclo") String codigoCiclo, @Param("idSede") Long idSede);
+
+    // Carrera real de alumnos con inscripción activa en cada grupo.
+    @Query(value = """
+            SELECT DISTINCT car.id_carrera AS "idCarrera",
+                   car.nombre_carrera AS "nombreCarrera",
+                   d.id_docente AS "idDocente",
+                   CONCAT_WS(' ', p.nombres, p.apellidos) AS "nombreDocente",
+                   tc.tipo_contratacion AS "tipoContratacion",
+                   mat.id_materia AS "idMateria", mat.nombre_materia AS "nombreMateria",
+                   g.id_grupo AS "idGrupo"
+            FROM inscripciones i
+            JOIN matriculas m ON m.id_matricula = i.id_matricula
+            JOIN estudiantes_carreras ec ON ec.id_estudiante_carrera = m.id_estudiante_carrera
+            JOIN carreras_sedes cs ON cs.id_carrera_sede = ec.id_carrera_sede
+            JOIN carreras car ON car.id_carrera = cs.id_carrera
+            JOIN grupos g ON g.id_grupo = i.id_grupo AND g.id_ciclo = m.id_ciclo
+            JOIN ciclos c ON c.id_ciclo = g.id_ciclo
+            JOIN docentes d ON d.id_docente = g.id_docente
+            JOIN personas p ON p.id_persona = d.id_persona
+            JOIN materias mat ON mat.id_materia = g.id_materia
+            JOIN tipos_contratacion_docente tc ON tc.id_tipo_contratacion = d.id_tipo_contratacion
+            JOIN estados_docente ed ON ed.id_estado_docente = d.id_estado_docente
+            JOIN estados_grupo eg ON eg.id_estado_grupo = g.id_estado_grupo
+            WHERE c.codigo_ciclo = :codigoCiclo
+              AND (:idSede IS NULL OR (g.id_sede = :idSede AND cs.id_sede = :idSede))
+              AND m.id_estado_matricula = 2 AND i.id_estado_inscripcion = 1
+              AND UPPER(ed.estado_docente) = 'ACTIVO'
+              AND UPPER(eg.estado_grupo) = 'ABIERTO'
+            ORDER BY "nombreCarrera", "nombreDocente", "nombreMateria", "idGrupo"
+            """, nativeQuery = true)
+    List<DocenteAsignacionProjection> getAsignacionesDocentesCarreraDashboard(
+            @Param("codigoCiclo") String codigoCiclo, @Param("idSede") Long idSede);
+
 }
