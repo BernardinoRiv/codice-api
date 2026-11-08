@@ -29,13 +29,13 @@ public class MvDashboardGerencial {
     private String codigoCiclo;
 
     @Column(name = "total_matricula")
-    private Integer totalMatricula;
+    private Long totalMatricula;
 
     @Column(name = "total_docentes")
-    private Integer totalDocentes;
+    private Long totalDocentes;
 
     @Column(name = "total_secciones")
-    private Integer totalSecciones;
+    private Long totalSecciones;
 
     @Column(name = "capacidad_promedio")
     private Double capacidadPromedio;
