@@ -3,7 +3,7 @@ name: Publicar imagen Docker
 on:
   push:
     branches:
-      - main
+      - test
   workflow_dispatch:
 
 permissions:
@@ -50,7 +50,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ steps.image.outputs.name }}:latest
+            ${{ steps.image.outputs.name }}:test
             ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
