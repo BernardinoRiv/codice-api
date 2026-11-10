@@ -70,4 +70,15 @@ public interface InscripcionRepository extends JpaRepository<Inscripcion, Long> 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM Inscripcion i WHERE i.matricula.idMatricula = :idMatricula")
     void deleteByMatriculaId(@Param("idMatricula") Long idMatricula);
+
+    // En InscripcionRepository.java
+    @Query("SELECT i FROM Inscripcion i WHERE i.matricula.idMatricula = :idMatricula AND i.grupo.materia.codigoMateria = :codigoMateria")
+    Optional<Inscripcion> findByMatriculaAndCodigoMateria(@Param("idMatricula") Long idMatricula, @Param("codigoMateria") String codigoMateria);
+
+    // Buscar la inscripción por ID de grupo
+    Optional<Inscripcion> findByMatricula_IdMatriculaAndGrupo_IdGrupo(Long idMatricula, Long idGrupo);
+
+    // Buscar las inscripciones de una matrícula que estén en estado "RETIRO PENDIENTE"
+    @Query("SELECT i FROM Inscripcion i WHERE i.matricula.idMatricula = :idMatricula AND i.estadoMateria.estadoMateria = 'RETIRO PENDIENTE'")
+    List<Inscripcion> findByMatriculaAndEstadoRetiroPendiente(@Param("idMatricula") Long idMatricula);
 }

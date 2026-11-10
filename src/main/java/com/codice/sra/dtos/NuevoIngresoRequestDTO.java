@@ -7,7 +7,7 @@ import java.util.List;
 @Data
 public class NuevoIngresoRequestDTO {
 
-    // 1. Datos de Identidad y Contacto (Si idPersona es null, se crea. Si trae ID, se actualiza)
+    // 1. Datos de Identidad y Contacto
     private Long idPersona;
     private Long idTipoDocumento;
     private String numeroDocumento;
@@ -26,6 +26,9 @@ public class NuevoIngresoRequestDTO {
     private Long idPensum;
 
     // 3. Selección de Horarios
-    // Lista de los IDs de los grupos que el estudiante eligió para su ciclo 1
     private List<Long> idGruposSeleccionados;
+
+    // 4. Modalidad Financiera
+    // 1 = Ninguna/Regular, 2 = Franja Becaria, 3 = Beca Completa U, 4 = Beca Terceros Directo
+    private Integer tipoBeca;
 }

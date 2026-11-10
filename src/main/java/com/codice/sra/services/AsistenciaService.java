@@ -59,6 +59,14 @@ public class AsistenciaService {
         List<Inscripcion> inscripciones = inscripcionRepository.findByGrupoIdGrupo(clase.getGrupo().getIdGrupo());
 
         for (Inscripcion inscripcion : inscripciones) {
+            // =====================================================================
+            // FILTRO CLAVE: Si ya retiró la materia, NO se le toma asistencia
+            // =====================================================================
+            if (inscripcion.getEstadoMateria() != null &&
+                    inscripcion.getEstadoMateria().getEstadoMateria().equalsIgnoreCase("RETIRADA")) {
+                continue; // Lo saltamos por completo
+            }
+
             Long idEstudiante = inscripcion.getMatricula().getEstudiante().getIdEstudiante();
 
             Asistencia asistencia = asistenciaRepository

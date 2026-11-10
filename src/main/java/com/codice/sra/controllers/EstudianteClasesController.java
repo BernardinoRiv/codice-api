@@ -2,6 +2,7 @@ package com.codice.sra.controllers;
 
 import com.codice.sra.dtos.ClaseInscritaDTO;
 import com.codice.sra.dtos.PensumEstudianteDTO;
+import com.codice.sra.dtos.SolicitudRetiroDTO;
 import com.codice.sra.models.Estudiante;
 import com.codice.sra.repositories.EstudianteRepository;
 import com.codice.sra.security.JwtService;
@@ -9,7 +10,9 @@ import com.codice.sra.services.EstudianteClasesService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/estudiantes")
@@ -34,7 +37,7 @@ public class EstudianteClasesController {
         }
         String token = authHeader.substring(7);
 
-        // Extraemos el carnet que ya viene guardado en el token gracias a tu JwtService
+        // Extraemos el carnet que ya viene guardado en el token
         String carnet = jwtService.extractCarnet(token);
 
         if (carnet == null || carnet.trim().isEmpty()) {
@@ -61,5 +64,37 @@ public class EstudianteClasesController {
     public ResponseEntity<PensumEstudianteDTO> obtenerPensum(@RequestHeader("Authorization") String authHeader) {
         Long idEstudiante = obtenerIdEstudianteDesdeToken(authHeader);
         return ResponseEntity.ok(service.obtenerPensum(idEstudiante));
+    }
+
+    // Endpoint para generar el cargo y cambiar la materia a RETIRO PENDIENTE
+    @PostMapping("/mis-clases/solicitar-retiro")
+    public ResponseEntity<?> solicitarRetiro(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestBody @jakarta.validation.Valid SolicitudRetiroDTO solicitud) {
+        try {
+            Long idEstudiante = obtenerIdEstudianteDesdeToken(authHeader);
+            Map<String, String> resultado = service.solicitarRetiroMateria(idEstudiante, solicitud.getIdGrupo());
+            return ResponseEntity.ok(resultado);
+        } catch (RuntimeException e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    // Endpoint para eliminar el cargo pendiente y devolver la materia a CURSANDO
+    @PostMapping("/mis-clases/cancelar-retiro")
+    public ResponseEntity<?> cancelarRetiro(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestBody @jakarta.validation.Valid SolicitudRetiroDTO solicitud) {
+        try {
+            Long idEstudiante = obtenerIdEstudianteDesdeToken(authHeader);
+            Map<String, String> resultado = service.cancelarRetiroMateria(idEstudiante, solicitud.getIdGrupo());
+            return ResponseEntity.ok(resultado);
+        } catch (RuntimeException e) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
     }
 }

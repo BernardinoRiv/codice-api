@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -47,8 +48,11 @@ public class FinanzasService {
     private final RolRepository rolRepository;
     private final EstadoUsuarioRepository estadoUsuarioRepository;
 
-    // Repositorio para cambiar el estado de la matrícula
     private final EstadoMatriculaRepository estadoMatriculaRepository;
+
+    // Repositorios requeridos para el retiro automático de materias
+    private final InscripcionRepository inscripcionRepository;
+    private final EstadoMateriaEstudianteRepository estadoMateriaEstudianteRepository;
 
     @Transactional(rollbackFor = Exception.class)
     public int clonarArancelesCicloAnterior(Long idCicloAnterior, Long idCicloNuevo) {
@@ -409,24 +413,19 @@ public class FinanzasService {
         nuevoPago.setEstudiante(estudiantePagador);
         nuevoPago.setMetodoPago(metodoPago);
 
-        // AQUÍ ASIGNAMOS EL CANAL DINÁMICO (Ventanilla o Portal)
         CanalPago canal = new CanalPago();
         canal.setIdCanalPago(idCanalPago);
         nuevoPago.setCanalPago(canal);
 
         EstadoPago estado = new EstadoPago();
-        estado.setIdEstadoPago(1L);
+        estado.setIdEstadoPago(2L);
         nuevoPago.setEstadoPago(estado);
 
-        // =========================================================================
-        // LÓGICA DE CAJA: Solo exigimos caja activa si es pago en VENTANILLA (ID 1)
-        // =========================================================================
         if (idCanalPago == 1L) {
             PuntoRecaudo punto = puntoRecaudoRepository.findFirstBySede_IdSedeAndActivoTrue(idSede)
                     .orElseThrow(() -> new RuntimeException("No se encontró una caja activa para procesar el pago."));
             nuevoPago.setPuntoRecaudo(punto);
         } else {
-            // Si es por PORTAL (ID 2), lo dejamos en NULL o buscamos una "Caja Virtual" si tuvieras una configurada.
             nuevoPago.setPuntoRecaudo(null);
         }
 
@@ -435,8 +434,6 @@ public class FinanzasService {
         nuevoPago.setUsuarioRegistro(usuarioEjecutorEntity);
 
         pagoRepository.save(nuevoPago);
-
-        // (El resto del código del método se mantiene exactamente igual...)
 
         EstadoCargo estadoPagado = estadoCargoRepository.findById(2L)
                 .orElseThrow(() -> new RuntimeException("Estado PAGADO no configurado (ID 2)."));
@@ -468,6 +465,30 @@ public class FinanzasService {
                     log.info("Matrícula ID {} actualizada exitosamente a MATRICULADA tras efectuar el pago.", matriculaPagada.getIdMatricula());
                 }
             }
+
+            // =====================================================================
+            // LÓGICA AUTOMÁTICA DE RETIRO DE MATERIA AL PAGAR EL ARANCEL
+            // =====================================================================
+            if (nombreCobro.contains("retiro") && nombreCobro.contains("materia")) {
+                List<Inscripcion> materiasPendientesRetiro = inscripcionRepository
+                        .findByMatriculaAndEstadoRetiroPendiente(cargo.getMatricula().getIdMatricula());
+
+                if (!materiasPendientesRetiro.isEmpty()) {
+                    Inscripcion inscripcionARetirar = materiasPendientesRetiro.get(0);
+
+                    // Buscamos el estado por NOMBRE, no por ID quemado
+                    EstadoMateriaEstudiante estadoRetirado = estadoMateriaEstudianteRepository
+                            .findByEstadoMateriaIgnoreCase("RETIRADA")
+                            .orElseThrow(() -> new RuntimeException("El estado 'RETIRADA' no existe en la base de datos."));
+
+                    inscripcionARetirar.setEstadoMateria(estadoRetirado);
+                    inscripcionARetirar.setFechaRetiro(LocalDateTime.now()); // Seteamos la fecha de retiro
+                    inscripcionRepository.save(inscripcionARetirar);
+
+                    log.info("Materia {} retirada automáticamente tras efectuar el pago del arancel.", inscripcionARetirar.getGrupo().getMateria().getCodigoMateria());
+                }
+            }
+            // =====================================================================
         }
 
         Factura factura = new Factura();
@@ -547,7 +568,6 @@ public class FinanzasService {
         String correoReal = personaEstudiante.getCorreoPersonal();
         String nombreCompletoEst = personaEstudiante.getNombres() + " " + personaEstudiante.getApellidos();
 
-        // MOSTRAR PORTAL EN EL RECIBO SI ES ONLINE
         String nombreCajero = (idCanalPago == 2L) ? "PAGO EN LÍNEA (PORTAL)" : (usuarioEjecutorEntity.getPersona().getNombres() + " " + usuarioEjecutorEntity.getPersona().getApellidos());
 
         String carnetComprobante = estudiantePagador.getCarnet();
@@ -716,7 +736,7 @@ public class FinanzasService {
                 .orElse("Carrera no asignada");
 
         EstadoCuentaCicloDTO.EstudianteInfo infoEstudiante = EstadoCuentaCicloDTO.EstudianteInfo.builder()
-                .idEstudiante(estudiante.getIdEstudiante()) // <--- SOLUCIÓN AL ERROR 422
+                .idEstudiante(estudiante.getIdEstudiante())
                 .carnet(estudiante.getCarnet())
                 .nombreCompleto(estudiante.getPersona().getNombres() + " " + estudiante.getPersona().getApellidos())
                 .carrera(nombreCarrera)
@@ -756,8 +776,8 @@ public class FinanzasService {
                         .mes(mesAsignado)
                         .fechaVencimiento(cargo.getFechaVencimiento())
                         .monto(montoFinalCargo)
-                        .montoBase(montoBaseNeto)      // <--- ENVIAMOS BASE SEPARADA
-                        .montoRecargo(recargoMora)     // <--- ENVIAMOS MORA SEPARADA
+                        .montoBase(montoBaseNeto)
+                        .montoRecargo(recargoMora)
                         .build());
             }
         }
@@ -797,4 +817,152 @@ public class FinanzasService {
                 .historialPagos(listaPagos)
                 .build();
     }
+
+    // ... aquí arriba está el resto de tus métodos (obtenerArancelesPorCiclo, etc) ...
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> obtenerCiclosPorEstudiante(String carnet) {
+        Estudiante estudiante = estudianteRepository.findByCarnet(carnet)
+                .orElseGet(() -> estudianteRepository.findByPersona_NumeroDocumento(carnet)
+                        .orElseThrow(() -> new RuntimeException("Estudiante no encontrado.")));
+
+        // Obtenemos todos los ciclos ordenados del más reciente al más antiguo
+        List<Ciclo> todosLosCiclos = cicloRepository.findAll(org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "idCiclo"));
+
+        // AQUÍ ESTABA EL ERROR: Faltaba el Map<String, Object>
+        List<Map<String, Object>> ciclosDelEstudiante = new ArrayList<>();
+
+        for (Ciclo ciclo : todosLosCiclos) {
+            // Verificamos si el estudiante está matriculado en este ciclo
+            Optional<Matricula> matricula = matriculaRepository.findByEstudianteIdEstudianteAndCicloIdCiclo(
+                    estudiante.getIdEstudiante(), ciclo.getIdCiclo());
+
+            if (matricula.isPresent()) {
+                Map<String, Object> map = new HashMap<>();
+                map.put("idCiclo", ciclo.getIdCiclo());
+                map.put("codigoCiclo", ciclo.getCodigoCiclo());
+                // Opcional: Si quieres que el frontend sepa el estado, puedes agregarlo aquí
+                // map.put("estadoCiclo", ciclo.getEstadoCiclo().getEstadoCiclo());
+                ciclosDelEstudiante.add(map);
+            }
+        }
+        return ciclosDelEstudiante;
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] descargarComprobanteHistorico(Long idPago) {
+        Pago pago = pagoRepository.findById(idPago)
+                .orElseThrow(() -> new RuntimeException("Pago no encontrado."));
+
+        Estudiante estudiante = pago.getEstudiante();
+        Persona persona = estudiante.getPersona();
+
+        List<PagoCargo> pagosCargos = pagoCargoRepository.findByPago_IdPago(idPago);
+
+        List<ComprobantePagoDTO.DetalleComprobanteDTO> detalles = new ArrayList<>();
+        for (PagoCargo pc : pagosCargos) {
+            String concepto = pc.getCargo().getConceptoCobro().getTipoCobro().getTipoCobro();
+            detalles.add(ComprobantePagoDTO.DetalleComprobanteDTO.builder()
+                    .concepto(concepto)
+                    .montoTotal(pc.getMontoAplicado())
+                    .build());
+        }
+
+        String cajero = "Pago en línea";
+        if (pago.getUsuarioRegistro() != null) {
+            cajero = pago.getUsuarioRegistro().getPersona().getNombres() + " " + pago.getUsuarioRegistro().getPersona().getApellidos();
+        }
+
+        ComprobantePagoDTO comprobanteDTO = ComprobantePagoDTO.builder()
+                .numeroFactura(pago.getReferencia())
+                .fechaEmision(pago.getFechaPago())
+                .nombreCompleto(persona.getNombres() + " " + persona.getApellidos())
+                .carnetEstudiante(estudiante.getCarnet())
+                .correoEstudiante(persona.getCorreoPersonal() != null ? persona.getCorreoPersonal() : "N/A")
+                .totalCobrado(pago.getMontoPagado())
+                .cajeroResponsable(cajero)
+                .detalles(detalles)
+                .build();
+
+        return comprobantePdfService.generarPdf(comprobanteDTO);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> obtenerPagosPorFecha(LocalDate fecha) {
+        LocalDateTime inicio = fecha.atStartOfDay();
+        LocalDateTime fin = fecha.atTime(LocalTime.MAX);
+
+        List<Pago> pagos = pagoRepository.findByFechaPagoBetweenOrderByFechaPagoDesc(inicio, fin);
+        List<Map<String, Object>> listaDto = new ArrayList<>();
+
+        for (Pago p : pagos) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("idPago", p.getIdPago());
+            map.put("referencia", p.getReferencia());
+            map.put("fechaPago", p.getFechaPago());
+            map.put("montoTotal", p.getMontoPagado());
+            map.put("metodoPago", p.getMetodoPago().getMetodoPago());
+            map.put("carnet", p.getEstudiante().getCarnet());
+            map.put("nombreEstudiante", p.getEstudiante().getPersona().getNombres() + " " + p.getEstudiante().getPersona().getApellidos());
+            listaDto.add(map);
+        }
+        return listaDto;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, String> reenviarComprobantePorCorreo(Long idPago) {
+        Pago pago = pagoRepository.findById(idPago)
+                .orElseThrow(() -> new RuntimeException("Pago no encontrado."));
+
+        Estudiante estudiante = pago.getEstudiante();
+        Persona persona = estudiante.getPersona();
+        String correoReal = persona.getCorreoPersonal();
+
+        if (correoReal == null || correoReal.trim().isEmpty()) {
+            throw new RuntimeException("El estudiante no tiene un correo electrónico personal registrado.");
+        }
+
+        List<PagoCargo> pagosCargos = pagoCargoRepository.findByPago_IdPago(idPago);
+        List<ComprobantePagoDTO.DetalleComprobanteDTO> detalles = new ArrayList<>();
+        for (PagoCargo pc : pagosCargos) {
+            detalles.add(ComprobantePagoDTO.DetalleComprobanteDTO.builder()
+                    .concepto(pc.getCargo().getConceptoCobro().getTipoCobro().getTipoCobro())
+                    .montoTotal(pc.getMontoAplicado())
+                    .build());
+        }
+
+        String cajero = (pago.getUsuarioRegistro() != null) ?
+                pago.getUsuarioRegistro().getPersona().getNombres() + " " + pago.getUsuarioRegistro().getPersona().getApellidos() : "Pago en línea";
+
+        ComprobantePagoDTO comprobanteDTO = ComprobantePagoDTO.builder()
+                .numeroFactura(pago.getReferencia())
+                .fechaEmision(pago.getFechaPago())
+                .nombreCompleto(persona.getNombres() + " " + persona.getApellidos())
+                .carnetEstudiante(estudiante.getCarnet())
+                .correoEstudiante(correoReal)
+                .totalCobrado(pago.getMontoPagado())
+                .cajeroResponsable(cajero)
+                .detalles(detalles)
+                .build();
+
+        // Enviar en segundo plano para no bloquear al cliente
+        CompletableFuture.runAsync(() -> {
+            try {
+                byte[] pdfBytes = comprobantePdfService.generarPdf(comprobanteDTO);
+                emailService.enviarComprobantePago(
+                        correoReal,
+                        persona.getNombres() + " " + persona.getApellidos(),
+                        pago.getReferencia(),
+                        pdfBytes
+                );
+            } catch (Exception e) {
+                log.error("Error al reenviar el comprobante: {}", e.getMessage());
+            }
+        });
+
+        Map<String, String> res = new HashMap<>();
+        res.put("mensaje", "Comprobante enviado con éxito a " + correoReal);
+        return res;
+    }
+
 }

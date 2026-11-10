@@ -31,4 +31,12 @@ public class Materia {
 
     @OneToMany(mappedBy = "materia", fetch = FetchType.LAZY)
     private List<PensumMateria> pensumMaterias = new ArrayList<>();
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "materias_prerrequisitos",
+            joinColumns = @JoinColumn(name = "id_materia"),
+            inverseJoinColumns = @JoinColumn(name = "id_materia_requerida")
+    )
+    private List<Materia> prerrequisitos;
 }

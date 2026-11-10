@@ -4,16 +4,20 @@ import com.codice.sra.dtos.EstadoCuentaCicloDTO;
 import com.codice.sra.dtos.EstadoCuentaResponseDTO;
 import com.codice.sra.dtos.GenerarCobrosMasivosRequestDTO;
 import com.codice.sra.dtos.ProcesarPagoRequestDTO;
+import com.codice.sra.models.Beneficio;
+import com.codice.sra.repositories.BeneficioRepository;
 import com.codice.sra.services.FinanzasService;
 import com.codice.sra.security.JwtService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +29,7 @@ public class FinanzasController {
 
     private final FinanzasService finanzasService;
     private final JwtService jwtService;
+    private final BeneficioRepository beneficioRepository;
 
     // ====================================================================
     // NUEVO: CLONAR ARANCELES DEL CICLO PASADO AL NUEVO
@@ -204,6 +209,62 @@ public class FinanzasController {
             error.put("error", "Error interno al procesar el pago online: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
+    }
+
+    // ACA ESTA LA CORRECCIÓN: Se agregó <Map<String, Object>> dentro del List
+    @GetMapping("/estudiantes/{carnet}/ciclos")
+    @PreAuthorize("hasRole('ESTUDIANTE') or hasRole('FINANZAS')")
+    public ResponseEntity<List<Map<String, Object>>> obtenerCiclosEstudiante(@PathVariable String carnet) {
+        return ResponseEntity.ok(finanzasService.obtenerCiclosPorEstudiante(carnet));
+    }
+
+    @GetMapping("/pagos/{idPago}/comprobante")
+    @PreAuthorize("hasRole('ESTUDIANTE') or hasRole('FINANZAS')")
+    public ResponseEntity<byte[]> descargarComprobante(@PathVariable Long idPago) {
+        byte[] pdfBytes = finanzasService.descargarComprobanteHistorico(idPago);
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_PDF);
+        headers.setContentDispositionFormData("attachment", "Factura.pdf");
+        return new ResponseEntity<>(pdfBytes, headers, org.springframework.http.HttpStatus.OK);
+    }
+
+    @GetMapping("/pagos/historial")
+    public ResponseEntity<?> obtenerHistorialPagos(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha) {
+        if(fecha == null) fecha = LocalDate.now();
+        return ResponseEntity.ok(finanzasService.obtenerPagosPorFecha(fecha));
+    }
+
+    @PostMapping("/pagos/{idPago}/reenviar-comprobante")
+    public ResponseEntity<?> reenviarComprobante(@PathVariable Long idPago) {
+        return ResponseEntity.ok(finanzasService.reenviarComprobantePorCorreo(idPago));
+    }
+
+    @GetMapping("/beneficios")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'REGISTRO_ACADEMICO', 'EMPLEADO')")
+    public ResponseEntity<List<Map<String, Object>>> obtenerBeneficiosActivos() {
+        List<Map<String, Object>> lista = beneficioRepository.findAll().stream().map(b -> {
+            Map<String, Object> map = new HashMap<>();
+
+            // Usamos exactamente los getters de tu entidad
+            map.put("id", b.getIdBeneficio());
+            map.put("nombre", b.getBeneficio()); // El frontend espera 'nombre'
+            map.put("porcentaje", b.getPorcentaje());
+            map.put("monto", b.getMonto());
+            map.put("cumMinimo", b.getCumMinimo());
+            map.put("fechaInicio", b.getFechaInicio());
+            map.put("fechaFin", b.getFechaFin());
+
+
+            return map;
+        }).collect(java.util.stream.Collectors.toList());
+
+        return ResponseEntity.ok(lista);
+    }
+
+    @GetMapping("/aranceles/ciclo/{idCiclo}")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'REGISTRO_ACADEMICO', 'EMPLEADO')")
+    public ResponseEntity<List<Map<String, Object>>> obtenerArancelesCicloParaFrontend(@PathVariable Long idCiclo) {
+        return ResponseEntity.ok(finanzasService.obtenerArancelesPorCiclo(idCiclo));
     }
 
 }

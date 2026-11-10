@@ -58,6 +58,19 @@ public class AuthService {
 
         Usuario usuario = usuarioOpt.get();
 
+        // =========================================================================
+        // NUEVA VALIDACIÓN: Verificar si el usuario está ACTIVO (ID 1 en BD)
+        // =========================================================================
+        if (usuario.getEstadoUsuario() != null && usuario.getEstadoUsuario().getIdEstadoUsuario() != 1L) {
+            String estadoReal = usuario.getEstadoUsuario().getEstadoUsuario().toLowerCase();
+            return new AuthLoginResponseDTO(
+                    null, null, null, null,
+                    0, null,
+                    "Acceso denegado. El usuario se encuentra " + estadoReal + ". Contacte a soporte.",
+                    false
+            );
+        }
+
         OffsetDateTime ultimoAccesoActual = usuario.getUltimoAcceso();
 
         if (usuario.getBloqueadoHasta() != null && usuario.getBloqueadoHasta().isAfter(OffsetDateTime.now())) {
@@ -65,12 +78,8 @@ public class AuthService {
                     null, null, null, null,
                     usuario.getIntentosFallidos(),
                     usuario.getBloqueadoHasta(),
-                    "Usuario bloqueado por múltiples intentos fallidos. Intente más tarde.",
-                    false,
-                    null,
-                    null,
-                    null,
-                    null
+                    "Usuario bloqueado temporalmente por múltiples intentos fallidos. Intente más tarde.",
+                    false
             );
         }
 
@@ -204,6 +213,14 @@ public class AuthService {
 
         Usuario usuario = usuarioOpt.get();
 
+        // =========================================================================
+        // NUEVA VALIDACIÓN: Evitar que usuarios inactivos soliciten recuperación
+        // =========================================================================
+        if (usuario.getEstadoUsuario() != null && usuario.getEstadoUsuario().getIdEstadoUsuario() != 1L) {
+            // Retornamos el mismo mensaje genérico por seguridad (para no revelar estados de cuentas a atacantes)
+            return "Si el correo está registrado, recibirá un código de recuperación.";
+        }
+
         String codigoCrudo = String.format("%06d", new java.security.SecureRandom().nextInt(1000000));
         String codigoHash = passwordEncoder.encode(codigoCrudo);
 
@@ -234,6 +251,13 @@ public class AuthService {
 
         Usuario usuario = usuarioRepository.findByCorreoInstitucional(request.getCorreoInstitucional())
                 .orElseThrow(() -> new RuntimeException("Solicitud inválida."));
+
+        // =========================================================================
+        // NUEVA VALIDACIÓN: Por si acaso intentan bypassear el bloqueo
+        // =========================================================================
+        if (usuario.getEstadoUsuario() != null && usuario.getEstadoUsuario().getIdEstadoUsuario() != 1L) {
+            return new CambiarContrasenaResponseDTO(false, "No se puede restablecer la contraseña. Cuenta inactiva.");
+        }
 
         List<RecuperacionClave> codigosActivos = recuperacionClaveRepository
                 .findByUsuarioAndUsadoFalseAndFechaExpiracionAfter(usuario, LocalDateTime.now());

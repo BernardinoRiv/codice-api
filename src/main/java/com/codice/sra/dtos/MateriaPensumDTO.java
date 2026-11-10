@@ -2,6 +2,7 @@ package com.codice.sra.dtos;
 
 import lombok.Data;
 import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 public class MateriaPensumDTO {
@@ -10,4 +11,5 @@ public class MateriaPensumDTO {
     private BigDecimal uvs;
     private Integer cicloRecomendado;
     private String estado;
+    private List<String> prerrequisitos;
 }

@@ -63,6 +63,20 @@ public class AsistenciaController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/marcar-presente-manual")
+    @PreAuthorize("hasRole('DOCENTE')")
+    public ResponseEntity<Map<String, Object>> marcarPresenteManual(
+            @RequestParam Long idClase,
+            @RequestParam Long idEstudiante) {
+
+        cacheService.registrarAsistenciaManual(idClase, idEstudiante);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("exito", true);
+        response.put("mensaje", "Asistencia registrada manualmente.");
+        return ResponseEntity.ok(response);
+    }
+
     @PostMapping("/finalizar/{idClase}")
     @PreAuthorize("hasRole('DOCENTE')")
     public ResponseEntity<Map<String, Object>> finalizarClase(

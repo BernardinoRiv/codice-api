@@ -12,4 +12,6 @@ public class ClaseInscritaDTO {
     private BigDecimal uvs;
     private String nombreDocente;
     private List<HorarioDTO> horarios;
+    private Long idGrupo;
+    private String estadoMateria;
 }

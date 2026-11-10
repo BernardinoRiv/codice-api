@@ -12,4 +12,6 @@ public class InscripcionResponseDTO {
     private String carnet;
     private String nombresEstudiante;
     private String apellidosEstudiante;
+    private String estadoMateria;
+    private Long idEstudiante;
 }

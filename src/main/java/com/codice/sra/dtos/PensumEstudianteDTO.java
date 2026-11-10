@@ -9,5 +9,6 @@ public class PensumEstudianteDTO {
     private Integer materiasAprobadas;
     private Integer materiasCursando;
     private Integer materiasPendientes;
+    private Double porcentajeAvance;
     private Map<Integer, List<MateriaPensumDTO>> materiasPorCiclo;
 }

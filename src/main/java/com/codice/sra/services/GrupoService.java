@@ -40,35 +40,39 @@ public class GrupoService {
     private final JwtService jwtService;
 
     public List<InscripcionResponseDTO> obtenerInscripcionesConEstudiantes(Long idGrupo) {
-        return inscripcionRepository.findByGrupoIdGrupo(idGrupo).stream().map(inscripcion -> {
-            Estudiante estudiante = inscripcion.getMatricula().getEstudiante();
-            Persona persona = estudiante.getPersona();
-            return new InscripcionResponseDTO(
-                    inscripcion.getIdInscripcion(),
-                    estudiante.getCarnet(),
-                    persona.getNombres(),
-                    persona.getApellidos()
-            );
-        }).collect(Collectors.toList());
+        return inscripcionRepository.findByGrupoIdGrupo(idGrupo).stream()
+                .filter(inscripcion -> inscripcion.getEstadoMateria() == null ||
+                        !inscripcion.getEstadoMateria().getEstadoMateria().equalsIgnoreCase("RETIRADA"))
+                .map(inscripcion -> {
+                    Estudiante estudiante = inscripcion.getMatricula().getEstudiante();
+                    Persona persona = estudiante.getPersona();
+
+                    String estadoMateria = (inscripcion.getEstadoMateria() != null)
+                            ? inscripcion.getEstadoMateria().getEstadoMateria()
+                            : "CURSANDO";
+
+                    // SOLUCIÓN: Extraemos correctamente el ID y lo pasamos en orden
+                    return new InscripcionResponseDTO(
+                            inscripcion.getIdInscripcion(),
+                            estudiante.getCarnet(),
+                            persona.getNombres(),
+                            persona.getApellidos(),
+                            estadoMateria,
+                            estudiante.getIdEstudiante() // <-- AQUÍ PASAMOS EL ID
+                    );
+                }).collect(Collectors.toList());
     }
 
-    /**
-     * Devuelve el consolidado de secciones aperturadas agrupadas por carrera.
-     */
     @Transactional(readOnly = true)
     public List<ResumenCarreraOfertaDTO> obtenerConteoPorCarrera(Long idCiclo) {
         return grupoRepository.contarSeccionesPorCarreraEnCiclo(idCiclo);
     }
 
-    /**
-     * Elimina una sección específica de forma transaccional protegiendo la integridad referencial.
-     */
     @Transactional(rollbackFor = Exception.class)
     public void eliminarGrupo(Long idGrupo) {
         Grupo grupo = grupoRepository.findById(idGrupo)
                 .orElseThrow(() -> GrupoException.noEncontrado("La sección especificada no existe."));
 
-        // 1. REGLA DE NEGOCIO: Solo se permite eliminar si el ciclo está en PLANIFICACIÓN
         String estadoCiclo = grupo.getCiclo().getEstadoCiclo().getEstadoCiclo().trim().toUpperCase();
         if (!"PLANIFICACION".equals(estadoCiclo)) {
             throw GrupoException.reglaNegocio(String.format(
@@ -76,15 +80,11 @@ public class GrupoService {
                     grupo.getCodigoGrupo(), grupo.getCiclo().getCodigoCiclo(), estadoCiclo));
         }
 
-        // 2. REGLA DE INTEGRIDAD: No eliminar si ya existen estudiantes inscritos
         if (inscripcionRepository.existsByGrupoIdGrupo(idGrupo)) {
             throw GrupoException.reglaNegocio("No es posible eliminar la sección porque ya cuenta con alumnos inscritos.");
         }
 
-        // 3. Purga atómica de horarios asociados
         horarioRepository.deleteByGrupo_IdGrupo(idGrupo);
-
-        // 4. Purga del grupo
         grupoRepository.delete(grupo);
         log.info("Sección [{}] eliminada satisfactoriamente del ciclo [{}]",
                 grupo.getCodigoGrupo(), grupo.getCiclo().getCodigoCiclo());
@@ -165,10 +165,6 @@ public class GrupoService {
         }).collect(Collectors.toList());
     }
 
-    // =========================================================================
-    // LÓGICA DE NEGOCIO: APERTURA DE SECCIÓN POR PLANTILLA INSTITUCIONAL
-    // =========================================================================
-
     @Transactional(readOnly = true)
     public List<AulaResponseDTO> obtenerAulasPorSede(Long idSede) {
         return aulaRepository.findAulasDisponiblesPorSede(idSede).stream()
@@ -245,7 +241,6 @@ public class GrupoService {
             }
         }
 
-        //Verificación de existencia de catálogos base
         Ciclo ciclo = cicloRepository.findById(request.getIdCiclo())
                 .orElseThrow(() -> GrupoException.noEncontrado("El ciclo lectivo especificado no existe."));
 
@@ -278,12 +273,10 @@ public class GrupoService {
         PlantillaHorario plantilla = plantillaHorarioRepository.findByIdConDetalles(request.getIdPlantilla())
                 .orElseThrow(() -> GrupoException.noEncontrado("La plantilla horaria seleccionada no existe o no está activa."));
 
-        // Verificación defensiva explícita de plantilla activa
         if (!Boolean.TRUE.equals(plantilla.getActiva()) || plantilla.getDetalles().isEmpty()) {
             throw GrupoException.reglaNegocio("La plantilla horaria no está habilitada o no tiene bloques configurados.");
         }
 
-        // 2. Control preliminar en Java (falla rápido antes de tocar la BD)
         boolean existeGrupo = grupoRepository.existsByCiclo_IdCicloAndMateria_IdMateriaAndSede_IdSedeAndCodigoGrupoIgnoreCase(
                 ciclo.getIdCiclo(), materia.getIdMateria(), sede.getIdSede(), plantilla.getCodigoPlantilla()
         );
@@ -292,7 +285,6 @@ public class GrupoService {
                     "' aperturada para esta materia en el ciclo actual.");
         }
 
-        // 3. Validación de límite de contratación docente
         long materiasAsignadas = grupoRepository.countGruposActivosPorDocenteYCiclo(docente.getIdDocente(), ciclo.getIdCiclo());
         int maximoPermitido = docente.getTipoContratacion().getMaximoMaterias();
         if (materiasAsignadas >= maximoPermitido) {
@@ -300,7 +292,6 @@ public class GrupoService {
                     materiasAsignadas + "/" + maximoPermitido + " materias).");
         }
 
-        // 4. Validación de modalidad y recursos (Switch exhaustivo)
         Aula aulaFisica = null;
         Integer cupoFinal;
         String modalidadKey = modalidad.getModalidad().toUpperCase().trim();
@@ -313,7 +304,6 @@ public class GrupoService {
                 aulaFisica = aulaRepository.findById(request.getIdAula())
                         .orElseThrow(() -> GrupoException.noEncontrado("El aula física especificada no existe."));
 
-                // Validación territorial: el aula debe pertenecer a la misma sede
                 if (!aulaFisica.getEdificio().getSede().getIdSede().equals(sede.getIdSede())) {
                     throw GrupoException.reglaNegocio("El aula física seleccionada no pertenece al campus de la sede indicada.");
                 }
@@ -332,7 +322,6 @@ public class GrupoService {
             default -> throw GrupoException.reglaNegocio("Modalidad '" + modalidad.getModalidad() + "' no soportada para apertura directa.");
         }
 
-        // 5. Verificación de traslapes en cada bloque temporal de la plantilla
         for (PlantillaHorarioDetalle bloque : plantilla.getDetalles()) {
             boolean docenteOcupado = horarioRepository.existeTraslapeDocente(
                     ciclo.getIdCiclo(), docente.getIdDocente(), bloque.getDia().getIdDia(),
@@ -357,7 +346,6 @@ public class GrupoService {
             }
         }
 
-        // 6. Inserción de cabecera con persistencia explícita del cupo máximo
         EstadoGrupo estadoAbierto = estadoGrupoRepository.findByEstadoGrupoIgnoreCase("ABIERTO")
                 .orElseThrow(() -> GrupoException.noEncontrado("El estado de grupo 'ABIERTO' no está configurado en el sistema."));
 
@@ -369,12 +357,11 @@ public class GrupoService {
                 .estadoGrupo(estadoAbierto)
                 .codigoGrupo(plantilla.getCodigoPlantilla())
                 .plantilla(plantilla)
-                .cupoMaximo(cupoFinal) // <-- Persistencia garantizada
+                .cupoMaximo(cupoFinal)
                 .build();
 
         Grupo grupoPersistido = grupoRepository.save(grupo);
 
-        // 7. Inserción de detalle de horarios clonando la plantilla
         List<FranjaHorariaResponseDTO> franjasResponse = new ArrayList<>();
 
         for (PlantillaHorarioDetalle bloque : plantilla.getDetalles()) {
@@ -416,11 +403,9 @@ public class GrupoService {
     @Transactional(rollbackFor = Exception.class)
     public SeccionResponseDTO editarGrupo(Long idGrupo, EditarGrupoRequestDTO request) {
 
-        // 1. Obtener la cabecera Grupo
         Grupo grupo = grupoRepository.findById(idGrupo)
                 .orElseThrow(() -> GrupoException.noEncontrado("La sección especificada no existe."));
 
-        // 2. Invariante de Ciclo: Solo se editan secciones en fase de PLANIFICACIÓN
         String estadoCiclo = grupo.getCiclo().getEstadoCiclo().getEstadoCiclo().trim().toUpperCase();
         if (!"PLANIFICACION".equals(estadoCiclo)) {
             throw GrupoException.reglaNegocio(String.format(
@@ -428,7 +413,6 @@ public class GrupoService {
                     grupo.getCiclo().getCodigoCiclo(), estadoCiclo));
         }
 
-        // 3. Resolución del nuevo Docente y validación de carga laboral
         Docente nuevoDocente = docenteRepository.findByIdConContratacion(request.idDocente())
                 .orElseThrow(() -> GrupoException.noEncontrado("El docente especificado no existe o no está activo."));
 
@@ -446,17 +430,14 @@ public class GrupoService {
             }
         }
 
-        // 4. RECUPERAR FRANJAS DESDE EL REPOSITORIO (Aquí viven las modalidades y horarios)
         List<Horario> horarios = horarioRepository.findByGrupoIdGrupo(idGrupo);
         if (horarios.isEmpty()) {
             throw GrupoException.reglaNegocio("La sección no posee franjas horarias configuradas.");
         }
 
-        // Determinar la modalidad desde la primera franja horaria real
         String modalidadKey = horarios.get(0).getModalidad().getModalidad().trim().toUpperCase();
         boolean esVirtual = modalidadKey.contains("VIRTUAL");
 
-        // 5. Resolución y validación del Espacio (Presencial vs Virtual)
         Aula nuevaAula = null;
         Integer cupoFinal = request.cupoMaximo();
 
@@ -471,7 +452,6 @@ public class GrupoService {
             nuevaAula = aulaRepository.findById(request.idAula())
                     .orElseThrow(() -> GrupoException.noEncontrado("El aula física especificada no existe."));
 
-            // Territorialidad: El aula debe pertenecer a la misma sede del grupo
             if (!nuevaAula.getEdificio().getSede().getIdSede().equals(grupo.getSede().getIdSede())) {
                 throw GrupoException.reglaNegocio("El aula física seleccionada no pertenece al campus de la sede de la sección.");
             }
@@ -483,7 +463,6 @@ public class GrupoService {
             }
         }
 
-        // 6. Validación de traslapes en cada franja horaria (excluyendo el grupo actual)
         Long idCiclo = grupo.getCiclo().getIdCiclo();
 
         for (Horario h : horarios) {
@@ -491,7 +470,6 @@ public class GrupoService {
             LocalTime inicio = h.getHoraInicio();
             LocalTime fin = h.getHoraFin();
 
-            // Validar choque de docente solo si cambió
             if (esCambioDocente) {
                 boolean choqueDocente = horarioRepository.existeTraslapeDocenteEnOtroGrupo(
                         idCiclo, nuevoDocente.getIdDocente(), idDia, idGrupo, inicio, fin);
@@ -504,7 +482,6 @@ public class GrupoService {
                 }
             }
 
-            // Validar choque de aula física (solo en presencial)
             if (nuevaAula != null) {
                 boolean choqueAula = horarioRepository.existeTraslapeAulaEnOtroGrupo(
                         idCiclo, nuevaAula.getIdAula(), idDia, idGrupo, inicio, fin);
@@ -516,12 +493,10 @@ public class GrupoService {
                 }
             }
 
-            // Actualizar los atributos correspondientes en la franja
             h.setAula(nuevaAula);
             h.setEnlaceVirtual(esVirtual ? request.enlaceVirtual() : null);
         }
 
-        // 7. Persistencia atómica
         grupo.setDocente(nuevoDocente);
         grupo.setCupoMaximo(cupoFinal);
 
@@ -530,8 +505,6 @@ public class GrupoService {
 
         return mapearASeccionResponseDTO(grupo, horarios);
     }
-
-    //Mapea la entidad persistida Grupo y sus entidades hijas Horario
 
     private SeccionResponseDTO mapearASeccionResponseDTO(Grupo grupo, List<Horario> horarios) {
         List<FranjaHorariaResponseDTO> franjas = horarios.stream()
