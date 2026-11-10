@@ -1,6 +1,7 @@
 package com.codice.sra.services;
 
 import com.codice.sra.dtos.HistorialAcademicoDTO;
+import com.codice.sra.dtos.HorarioDTO;
 import com.codice.sra.dtos.MateriaCicloDTO;
 import com.codice.sra.dtos.MateriaHistorialDTO;
 import com.codice.sra.dtos.MateriaNotasDTO;
@@ -13,6 +14,7 @@ import com.codice.sra.models.PeriodoEvaluacion;
 import com.codice.sra.models.PeriodoTipoEvaluacion;
 import com.codice.sra.repositories.CalificacionRepository;
 import com.codice.sra.repositories.CicloRepository;
+import com.codice.sra.repositories.HorarioRepository;
 import com.codice.sra.repositories.InscripcionRepository;
 import com.codice.sra.repositories.PeriodoEvaluacionRepository;
 import com.codice.sra.repositories.PeriodoTipoEvaluacionRepository;
@@ -37,17 +39,20 @@ public class EstudianteService {
     private final CalificacionRepository calificacionRepository;
     private final PeriodoEvaluacionRepository periodoEvaluacionRepository;
     private final PeriodoTipoEvaluacionRepository periodoTipoEvaluacionRepository;
+    private final HorarioRepository horarioRepository; // <-- NUEVO REPOSITORIO INYECTADO
 
     public EstudianteService(CicloRepository cicloRepository,
                              InscripcionRepository inscripcionRepository,
                              CalificacionRepository calificacionRepository,
                              PeriodoEvaluacionRepository periodoEvaluacionRepository,
-                             PeriodoTipoEvaluacionRepository periodoTipoEvaluacionRepository) {
+                             PeriodoTipoEvaluacionRepository periodoTipoEvaluacionRepository,
+                             HorarioRepository horarioRepository) {
         this.cicloRepository = cicloRepository;
         this.inscripcionRepository = inscripcionRepository;
         this.calificacionRepository = calificacionRepository;
         this.periodoEvaluacionRepository = periodoEvaluacionRepository;
         this.periodoTipoEvaluacionRepository = periodoTipoEvaluacionRepository;
+        this.horarioRepository = horarioRepository;
     }
 
     @Transactional(readOnly = true)
@@ -60,7 +65,11 @@ public class EstudianteService {
         Map<String, BigDecimal> config = cargarConfiguracionEvaluacion(cicloActivo.getIdCiclo());
 
         List<Inscripcion> inscripciones = inscripcionRepository
-                .findByEstudianteAndCiclo(idEstudiante, cicloActivo.getIdCiclo());
+                .findByEstudianteAndCiclo(idEstudiante, cicloActivo.getIdCiclo())
+                .stream()
+                .filter(insc -> insc.getEstadoMateria() == null ||
+                        !insc.getEstadoMateria().getEstadoMateria().equalsIgnoreCase("RETIRADA"))
+                .collect(Collectors.toList());
 
         List<MateriaNotasDTO> materiasDTO = inscripciones.stream()
                 .map(inscripcion -> {
@@ -79,6 +88,25 @@ public class EstudianteService {
 
                     String estado = determinarEstado(promedioOficial, esCicloActivo);
                     materiaDTO.setEstado(estado);
+
+                    // =====================================================================
+                    // EXTRACCIÓN DINÁMICA DE HORARIOS (Usando el repositorio)
+                    // =====================================================================
+                    List<HorarioDTO> horariosDeLaMateria = new ArrayList<>();
+                    // Buscamos los horarios directamente por el ID del grupo
+                    List<com.codice.sra.models.Horario> horariosEntidad = horarioRepository.findByGrupo_IdGrupo(inscripcion.getGrupo().getIdGrupo());
+
+                    for (com.codice.sra.models.Horario h : horariosEntidad) {
+                        HorarioDTO dto = new HorarioDTO();
+                        dto.setDia(h.getDia().getDia()); // Asumiendo que getDia() devuelve un objeto con getDia() String
+                        dto.setHoraInicio(h.getHoraInicio());
+                        dto.setHoraFin(h.getHoraFin());
+                        dto.setAula(h.getAula() != null ? h.getAula().getCodigoAula() : "Virtual"); // Asumiendo que Aula tiene getCodigoAula()
+                        // dto.setModalidad(h.getModalidad()); // <-- Descomenta si tu entidad Horario tiene este campo
+                        horariosDeLaMateria.add(dto);
+                    }
+                    materiaDTO.setHorarios(horariosDeLaMateria);
+                    // =====================================================================
 
                     return materiaDTO;
                 })
@@ -198,7 +226,6 @@ public class EstudianteService {
     public HistorialAcademicoDTO obtenerHistorialAcademico(Long idEstudiante) {
         List<Inscripcion> inscripciones = inscripcionRepository.findAllByEstudianteId(idEstudiante);
 
-        // Extracción de carrera respetando la jerarquía de la base de datos (Inscripcion -> Matricula -> EstudianteCarrera -> CarreraSede -> Carrera)
         String carreraEstudiante = "No asignada";
         if (!inscripciones.isEmpty()) {
             carreraEstudiante = inscripciones.get(0).getMatricula().getEstudianteCarrera().getCarreraSede().getCarrera().getNombreCarrera();
@@ -226,22 +253,26 @@ public class EstudianteService {
                 BigDecimal notaFinal = calcularNotaFinalDinamica(notas, config).setScale(1, RoundingMode.HALF_DOWN);
 
                 String estado;
-                if (esCicloActivo) {
+                if (inscripcion.getEstadoMateria() != null && inscripcion.getEstadoMateria().getEstadoMateria().equalsIgnoreCase("RETIRADA")) {
+                    estado = "Retirada";
+                } else if (esCicloActivo) {
                     estado = "Cursando";
                 } else {
                     estado = notaFinal.compareTo(BigDecimal.valueOf(6.0)) >= 0 ? "Aprobada" : "Reprobada";
                 }
 
-                if (notaFinal.compareTo(BigDecimal.valueOf(6.0)) >= 0) {
-                    int uv = inscripcion.getGrupo().getMateria().getUnidadesValorativas().intValue();
-                    sumaNotasPonderadas = sumaNotasPonderadas.add(notaFinal.multiply(BigDecimal.valueOf(uv)));
-                    totalUV += uv;
+                if (!estado.equals("Retirada")) {
+                    if (notaFinal.compareTo(BigDecimal.valueOf(6.0)) >= 0) {
+                        int uv = inscripcion.getGrupo().getMateria().getUnidadesValorativas().intValue();
+                        sumaNotasPonderadas = sumaNotasPonderadas.add(notaFinal.multiply(BigDecimal.valueOf(uv)));
+                        totalUV += uv;
 
-                    if (!esCicloActivo) {
-                        totalAprobadas++;
+                        if (!esCicloActivo) {
+                            totalAprobadas++;
+                        }
+                    } else if (!esCicloActivo) {
+                        totalReprobadas++;
                     }
-                } else if (!esCicloActivo) {
-                    totalReprobadas++;
                 }
 
                 materiasDTO.add(new MateriaHistorialDTO(
@@ -271,7 +302,6 @@ public class EstudianteService {
                 ? sumaNotasPonderadas.divide(BigDecimal.valueOf(totalUV), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
-        // Orden de variables ajustado para coincidir exactamente con HistorialAcademicoDTO
         return new HistorialAcademicoDTO(cum, totalUV, totalAprobadas, totalReprobadas, materiasPorCiclo, carreraEstudiante);
     }
 }

@@ -9,4 +9,6 @@ import java.util.Optional;
 @Repository
 public interface EstadoMateriaEstudianteRepository extends JpaRepository<EstadoMateriaEstudiante, Long> {
     Optional<EstadoMateriaEstudiante> findByEstadoMateria(String estadoMateria);
+    Optional<EstadoMateriaEstudiante> findByEstadoMateriaIgnoreCase(String estadoMateria);
+
 }

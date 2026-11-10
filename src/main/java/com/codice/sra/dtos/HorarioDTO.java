@@ -9,4 +9,5 @@ public class HorarioDTO {
     private LocalTime horaInicio;
     private LocalTime horaFin;
     private String aula;
+    private String modalidad;
 }

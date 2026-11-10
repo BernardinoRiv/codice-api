@@ -13,4 +13,5 @@ public interface EstudianteBeneficioRepository extends JpaRepository<EstudianteB
     Optional<EstudianteBeneficio> findByEstudiante_IdEstudianteAndEstadoBeneficioEstudiante_EstadoBeneficioEstudiante(Long idEstudiante, String estado);
 
     boolean existsByEstudiante_IdEstudianteAndEstadoBeneficioEstudiante_EstadoBeneficioEstudiante(Long idEstudiante, String estado);
+
 }

@@ -201,6 +201,7 @@ public class CarreraService {
         // Hibernate Dirty Checking se encarga de ejecutar el UPDATE al confirmar la transacción
     }
 
+/*
     private CarreraResponseDTO mapearADTO(Carrera c) {
         String facultadNombre = (c.getFacultad() != null)
                 ? c.getFacultad().getNombreFacultad()
@@ -213,6 +214,36 @@ public class CarreraService {
                 facultadNombre,
                 null,
                 null
+        );
+    }*/
+
+    private CarreraResponseDTO mapearADTO(Carrera c) {
+        // Datos actuales que ya sacaba tu equipo
+        String facultadNombre = (c.getFacultad() != null)
+                ? c.getFacultad().getNombreFacultad()
+                : "Facultad Institucional";
+
+        // Tus nuevos datos extraídos de la entidad
+        Long idFacultad = (c.getFacultad() != null) ? c.getFacultad().getIdFacultad() : null;
+        Long idNivel = (c.getNivel() != null) ? c.getNivel().getIdNivel() : null;
+
+        Long idEstado = (c.getEstadoCarrera() != null) ? c.getEstadoCarrera().getIdEstadoCarrera() : 3L; // 3L = ACTIVA por defecto
+        String nombreEstado = (c.getEstadoCarrera() != null) ? c.getEstadoCarrera().getEstadoCarrera() : "ACTIVA";
+
+        // Importante: El orden aquí debe coincidir exactamente con el record
+        return new CarreraResponseDTO(
+                c.getIdCarrera(),
+                c.getCodigoCarrera(),
+                c.getNombreCarrera(),
+                facultadNombre,
+                null, // idPensumVigente (Lo dejamos null como en tu código original)
+                null, // versionPensum (Lo dejamos null como en tu código original)
+
+                // Tus nuevos campos:
+                idFacultad,
+                idNivel,
+                idEstado,
+                nombreEstado
         );
     }
 }

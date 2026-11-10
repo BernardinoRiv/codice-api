@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -30,7 +30,8 @@ public class AsistenciaCacheService {
 
     public String generarTokenRotativo(Long idClase) {
         limpiarTokensExpirados();
-        String nuevoToken = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        int numeroAleatorio = 1000 + new Random().nextInt(9000);
+        String nuevoToken = String.valueOf(numeroAleatorio);
         tokensValidos.put(nuevoToken, new TokenInfo(idClase, LocalDateTime.now()));
         return nuevoToken;
     }
@@ -39,14 +40,13 @@ public class AsistenciaCacheService {
         TokenInfo info = tokensValidos.get(token);
         if (info == null) return false;
 
-        if (info.getFechaCreacion().plusSeconds(20).isBefore(LocalDateTime.now())) {
+        if (info.getFechaCreacion().plusSeconds(10).isBefore(LocalDateTime.now())) {
             tokensValidos.remove(token);
             return false;
         }
 
         Map<Long, LocalDateTime> presentes = asistenciasPorClase.get(info.getIdClase());
         if (presentes != null) {
-            // Evita que el estudiante se registre múltiples veces
             if (presentes.containsKey(idEstudiante)) {
                 throw new RuntimeException("Ya has registrado tu asistencia para esta clase.");
             }
@@ -54,6 +54,13 @@ public class AsistenciaCacheService {
             return true;
         }
         return false;
+    }
+
+    public void registrarAsistenciaManual(Long idClase, Long idEstudiante) {
+        Map<Long, LocalDateTime> presentes = asistenciasPorClase.get(idClase);
+        if (presentes != null) {
+            presentes.put(idEstudiante, LocalDateTime.now());
+        }
     }
 
     public Map<Long, LocalDateTime> obtenerPresentes(Long idClase) {
@@ -67,10 +74,10 @@ public class AsistenciaCacheService {
     }
 
     private void limpiarTokensExpirados() {
-        LocalDateTime limite = LocalDateTime.now().minusSeconds(20);
+        LocalDateTime limite = LocalDateTime.now().minusSeconds(10);
         tokensValidos.entrySet().removeIf(entry -> entry.getValue().getFechaCreacion().isBefore(limite));
     }
-    // Agregar al final de AsistenciaCacheService.java
+
     public Long obtenerIdClasePorToken(String token) {
         TokenInfo info = tokensValidos.get(token);
         return info != null ? info.getIdClase() : null;

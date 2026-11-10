@@ -29,4 +29,8 @@ public interface ConceptoCobroRepository extends JpaRepository<ConceptoCobro, Lo
     // Firma requerida para localizar el arancel de matrícula del ciclo
     Optional<ConceptoCobro> findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(Long idCiclo, Long idTipoCobro);
 
+    // En ConceptoCobroRepository.java
+    @Query("SELECT c FROM ConceptoCobro c WHERE c.ciclo.idCiclo = :idCiclo AND UPPER(c.tipoCobro.tipoCobro) LIKE '%RETIRO%MATERIA%'")
+    Optional<ConceptoCobro> findConceptoRetiroPorCiclo(@Param("idCiclo") Long idCiclo);
+
 }

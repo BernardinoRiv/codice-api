@@ -65,7 +65,6 @@ public class CalificacionService {
         if (calificacionExistente.isPresent()) {
             calificacion = calificacionExistente.get();
 
-            // bloqueo para ediciones manuales
             if ("PUBLICADA".equalsIgnoreCase(calificacion.getEstadoCalificacion().getEstadoCalificacion())) {
                 if (calificacion.getNota().compareTo(request.getNota()) == 0) {
                     return mapearAResponse(calificacion);
@@ -93,7 +92,15 @@ public class CalificacionService {
     @Transactional(readOnly = true)
     public PlantillaNotasResponseDTO generarPlantilla(Long idGrupo) {
         Grupo grupo = grupoRepository.findById(idGrupo).orElseThrow(() -> new RuntimeException("Grupo no encontrado"));
-        List<Inscripcion> inscripciones = inscripcionRepository.findByGrupoIdGrupo(idGrupo);
+
+        // =========================================================================
+        // FILTRO: Excluir a los estudiantes retirados del archivo de Excel
+        // =========================================================================
+        List<Inscripcion> inscripciones = inscripcionRepository.findByGrupoIdGrupo(idGrupo).stream()
+                .filter(insc -> insc.getEstadoMateria() == null ||
+                        !insc.getEstadoMateria().getEstadoMateria().equalsIgnoreCase("RETIRADA"))
+                .collect(Collectors.toList());
+
         List<Evaluacion> evaluaciones = evaluacionRepository.findByIdGrupoOrderByPeriodo(idGrupo);
 
         try (Workbook workbook = new XSSFWorkbook()) {
@@ -254,6 +261,14 @@ public class CalificacionService {
                 Inscripcion inscripcion = inscripcionRepository.findByCarnetAndGrupo(carnet, idGrupo)
                         .orElseThrow(() -> new RuntimeException("Fila " + filaActual + ": Estudiante con carnet " + carnet + " no encontrado."));
 
+                // =========================================================================
+                // FILTRO: Ignorar filas del Excel si el estudiante ya retiró la materia
+                // =========================================================================
+                if (inscripcion.getEstadoMateria() != null &&
+                        inscripcion.getEstadoMateria().getEstadoMateria().equalsIgnoreCase("RETIRADA")) {
+                    continue;
+                }
+
                 for (Evaluacion evaluacion : evaluacionesActivas) {
                     String key = evaluacion.getTipoEvaluacion().getTipoEvaluacion() + "_" + evaluacion.getNumeroEvaluacion();
                     Integer indiceColumna = mapaEvaluacionesActivas.get(key);
@@ -270,7 +285,6 @@ public class CalificacionService {
                             throw new RuntimeException("Fila " + filaActual + ": La nota tiene más de 1 decimal.");
                         }
 
-                        // salto inteligente para notas ya publicadas
                         Optional<Calificacion> califExistente = calificacionRepository.findByInscripcionIdInscripcionAndEvaluacionIdEvaluacion(inscripcion.getIdInscripcion(), evaluacion.getIdEvaluacion());
                         if (califExistente.isPresent() && "PUBLICADA".equalsIgnoreCase(califExistente.get().getEstadoCalificacion().getEstadoCalificacion())) {
                             continue;

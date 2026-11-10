@@ -6,5 +6,10 @@ public record CarreraResponseDTO(
         String nombreCarrera,
         String facultad,
         Long idPensumVigente,
-        Integer versionPensum
+        Integer versionPensum,
+
+        Long idFacultad,
+        Long idNivel,
+        Long idEstadoCarrera,
+        String estadoCarrera
 ) {}

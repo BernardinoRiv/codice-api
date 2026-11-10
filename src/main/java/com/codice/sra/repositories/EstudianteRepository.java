@@ -47,4 +47,6 @@ public interface EstudianteRepository extends JpaRepository<Estudiante, Long> {
 
     // Método requerido para resolver el expediente a partir de la entidad Persona
     Optional<Estudiante> findByPersona_IdPersona(Long idPersona);
+    Optional<Estudiante> findByUsuario_CorreoInstitucional(String correoInstitucional);
+
 }
