@@ -40,4 +40,7 @@ public class VerificacionIdentidadPublicaResponseDTO {
 
     @Schema(description = "Teléfono móvil enmascarado", example = "****-1234")
     private String telefonoEnmascarado;
+
+    @Schema(description = "Indica si debe verificar el correo personal")
+    private boolean requiereVerificacionCorreo;
 }

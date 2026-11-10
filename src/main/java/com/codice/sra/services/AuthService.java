@@ -1,8 +1,9 @@
 package com.codice.sra.services;
 
 import com.codice.sra.dtos.*;
-import com.codice.sra.models.RecuperacionClave;
-import com.codice.sra.models.Usuario;
+import com.codice.sra.models.*;
+import com.codice.sra.repositories.CicloRepository;
+import com.codice.sra.repositories.EmpleadoRepository;
 import com.codice.sra.repositories.RecuperacionClaveRepository;
 import com.codice.sra.repositories.UsuarioRepository;
 import com.codice.sra.security.JwtService;
@@ -26,6 +27,8 @@ public class AuthService {
     private final JwtService jwtService;
     private final SesionUsuarioService sesionUsuarioService;
     private final EmailService emailService;
+    private final EmpleadoRepository empleadoRepository;
+    private final CicloRepository cicloRepository;
 
     @Autowired
     public AuthService(UsuarioRepository usuarioRepository,
@@ -33,20 +36,24 @@ public class AuthService {
                        PasswordEncoder passwordEncoder,
                        JwtService jwtService,
                        SesionUsuarioService sesionUsuarioService,
-                       EmailService emailService) {
+                       EmailService emailService,
+                       EmpleadoRepository empleadoRepository,
+                       CicloRepository cicloRepository) {
         this.usuarioRepository = usuarioRepository;
         this.recuperacionClaveRepository = recuperacionClaveRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.sesionUsuarioService = sesionUsuarioService;
         this.emailService = emailService;
+        this.empleadoRepository = empleadoRepository;
+        this.cicloRepository = cicloRepository;
     }
 
     public AuthLoginResponseDTO login(AuthLoginRequestDTO request, HttpServletRequest httpRequest) {
         Optional<Usuario> usuarioOpt = usuarioRepository.findByCorreoInstitucional(request.getCorreoInstitucional());
 
         if (usuarioOpt.isEmpty()) {
-            return new AuthLoginResponseDTO(null, null, null, null, 0, null, "Credenciales inválidas", false);
+            return new AuthLoginResponseDTO(null, null, null, null, 0, null, "Credenciales inválidas", false, null, null, null, null);
         }
 
         Usuario usuario = usuarioOpt.get();
@@ -87,7 +94,11 @@ public class AuthService {
                     nuevosIntentos,
                     nuevoBloqueo,
                     "Credenciales inválidas",
-                    false
+                    false,
+                    null,
+                    null,
+                    null,
+                    null
             );
         }
 
@@ -102,6 +113,32 @@ public class AuthService {
         String jwtToken = jwtService.generateToken(usuario, sesion.getIdSesion());
         String nombreCompleto = usuario.getPersona().getNombres() + " " + usuario.getPersona().getApellidos();
 
+        Long idCargo = null;
+        String rol = usuario.getRol().getRol();
+
+        String nombreCargo = null;
+
+        if ("EMPLEADO".equalsIgnoreCase(rol) || "FINANZAS".equalsIgnoreCase(rol) || "ADMINISTRADOR".equalsIgnoreCase(rol)) {
+            // Extraemos el objeto Cargo (o null si no existe)
+            Cargo cargo = empleadoRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
+                    .map(Empleado::getCargo) // Obtiene el cargo del empleado
+                    .orElse(null);
+
+            // Ahora sí podemos asignar a las variables locales sin problema
+            if (cargo != null) {
+                idCargo = cargo.getIdCargo();
+                nombreCargo = cargo.getCargo();
+            }
+        }
+
+        Long idCiclo = cicloRepository.findCicloPorEstadoActivo().map(Ciclo::getIdCiclo).orElse(null);
+        String codigoCiclo = null;
+
+        Ciclo cicloActivo = cicloRepository.findCicloActivo().orElse(null);
+        if (cicloActivo != null) {
+            idCiclo = cicloActivo.getIdCiclo();
+            codigoCiclo = cicloActivo.getCodigoCiclo();
+        }
         return new AuthLoginResponseDTO(
                 jwtToken,
                 nombreCompleto,
@@ -110,7 +147,11 @@ public class AuthService {
                 0,
                 null,
                 "Login exitoso",
-                true
+                true,
+                idCargo,
+                nombreCargo,
+                idCiclo,
+                codigoCiclo
         );
     }
 

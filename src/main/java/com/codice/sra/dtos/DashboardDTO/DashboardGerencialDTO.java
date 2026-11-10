@@ -1,6 +1,6 @@
+
 package com.codice.sra.dtos.DashboardDTO;
 
-import com.codice.sra.dtos.DashboardDTO.DistribucionProjection;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -10,31 +10,82 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Getter
-@Setter // Necesario para poder inyectar las listas desde el servicio
+@Setter
 public class DashboardGerencialDTO {
-    private String cicloActivo;
-    private int matriculaActiva;
-    private int docentesActivos;
-    private int seccionesAbiertas;
+
+    // KPIs principales
+    private Long matriculaActiva;
+    private Long matriculadosConMaterias = 0L;
+    private Long matriculadosSinMaterias = 0L;
+
+    private Long docentesActivos;
+    private Long seccionesAbiertas;
     private double capacidadPromedio;
+
     private BigDecimal totalFacturado;
     private BigDecimal totalRecaudado;
     private double porcentajeCobro;
 
-    // Buena Práctica: Inicializar para garantizar que el JSON envíe "[]" en lugar de "null"
+    // Distribuciones de matrícula
+    private List<DistribucionProjection> distribucionMatriculaFacultad = new ArrayList<>();
+    private List<CarreraConMateriasDTO> distribucionMatriculaCarrera = new ArrayList<>();
+    private List<HistoricoMatriculaProjection> historicoMatricula = new ArrayList<>();
+    private List<DistribucionProjection> distribucionMatriculaMateria = new ArrayList<>();
+
+    @Getter
+    @Setter
+    public static class CarreraConMateriasDTO {
+        private Long idCarrera;
+        private String nombre;
+        private Long cantidad;
+        private List<MateriaDTO> materias = new ArrayList<>();
+
+        public CarreraConMateriasDTO(Long idCarrera, String nombre, Long cantidad) {
+            this.idCarrera = idCarrera;
+            this.nombre = nombre;
+            this.cantidad = cantidad;
+        }
+    }
+
+    @Getter
+    @Setter
+    public static class MateriaDTO {
+        private Long idMateria;
+        private String nombre;
+        private Long cantidad;
+
+        public MateriaDTO(Long idMateria, String nombre, Long cantidad) {
+            this.idMateria = idMateria;
+            this.nombre = nombre;
+            this.cantidad = cantidad;
+        }
+    }
+
+    // Distribuciones de docentes
     private List<DistribucionProjection> distribucionFacultades = new ArrayList<>();
     private List<DistribucionProjection> distribucionContratos = new ArrayList<>();
+
+    // Asistencia
     private List<AsistenciaSemanalProjection> asistenciaSemanal = new ArrayList<>();
 
-    public DashboardGerencialDTO(String cicloActivo, int matricula, int docentes, int secciones, double capacidad, BigDecimal facturado, BigDecimal recaudado) {
-        this.cicloActivo = cicloActivo;
-        this.matriculaActiva = matricula;
-        this.docentesActivos = docentes;
-        this.seccionesAbiertas = secciones;
+    public DashboardGerencialDTO(
+            Long matricula,
+            Long docentes,
+            Long secciones,
+            double capacidad,
+            BigDecimal facturado,
+            BigDecimal recaudado
+    ) {
+        this.matriculaActiva = matricula != null ? matricula : 0L;
+        this.docentesActivos = docentes != null ? docentes : 0L;
+        this.seccionesAbiertas = secciones != null ? secciones : 0L;
         this.capacidadPromedio = capacidad;
 
-        this.totalFacturado = facturado != null ? facturado : BigDecimal.ZERO;
-        this.totalRecaudado = recaudado != null ? recaudado : BigDecimal.ZERO;
+        this.totalFacturado = facturado != null
+                ? facturado : BigDecimal.ZERO;
+
+        this.totalRecaudado = recaudado != null
+                ? recaudado : BigDecimal.ZERO;
 
         if (this.totalFacturado.compareTo(BigDecimal.ZERO) > 0) {
             this.porcentajeCobro = this.totalRecaudado

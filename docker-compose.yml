@@ -1,6 +1,6 @@
 services:
   api:
-    image: sra-api:1.0.0
+    image: ghcr.io/bernardinoriv/codice-api:test
     container_name: sra-api
     restart: unless-stopped
     ports:

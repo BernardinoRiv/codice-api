@@ -81,5 +81,6 @@ public class MatriculaOnlineRequestDTO {
     @Schema(description = "Arreglo con los IDs de grupos a reservar para el Ciclo 1", example = "[10, 19, 20]")
     private List<Long> idGruposSeleccionados;
 
-
+    @Schema(description = "Autorización obtenida al verificar el correo")
+    private String tokenVerificacion;
 }

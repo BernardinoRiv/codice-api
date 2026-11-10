@@ -48,3 +48,12 @@ build/
 
 # Ignorar configuraciones locales con secretos
 application-local.properties
+uploads
+
+# Variantes de archivos de entorno
+.env.*
+!.env.example
+
+# Configuraciones locales en YAML
+application-local.yml
+application-local.yaml
