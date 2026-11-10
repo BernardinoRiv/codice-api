@@ -67,7 +67,8 @@ public class AuthService {
                     null, null, null, null,
                     0, null,
                     "Acceso denegado. El usuario se encuentra " + estadoReal + ". Contacte a soporte.",
-                    false
+                    false,
+                    null, null, null, null // <-- CORRECCIÓN: 4 campos agregados
             );
         }
 
@@ -79,7 +80,8 @@ public class AuthService {
                     usuario.getIntentosFallidos(),
                     usuario.getBloqueadoHasta(),
                     "Usuario bloqueado temporalmente por múltiples intentos fallidos. Intente más tarde.",
-                    false
+                    false,
+                    null, null, null, null // <-- CORRECCIÓN: 4 campos agregados
             );
         }
 
@@ -119,12 +121,10 @@ public class AuthService {
         String nombreCargo = null;
 
         if ("EMPLEADO".equalsIgnoreCase(rol) || "FINANZAS".equalsIgnoreCase(rol) || "ADMINISTRADOR".equalsIgnoreCase(rol)) {
-            // Extraemos el objeto Cargo (o null si no existe)
             Cargo cargo = empleadoRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
-                    .map(Empleado::getCargo) // Obtiene el cargo del empleado
+                    .map(Empleado::getCargo)
                     .orElse(null);
 
-            // Ahora sí podemos asignar a las variables locales sin problema
             if (cargo != null) {
                 idCargo = cargo.getIdCargo();
                 nombreCargo = cargo.getCargo();
@@ -139,6 +139,7 @@ public class AuthService {
             idCiclo = cicloActivo.getIdCiclo();
             codigoCiclo = cicloActivo.getCodigoCiclo();
         }
+
         return new AuthLoginResponseDTO(
                 jwtToken,
                 nombreCompleto,
@@ -213,11 +214,7 @@ public class AuthService {
 
         Usuario usuario = usuarioOpt.get();
 
-        // =========================================================================
-        // NUEVA VALIDACIÓN: Evitar que usuarios inactivos soliciten recuperación
-        // =========================================================================
         if (usuario.getEstadoUsuario() != null && usuario.getEstadoUsuario().getIdEstadoUsuario() != 1L) {
-            // Retornamos el mismo mensaje genérico por seguridad (para no revelar estados de cuentas a atacantes)
             return "Si el correo está registrado, recibirá un código de recuperación.";
         }
 
@@ -252,9 +249,6 @@ public class AuthService {
         Usuario usuario = usuarioRepository.findByCorreoInstitucional(request.getCorreoInstitucional())
                 .orElseThrow(() -> new RuntimeException("Solicitud inválida."));
 
-        // =========================================================================
-        // NUEVA VALIDACIÓN: Por si acaso intentan bypassear el bloqueo
-        // =========================================================================
         if (usuario.getEstadoUsuario() != null && usuario.getEstadoUsuario().getIdEstadoUsuario() != 1L) {
             return new CambiarContrasenaResponseDTO(false, "No se puede restablecer la contraseña. Cuenta inactiva.");
         }
