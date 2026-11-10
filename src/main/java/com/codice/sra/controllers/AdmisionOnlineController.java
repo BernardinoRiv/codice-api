@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -151,4 +152,49 @@ public class AdmisionOnlineController {
         ));
     }
 
+    @PostMapping("/solicitar-codigo")
+    public ResponseEntity<Map<String, String>> solicitarCodigo(
+            @RequestBody Map<String, String> request
+    ) {
+        admisionOnlineService.solicitarCodigoAdmision(
+                Long.valueOf(request.get("idTipoDocumento")),
+                request.get("numeroDocumento")
+        );
+
+        return ResponseEntity.ok(Map.of(
+                "mensaje", "Si el expediente es elegible, se enviará un código al correo registrado."
+        ));
+    }
+
+    @PostMapping("/verificar-codigo")
+    public ResponseEntity<Map<String, Object>> verificarCodigo(
+            @RequestBody Map<String, String> request) {
+
+        Long idTipoDocumento = Long.valueOf(
+                request.get("idTipoDocumento")
+        );
+
+        String numeroDocumento = request.get("numeroDocumento");
+        String codigo = request.get("codigo");
+
+        String token = admisionOnlineService.verificarCodigoAdmision(
+                idTipoDocumento,
+                numeroDocumento,
+                codigo
+        );
+
+        Map<String, Object> persona =
+                admisionOnlineService.obtenerDatosVerificados(token);
+
+        Map<String, Object> respuesta = new HashMap<>();
+
+        respuesta.put("tokenVerificacion", token);
+        respuesta.put("persona", persona);
+        respuesta.put(
+                "mensaje",
+                "Correo electrónico verificado correctamente."
+        );
+
+        return ResponseEntity.ok(respuesta);
+    }
 }

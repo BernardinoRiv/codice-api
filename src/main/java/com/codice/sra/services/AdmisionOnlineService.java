@@ -7,15 +7,19 @@ import com.codice.sra.utils.ValidadorDocumentoUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 @Slf4j
 @Service
@@ -40,6 +44,7 @@ public class AdmisionOnlineService {
     private final EstadoPagoRepository estadoPagoRepository;
     private final EstadoFacturaRepository estadoFacturaRepository;
 
+
     // Repositorios de Catálogos
     private final TipoDocumentoRepository tipoDocumentoRepository;
     private final DistritoRepository distritoRepository;
@@ -57,6 +62,13 @@ public class AdmisionOnlineService {
     private final CicloMatriculaValidatorService cicloMatriculaValidatorService;
     private final UsuarioService usuarioService;
     private final EmailService emailService;
+    private final PasswordEncoder passwordEncoder;
+
+    private final SecureRandom secureRandom = new SecureRandom();
+    private final ConcurrentMap<Long, CodigoAdmision> codigosAdmision = new ConcurrentHashMap<>();
+
+    private final ConcurrentMap<String, AutorizacionAdmision> autorizaciones = new ConcurrentHashMap<>();
+
 
     // Constantes de Dominio
     private static final Long ID_TIPO_COBRO_MATRICULA = 1L;       // Matrícula de Pregrado
@@ -133,20 +145,14 @@ public class AdmisionOnlineService {
                 .existePersona(true)
                 .esEstudianteActivo(false)
                 .requiereLogin(false)
-                .idPersona(persona.getIdPersona())
-                .nombres(persona.getNombres())
-                .apellidos(persona.getApellidos())
+                .requiereVerificacionCorreo(true)
                 .correoEnmascarado(enmascararCorreo(persona.getCorreoPersonal()))
-                .telefonoEnmascarado(enmascararTelefono(persona.getTelefono()))
-                .mensaje("Identidad validada. Datos cargados del expediente.")
+                .mensaje("Expediente encontrado. Se requiere verificar " + "el correo personal para continuar.")
                 .build();
     }
 
     // =========================================================================
     // CASO 2: PROCESAMIENTO DE PRE-MATRÍCULA Y RESERVA EN LÍNEA (Fase 1)
-    // =========================================================================
-    // =========================================================================
-    // CASO 2: PROCESAMIENTO DE PRE-MATRÍCULA Y RESERVA EN LÍNEA (Fase 1 - BLINDADO)
     // =========================================================================
     @Transactional(rollbackFor = Exception.class)
     public MatriculaOnlineResponseDTO procesarPreMatriculaOnline(MatriculaOnlineRequestDTO dto) {
@@ -154,6 +160,73 @@ public class AdmisionOnlineService {
         // 1. Validación estricta del documento antes de procesar el registro civil
         String docLimpio = ValidadorDocumentoUtil.normalizar(dto.getNumeroDocumento());
         ValidadorDocumentoUtil.validar(dto.getIdTipoDocumento(), docLimpio);
+
+        Optional<Persona> personaExistenteOpt =
+                personaRepository.findByNumeroDocumento(docLimpio);
+
+        if (personaExistenteOpt.isPresent()) {
+
+            Persona existente = personaExistenteOpt.get();
+
+            String token = dto.getTokenVerificacion();
+
+            if (token == null || token.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Debes verificar tu correo antes de continuar."
+                );
+            }
+
+            AutorizacionAdmision autorizacion = autorizaciones.get(token);
+
+            if (autorizacion == null ||
+                    !LocalDateTime.now().isBefore(autorizacion.expiracion()) ||
+                    !Objects.equals(
+                            autorizacion.idPersona(),
+                            existente.getIdPersona()
+                    )) {
+
+                throw new IllegalArgumentException(
+                        "La autorización de identidad no es válida o ha expirado."
+                );
+            }
+
+            if (!Objects.equals(
+                    existente.getTipoDocumento().getIdTipoDocumento(),
+                    dto.getIdTipoDocumento())) {
+
+                throw new IllegalArgumentException(
+                        "El tipo de documento no coincide con el expediente."
+                );
+            }
+
+            if (dto.getIdPersona() != null &&
+                    !Objects.equals(
+                            dto.getIdPersona(),
+                            existente.getIdPersona())) {
+
+                throw new IllegalArgumentException(
+                        "La persona indicada no corresponde al documento."
+                );
+            }
+
+            validarPersonaAdmisible(existente);
+
+        } else {
+
+            if (dto.getIdPersona() != null) {
+                throw new IllegalArgumentException(
+                        "La persona indicada no corresponde al documento."
+                );
+            }
+
+            if (dto.getTokenVerificacion() != null &&
+                    !dto.getTokenVerificacion().isBlank()) {
+
+                throw new IllegalArgumentException(
+                        "No se requiere un token para una persona nueva."
+                );
+            }
+        }
 
         // 2. Validación de ciclo lectivo hábil y cálculo del período
         CicloMatriculaValidatorService.EvaluacionCicloMatricula evalCiclo =
@@ -168,47 +241,94 @@ public class AdmisionOnlineService {
             throw new IllegalArgumentException("Ya existe una persona registrada con el correo personal: " + correoNormalizado);
         }
 
-        // =========================================================================
-        // 2.2 GESTIÓN DEFENSIVA DE PERSONA (PATRÓN FIND-OR-CREATE)
-        // Evita el error 23505 (personas_numero_documento_key) reutilizando o actualizando
-        // =========================================================================
+        // =============================================================
+        // 2.2 GESTIÓN DE PERSONA: FIND OR CREATE
+        // =============================================================
+
         Persona persona;
-        if (dto.getIdPersona() != null) {
-            persona = personaRepository.findById(dto.getIdPersona())
-                    .orElseThrow(() -> new IllegalArgumentException("Identificador de persona no encontrado: " + dto.getIdPersona()));
+
+        if (personaExistenteOpt.isPresent()) {
+
+            persona = personaExistenteOpt.get();
+
+            // Se conservan los datos civiles existentes:
+            // nombres, apellidos, fecha de nacimiento, sexo,
+            // tipo de documento, número y correo personal.
+
+            persona.setTelefono(dto.getTelefono().trim());
+
+            persona.setDireccion(dto.getDireccion().trim());
+
+            persona.setDistrito(
+                    distritoRepository.findById(dto.getIdDistrito())
+                            .orElseThrow(() ->
+                                    new IllegalArgumentException(
+                                            "Distrito territorial no válido."
+                                    )
+                            )
+            );
+
         } else {
-            // Si el frontend no envió idPersona, se busca por documento antes de intentar insertar
-            persona = personaRepository.findByNumeroDocumento(docLimpio)
-                    .orElseGet(() -> {
-                        Persona nueva = new Persona();
-                        nueva.setFechaRegistro(OffsetDateTime.now());
-                        return nueva;
-                    });
+
+            persona = new Persona();
+
+            persona.setFechaRegistro(OffsetDateTime.now());
+
+            persona.setTipoDocumento(
+                    tipoDocumentoRepository
+                            .findById(dto.getIdTipoDocumento())
+                            .orElseThrow(() ->
+                                    new IllegalArgumentException(
+                                            "Tipo de documento no válido."
+                                    )
+                            )
+            );
+
+            persona.setNumeroDocumento(docLimpio);
+
+            persona.setNombres(dto.getNombres().trim());
+            persona.setApellidos(dto.getApellidos().trim());
+
+            persona.setFechaNacimiento(dto.getFechaNacimiento());
+
+            persona.setSexo(
+                    dto.getSexo().trim().toUpperCase()
+            );
+
+            persona.setTelefono(dto.getTelefono().trim());
+
+            persona.setCorreoPersonal(correoNormalizado);
+
+            persona.setDistrito(
+                    distritoRepository.findById(dto.getIdDistrito())
+                            .orElseThrow(() ->
+                                    new IllegalArgumentException(
+                                            "Distrito territorial no válido."
+                                    )
+                            )
+            );
+
+            persona.setDireccion(dto.getDireccion().trim());
         }
 
-        persona.setTipoDocumento(tipoDocumentoRepository.findById(dto.getIdTipoDocumento())
-                .orElseThrow(() -> new IllegalArgumentException("Tipo de documento no válido.")));
-        persona.setNumeroDocumento(docLimpio);
-        persona.setNombres(dto.getNombres().trim());
-        persona.setApellidos(dto.getApellidos().trim());
-        persona.setFechaNacimiento(dto.getFechaNacimiento());
-        persona.setSexo(dto.getSexo().trim().toUpperCase());
-        persona.setTelefono(dto.getTelefono().trim());
-        persona.setCorreoPersonal(correoNormalizado);
-        persona.setDistrito(distritoRepository.findById(dto.getIdDistrito())
-                .orElseThrow(() -> new IllegalArgumentException("Distrito territorial no válido.")));
-        persona.setDireccion(dto.getDireccion().trim());
+// Estado de registro
+        EstadoRegistroPersona estadoRegistro =
+                estadoRegistroPersonaRepository
+                        .findByEstadoRegistro("COMPLETADO")
+                        .orElseGet(() ->
+                                estadoRegistroPersonaRepository
+                                        .findById(2L)
+                                        .orElseThrow()
+                        );
 
-        EstadoRegistroPersona estadoReg = estadoRegistroPersonaRepository.findByEstadoRegistro("COMPLETADO")
-                .orElseGet(() -> estadoRegistroPersonaRepository.findById(2L).orElseThrow());
-        persona.setEstadoRegistro(estadoReg);
+        persona.setEstadoRegistro(estadoRegistro);
+
+// Guardar una sola vez.
         persona = personaRepository.save(persona);
 
         // =========================================================================
         // 2.3 GESTIÓN DEFENSIVA DE ESTUDIANTE (PATRÓN FIND-OR-CREATE)
         // =========================================================================
-
-        // 2.3 GESTIÓN DEFENSIVA DE ESTUDIANTE (PATRÓN FIND-OR-CREATE)
 
         // Referencia final para utilizar dentro de las expresiones lambda
         final Persona personaGuardada = persona;
@@ -765,5 +885,316 @@ public class AdmisionOnlineService {
 
         return npeGenerado;
     }
+
+    public void solicitarCodigoAdmision(
+            Long idTipoDocumento,
+            String numeroDocumento) {
+
+        String documento = ValidadorDocumentoUtil.normalizar(numeroDocumento);
+        ValidadorDocumentoUtil.validar(idTipoDocumento, documento);
+
+        Persona persona = personaRepository
+                .findByNumeroDocumento(documento)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No se pudo procesar la solicitud."
+                ));
+
+        if (!Objects.equals(
+                persona.getTipoDocumento().getIdTipoDocumento(),
+                idTipoDocumento)) {
+            throw new IllegalArgumentException(
+                    "No se pudo procesar la solicitud."
+            );
+        }
+
+        validarPersonaAdmisible(persona);
+
+        String correo = persona.getCorreoPersonal();
+
+        if (correo == null || correo.isBlank()) {
+            throw new IllegalStateException(
+                    "No existe un correo registrado para verificar."
+            );
+        }
+
+        Long idPersona = persona.getIdPersona();
+        LocalDateTime ahora = LocalDateTime.now();
+
+        CodigoAdmision anterior = codigosAdmision.get(idPersona);
+
+        if (anterior != null &&
+                ahora.isBefore(anterior.ultimoEnvio().plusSeconds(60))) {
+
+            throw new IllegalStateException(
+                    "Debes esperar 60 segundos antes de solicitar otro código."
+            );
+        }
+
+        String codigo = String.format(
+                "%06d",
+                secureRandom.nextInt(1_000_000)
+        );
+
+        CodigoAdmision nuevoRegistro = new CodigoAdmision(
+                passwordEncoder.encode(codigo),
+                ahora.plusMinutes(10),
+                0,
+                ahora
+        );
+
+        codigosAdmision.put(idPersona, nuevoRegistro);
+
+        try {
+            emailService.enviarCodigoVerificacionAdmision(
+                    correo,
+                    persona.getNombres(),
+                    codigo
+            );
+
+            log.info(
+                    "Código OTP de admisión enviado para persona ID {}",
+                    idPersona
+            );
+
+        } catch (RuntimeException ex) {
+
+            codigosAdmision.remove(idPersona, nuevoRegistro);
+
+            log.error(
+                    "Error enviando OTP para persona ID {}",
+                    idPersona,
+                    ex
+            );
+
+            throw new IllegalStateException(
+                    "No se pudo enviar el código de verificación."
+            );
+        }
+    }
+
+    public String verificarCodigoAdmision(
+            Long idTipoDocumento,
+            String numeroDocumento,
+            String codigo) {
+
+        String documento = ValidadorDocumentoUtil.normalizar(numeroDocumento);
+        ValidadorDocumentoUtil.validar(idTipoDocumento, documento);
+
+        if (codigo == null || !codigo.matches("\\d{6}")) {
+            throw new IllegalArgumentException(
+                    "El código debe contener seis dígitos."
+            );
+        }
+
+        Persona persona = personaRepository
+                .findByNumeroDocumento(documento)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Verificación inválida."
+                ));
+
+        if (!Objects.equals(
+                persona.getTipoDocumento().getIdTipoDocumento(),
+                idTipoDocumento)) {
+            throw new IllegalArgumentException(
+                    "Verificación inválida."
+            );
+        }
+
+        validarPersonaAdmisible(persona);
+
+        Long idPersona = persona.getIdPersona();
+        LocalDateTime ahora = LocalDateTime.now();
+
+        // Sincroniza la verificación para evitar que dos solicitudes
+        // utilicen simultáneamente el mismo código.
+        synchronized (codigosAdmision) {
+
+            CodigoAdmision registro = codigosAdmision.get(idPersona);
+
+            if (registro == null) {
+                throw new IllegalArgumentException(
+                        "No existe un código de verificación vigente."
+                );
+            }
+
+            if (!ahora.isBefore(registro.expiracion())) {
+                codigosAdmision.remove(idPersona);
+
+                throw new IllegalArgumentException(
+                        "El código ha expirado."
+                );
+            }
+
+            if (registro.intentos() >= 5) {
+                codigosAdmision.remove(idPersona);
+
+                throw new IllegalArgumentException(
+                        "Se superó el número de intentos permitidos."
+                );
+            }
+
+            if (!passwordEncoder.matches(codigo, registro.hash())) {
+
+                int intentos = registro.intentos() + 1;
+
+                if (intentos >= 5) {
+                    codigosAdmision.remove(idPersona);
+
+                    throw new IllegalArgumentException(
+                            "Se superó el número de intentos permitidos."
+                    );
+                }
+
+                codigosAdmision.put(
+                        idPersona,
+                        new CodigoAdmision(
+                                registro.hash(),
+                                registro.expiracion(),
+                                intentos,
+                                registro.ultimoEnvio()
+                        )
+                );
+
+                throw new IllegalArgumentException(
+                        "Código incorrecto."
+                );
+            }
+
+            // Código de un solo uso.
+            codigosAdmision.remove(idPersona);
+        }
+
+        String token = UUID.randomUUID().toString();
+
+        autorizaciones.put(
+                token,
+                new AutorizacionAdmision(
+                        idPersona,
+                        ahora.plusMinutes(30)
+                )
+        );
+
+        log.info(
+                "Identidad verificada mediante OTP para persona ID {}",
+                idPersona
+        );
+
+        return token;
+    }
+
+    private void validarPersonaAdmisible(Persona persona) {
+
+        if (usuarioRepository.existsByPersona_IdPersonaAndRol_Rol(
+                persona.getIdPersona(),
+                "ADMINISTRADOR"
+        )) {
+            throw new IllegalStateException(
+                    "Esta cuenta no puede realizar prematrícula pública."
+            );
+        }
+
+        Optional<Estudiante> estudianteOpt =
+                estudianteRepository.findByPersona_IdPersona(
+                        persona.getIdPersona()
+                );
+
+        if (estudianteOpt.isPresent()) {
+            Estudiante estudiante = estudianteOpt.get();
+
+            if (estudiante.getUsuario() != null) {
+                throw new IllegalStateException(
+                        "Debes utilizar el portal estudiantil."
+                );
+            }
+
+            Long idCiclo = cicloMatriculaValidatorService
+                    .resolverCicloHabilParaMatricula()
+                    .ciclo()
+                    .getIdCiclo();
+
+            if (matriculaRepository
+                    .existsByEstudiante_IdEstudianteAndCiclo_IdCiclo(
+                            estudiante.getIdEstudiante(),
+                            idCiclo
+                    )) {
+                throw new IllegalStateException(
+                        "Ya existe una prematrícula para el ciclo actual."
+                );
+            }
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> obtenerDatosVerificados(String token) {
+
+        if (token == null || token.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Token de verificación requerido."
+            );
+        }
+
+        AutorizacionAdmision autorizacion = autorizaciones.get(token);
+
+        if (autorizacion == null ||
+                !LocalDateTime.now().isBefore(autorizacion.expiracion())) {
+
+            autorizaciones.remove(token);
+
+            throw new IllegalArgumentException(
+                    "La verificación ha expirado o no es válida."
+            );
+        }
+
+        Persona persona = personaRepository
+                .findById(autorizacion.idPersona())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "La persona verificada ya no existe."
+                ));
+
+        validarPersonaAdmisible(persona);
+
+        Map<String, Object> datos = new HashMap<>();
+
+        datos.put("idPersona", persona.getIdPersona());
+        datos.put("nombres", persona.getNombres());
+        datos.put("apellidos", persona.getApellidos());
+        datos.put("fechaNacimiento", persona.getFechaNacimiento());
+        datos.put("sexo", persona.getSexo());
+        datos.put("telefono", persona.getTelefono());
+        datos.put("correoPersonal", persona.getCorreoPersonal());
+        datos.put("direccion", persona.getDireccion());
+
+        if (persona.getDistrito() != null) {
+            datos.put(
+                    "idDistrito",
+                    persona.getDistrito().getIdDistrito()
+            );
+
+            // Ajusta este getter si tu entidad Distrito utiliza
+            // otro nombre para la relación con Departamento.
+            if (persona.getDistrito().getDepartamento() != null) {
+                datos.put(
+                        "idDepartamento",
+                        persona.getDistrito()
+                                .getDepartamento()
+                                .getIdDepartamento()
+                );
+            }
+        }
+
+        return datos;
+    }
+
+    private record CodigoAdmision(
+            String hash,
+            LocalDateTime expiracion,
+            int intentos,
+            LocalDateTime ultimoEnvio
+    ) {}
+
+    private record AutorizacionAdmision(
+            Long idPersona,
+            LocalDateTime expiracion
+    ) {}
 
 }

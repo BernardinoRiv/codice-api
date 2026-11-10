@@ -502,4 +502,135 @@ public class EmailService {
             throw new RuntimeException("Error en el envío de la notificación de pre-matrícula.", e);
         }
     }
+
+    // 9. Código de verificación de identidad para admisión
+    public void enviarCodigoVerificacionAdmision(
+            String correoDestino,
+            String nombreAspirante,
+            String codigo
+    ) {
+        try {
+            MimeMessage mensaje = mailSender.createMimeMessage();
+            MimeMessageHelper helper =
+                    new MimeMessageHelper(mensaje, true, "UTF-8");
+
+            helper.setTo(correoDestino);
+            helper.setSubject(
+                    "Código de Verificación de Identidad - Admisiones UMA"
+            );
+
+            String htmlContent = String.format("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <style>%s</style>
+            </head>
+            <body>
+                <div class="email-container">
+                    <div class="email-header">
+                        <img
+                            src="https://www.uma.edu.sv/regionales/san-miguel/assets/logo25.png"
+                            alt="Escudo UMA"
+                        >
+                    </div>
+
+                    <div class="email-body">
+                        <h2>Verificación de Identidad</h2>
+
+                        <p>Estimado/a <strong>%s</strong>,</p>
+
+                        <p>
+                            Hemos recibido una solicitud de pre-matrícula
+                            asociada a su expediente institucional.
+                        </p>
+
+                        <p>
+                            Para confirmar su identidad y continuar con
+                            el proceso de admisión, introduzca el siguiente
+                            código en el formulario:
+                        </p>
+
+                        <div style="
+                            background-color: #f4f4f7;
+                            padding: 25px;
+                            text-align: center;
+                            border-radius: 8px;
+                            margin: 30px 0;
+                            border: 1px dashed #cccccc;
+                        ">
+                            <span style="
+                                font-size: 38px;
+                                font-weight: 900;
+                                letter-spacing: 8px;
+                                color: #b30000;
+                                font-family: monospace;
+                            ">%s</span>
+                        </div>
+
+                        <p style="font-size: 14px; color: #666;">
+                            Este código es válido durante
+                            <strong>10 minutos</strong>.
+                        </p>
+
+                        <div class="highlight-box">
+                            <p style="margin: 0;">
+                                <strong>Importante:</strong>
+                                Este código es únicamente para verificar
+                                su identidad durante la pre-matrícula.
+                                No permite recuperar contraseñas ni
+                                modificar su correo personal.
+                            </p>
+                        </div>
+
+                        <p>
+                            Si ya no tiene acceso a este correo, puede
+                            actualizarlo desde su cuenta institucional
+                            y volver a iniciar el proceso.
+                        </p>
+
+                        <p>
+                            Si no solicitó esta verificación,
+                            ignore este mensaje y no comparta el código.
+                        </p>
+
+                        <p style="margin-top: 30px;">
+                            Atentamente,<br>
+                            <strong>Dirección de Admisiones - UMA</strong>
+                        </p>
+                    </div>
+
+                    <div class="email-footer">
+                        &copy; 2026 Universidad Modular Abierta (UMA).
+                        Todos los derechos reservados.
+                    </div>
+                </div>
+            </body>
+            </html>
+            """,
+                    CSS_BASE,
+                    nombreAspirante,
+                    codigo
+            );
+
+            helper.setText(htmlContent, true);
+            mailSender.send(mensaje);
+
+            log.info(
+                    "Correo de verificación de admisión enviado a {}",
+                    correoDestino
+            );
+
+        } catch (MessagingException e) {
+            log.error(
+                    "Error al preparar correo de verificación de admisión",
+                    e
+            );
+
+            throw new RuntimeException(
+                    "No fue posible preparar el correo de verificación.",
+                    e
+            );
+        }
+    }
 }
