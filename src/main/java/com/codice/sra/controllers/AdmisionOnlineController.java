@@ -53,6 +53,37 @@ public class AdmisionOnlineController {
         return ResponseEntity.ok(response);
     }
 
+
+    // =========================================================================
+    // CONSULTA PÚBLICA DEL PLAN FINANCIERO (SIN PERSISTENCIA)
+    // =========================================================================
+    @Operation(
+            summary = "Consultar plan financiero de nuevo ingreso",
+            description = "Consulta los aranceles del ciclo académico habilitado "
+                    + "y calcula el importe inicial y total del ciclo. "
+                    + "No crea personas, matrículas, inscripciones ni cargos."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Plan financiero calculado correctamente."
+            ),
+            @ApiResponse(
+                    responseCode = "422",
+                    description = "No existe un ciclo habilitado o faltan aranceles configurados.",
+                    content = @Content
+            )
+    })
+    @GetMapping("/plan-financiero")
+    public ResponseEntity<Map<String, Object>> consultarPlanFinanciero() {
+
+        Map<String, Object> resultado =
+                admisionOnlineService.consultarPlanFinanciero();
+
+        return ResponseEntity.ok(resultado);
+    }
+
+
     // =========================================================================
     // ENDPOINT 2: PRE-MATRÍCULA Y RESERVA DE CUPOS (Pantallas 2 y 3)
     // =========================================================================
@@ -140,17 +171,26 @@ public class AdmisionOnlineController {
                     description = "No se puede generar la boleta para el estado actual de la matrícula."
             )
     })
+
     @PostMapping("/{idMatricula}/generar-boleta-npe")
     public ResponseEntity<Map<String, String>> generarBoletaNpe(
-            @PathVariable Long idMatricula) {
-
-        String npe = admisionOnlineService.generarYDespacharBoletaNpe(idMatricula);
+            @PathVariable Long idMatricula,
+            @RequestHeader("X-Admision-Token")
+            String tokenVerificacion
+    ) {
+        String npe = admisionOnlineService
+                .generarYDespacharBoletaNpe(
+                        idMatricula,
+                        tokenVerificacion
+                );
 
         return ResponseEntity.ok(Map.of(
                 "npe", npe,
-                "mensaje", "Boleta generada y enviada al correo del aspirante."
+                "mensaje",
+                "Boleta generada y enviada al correo del aspirante."
         ));
     }
+
 
     @PostMapping("/solicitar-codigo")
     public ResponseEntity<Map<String, String>> solicitarCodigo(
@@ -197,4 +237,90 @@ public class AdmisionOnlineController {
 
         return ResponseEntity.ok(respuesta);
     }
+
+
+    // ==========================================================
+    // OTP DE CORREO PARA ASPIRANTES NUEVOS
+    // ==========================================================
+
+    @PostMapping("/solicitar-codigo-correo-nuevo")
+    @Operation(
+            summary = "Solicitar código de correo para nuevo ingreso",
+            description = "Solicita un OTP para verificar el correo electrónico de un aspirante nuevo, sin crear todavía su expediente."
+    )
+    public ResponseEntity<Map<String, String>> solicitarCodigoCorreoNuevo(
+            @RequestBody Map<String, String> request
+    ) {
+
+        Long idTipoDocumento = obtenerTipoDocumento(request);
+        String numeroDocumento = request.get("numeroDocumento");
+        String correoPersonal = request.get("correoPersonal");
+        String nombres = request.get("nombres");
+
+        admisionOnlineService.solicitarCodigoCorreoNuevo(
+                idTipoDocumento,
+                numeroDocumento,
+                correoPersonal,
+                nombres
+        );
+
+        return ResponseEntity.ok(Map.of(
+                "mensaje",
+                "Si la solicitud es válida, recibirás un código de verificación en el correo indicado."
+        ));
+    }
+
+    @PostMapping("/verificar-codigo-correo-nuevo")
+    @Operation(
+            summary = "Verificar código de correo para nuevo ingreso",
+            description = "Valida el OTP de un aspirante nuevo y devuelve una autorización temporal vinculada al documento y correo."
+    )
+    public ResponseEntity<Map<String, String>> verificarCodigoCorreoNuevo(
+            @RequestBody Map<String, String> request
+    ) {
+
+        Long idTipoDocumento = obtenerTipoDocumento(request);
+        String numeroDocumento = request.get("numeroDocumento");
+        String correoPersonal = request.get("correoPersonal");
+        String codigo = request.get("codigo");
+
+        String token = admisionOnlineService.verificarCodigoCorreoNuevo(
+                idTipoDocumento,
+                numeroDocumento,
+                correoPersonal,
+                codigo
+        );
+
+        return ResponseEntity.ok(Map.of(
+                "tokenCorreoNuevo", token,
+                "mensaje", "Correo electrónico verificado correctamente."
+        ));
+    }
+
+    private Long obtenerTipoDocumento(Map<String, String> request) {
+        try {
+            return Long.valueOf(request.get("idTipoDocumento"));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "El tipo de documento es obligatorio o inválido."
+            );
+        }
+    }
+
+
+    @GetMapping("/{idMatricula}/estado-solicitud")
+    public ResponseEntity<Map<String, Object>> consultarEstadoSolicitud(
+            @PathVariable Long idMatricula,
+            @RequestHeader("X-Admision-Token")
+            String tokenVerificacion) {
+
+        return ResponseEntity.ok(
+                admisionOnlineService.consultarEstadoSolicitud(
+                        idMatricula,
+                        tokenVerificacion
+                )
+        );
+    }
+
+
 }

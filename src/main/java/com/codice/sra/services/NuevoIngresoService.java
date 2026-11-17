@@ -129,7 +129,7 @@ public class NuevoIngresoService {
         // =====================================================================
         // LÓGICA FINANCIERA
         // =====================================================================
-        List<ConceptoCobro> conceptosDelCiclo = conceptoCobroRepository.findByCiclo_IdCiclo(cicloActivo.getIdCiclo());
+        List<ConceptoCobro> conceptosDelCiclo = conceptoCobroRepository.findByCiclo_IdCicloAndActivoTrue(cicloActivo.getIdCiclo());
 
         Integer tipoBecaId = (dto.getTipoBeca() != null) ? dto.getTipoBeca() : 1;
 

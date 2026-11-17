@@ -123,12 +123,14 @@ public class FinanzasController {
 
     @GetMapping("/ciclos/{idCiclo}/aranceles")
     @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('FINANZAS')")
-    public ResponseEntity<List<Map<String, Object>>> listarArancelesDelCiclo(@PathVariable Long idCiclo) {
-        return ResponseEntity.ok(finanzasService.obtenerArancelesPorCiclo(idCiclo));
+    public ResponseEntity<List<Map<String, Object>>> listarArancelesDelCiclo(
+            @PathVariable Long idCiclo,
+            @RequestParam(required = false, defaultValue = "false") boolean soloActivos) {
+        return ResponseEntity.ok(finanzasService.obtenerArancelesPorCiclo(idCiclo, soloActivos));
     }
 
     @PutMapping("/aranceles/{idConcepto}")
-    @PreAuthorize("hasRole('FINANZAS')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('FINANZAS')")
     public ResponseEntity<Map<String, Object>> actualizarPrecioArancel(
             @PathVariable Long idConcepto,
             @RequestParam BigDecimal nuevoMonto) {
@@ -136,6 +138,24 @@ public class FinanzasController {
         try {
             Map<String, Object> resultado = finanzasService.actualizarPrecioArancel(idConcepto, nuevoMonto);
             return ResponseEntity.ok(resultado);
+        } catch (RuntimeException e) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("exito", false);
+            error.put("mensaje", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    @PatchMapping("/aranceles/{idConcepto}/estado")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('FINANZAS')")
+    public ResponseEntity<Map<String, Object>> cambiarEstadoArancel(
+            @PathVariable Long idConcepto,
+            @RequestBody(required = false) Map<String, Boolean> payload) {
+        try {
+            if (payload == null || payload.get("activo") == null) {
+                throw new RuntimeException("Debe proporcionar el campo booleano 'activo'.");
+            }
+            return ResponseEntity.ok(finanzasService.cambiarEstadoArancel(idConcepto, payload.get("activo")));
         } catch (RuntimeException e) {
             Map<String, Object> error = new HashMap<>();
             error.put("exito", false);
@@ -224,7 +244,7 @@ public class FinanzasController {
         byte[] pdfBytes = finanzasService.descargarComprobanteHistorico(idPago);
         org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_PDF);
-        headers.setContentDispositionFormData("attachment", "Factura.pdf");
+        headers.setContentDispositionFormData("attachment", "Factura_" + idPago + ".pdf");
         return new ResponseEntity<>(pdfBytes, headers, org.springframework.http.HttpStatus.OK);
     }
 
@@ -264,7 +284,7 @@ public class FinanzasController {
     @GetMapping("/aranceles/ciclo/{idCiclo}")
     @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'REGISTRO_ACADEMICO', 'EMPLEADO')")
     public ResponseEntity<List<Map<String, Object>>> obtenerArancelesCicloParaFrontend(@PathVariable Long idCiclo) {
-        return ResponseEntity.ok(finanzasService.obtenerArancelesPorCiclo(idCiclo));
+        return ResponseEntity.ok(finanzasService.obtenerArancelesPorCiclo(idCiclo, true));
     }
 
 }
