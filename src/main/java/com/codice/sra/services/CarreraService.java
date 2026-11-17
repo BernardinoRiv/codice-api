@@ -1,17 +1,8 @@
 package com.codice.sra.services;
 
-import com.codice.sra.dtos.CarreraActualizacionRequestDTO;
-import com.codice.sra.dtos.CarreraCreacionRequestDTO;
-import com.codice.sra.dtos.CarreraDesactivacionRequestDTO;
-import com.codice.sra.dtos.CarreraResponseDTO;
-import com.codice.sra.models.Carrera;
-import com.codice.sra.models.EstadoCarrera;
-import com.codice.sra.models.Facultad;
-import com.codice.sra.models.NivelAcademico;
-import com.codice.sra.repositories.CarreraRepository;
-import com.codice.sra.repositories.EstadoCarreraRepository;
-import com.codice.sra.repositories.FacultadRepository;
-import com.codice.sra.repositories.NivelAcademicoRepository;
+import com.codice.sra.dtos.*;
+import com.codice.sra.models.*;
+import com.codice.sra.repositories.*;
 import com.codice.sra.utils.CodigoCarreraUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,8 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -32,7 +23,8 @@ public class CarreraService {
     private final FacultadRepository facultadRepository;
     private final EstadoCarreraRepository estadoCarreraRepository;
     private final AuditoriaService auditoriaService;
-
+    private final SedeRepository sedeRepository;
+    private final CarreraSedeRepository carreraSedeRepository;
     @Transactional(readOnly = true)
     public List<CarreraResponseDTO> listarCarrerasOfertables(Long idSede) {
         log.info("Ejecutando resolución de carreras ofertables para sede ID: [{}]", idSede);
@@ -71,14 +63,47 @@ public class CarreraService {
         EstadoCarrera estadoInicial = estadoCarreraRepository.findByEstadoCarreraIgnoreCase("PLANIFICACION")
                 .orElseThrow(() -> new IllegalStateException("El catálogo estados_carrera no contiene el estado 'PLANIFICACION'"));
 
-        // 3. Generación automática del código mediante CodigoUtils y referencia por método
+        // 3. Validar sedes seleccionadas
+        List<Long> idsSedes = dto.getIdsSedes();
+
+        if (idsSedes == null || idsSedes.isEmpty()) {
+            throw new IllegalArgumentException("Debe seleccionar al menos una sede para la carrera");
+        }
+
+        if (idsSedes.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new IllegalArgumentException("Los identificadores de las sedes deben ser números positivos");
+        }
+
+        Set<Long> idsUnicos = new HashSet<>(idsSedes);
+
+        if (idsUnicos.size() != idsSedes.size()) {
+            throw new IllegalArgumentException("No se permite seleccionar una misma sede más de una vez");
+        }
+
+        List<Sede> sedes = sedeRepository.findAllById(idsUnicos);
+
+        if (sedes.size() != idsUnicos.size()) {
+            Set<Long> idsEncontrados = sedes.stream().map(Sede::getIdSede).collect(Collectors.toSet());
+            Set<Long> idsInexistentes = new HashSet<>(idsUnicos);
+            idsInexistentes.removeAll(idsEncontrados);
+
+            throw new IllegalArgumentException("Las siguientes sedes no existen: " + idsInexistentes);
+        }
+
+        for (Sede sede : sedes) {
+            if (sede.getEstadoSede() == null || !Objects.equals(sede.getEstadoSede().getIdEstadoSede(), 1L)) {
+                throw new IllegalArgumentException("La sede '" + sede.getNombreSede() + "' se encuentra inactiva");
+            }
+        }
+
+        // 4. Generación automática del código
         String codigoGenerado = CodigoCarreraUtils.generarCodigoCarrera(
                 nombreNormalizado,
                 nivel.getIdNivel(),
                 carreraRepository::existsByCodigoCarreraIgnoreCase
         );
 
-        // 4. Instanciación y persistencia
+        // 5. Crear y guardar carrera
         Carrera carrera = new Carrera();
         carrera.setCodigoCarrera(codigoGenerado);
         carrera.setNombreCarrera(nombreNormalizado);
@@ -88,117 +113,151 @@ public class CarreraService {
 
         carreraRepository.save(carrera);
 
-        // 5. Auditoría Forense obligatoria
+        // 6. Asociar carrera con las sedes seleccionadas
+        List<CarreraSede> asociaciones = new ArrayList<>();
+
+        for (Sede sede : sedes) {
+            CarreraSede carreraSede = new CarreraSede();
+            carreraSede.setCarrera(carrera);
+            carreraSede.setSede(sede);
+            asociaciones.add(carreraSede);
+        }
+
+        carreraSedeRepository.saveAll(asociaciones);
+
+        // 7. Auditoría Forense obligatoria
+        String sedesAsignadas = sedes.stream()
+                .map(sede -> sede.getNombreSede() + " (ID: " + sede.getIdSede() + ")")
+                .collect(Collectors.joining(", "));
+
         auditoriaService.registrarEvento(
                 "CREACION_CARRERA",
                 "carreras",
                 carrera.getIdCarrera(),
-                String.format("Alta de carrera: %s con código generado automático: %s",
-                        nombreNormalizado, codigoGenerado)
+                String.format("Alta de carrera: %s con código generado automático: %s. Sedes asignadas: %s",
+                        nombreNormalizado, codigoGenerado, sedesAsignadas)
         );
+
+        log.info("Carrera ID [{}] creada exitosamente con {} sedes asignadas.", carrera.getIdCarrera(), sedes.size());
 
         return carrera.getIdCarrera();
     }
 
     @Transactional(propagation = Propagation.REQUIRED)
     public void actualizarCarrera(Long idCarrera, CarreraActualizacionRequestDTO dto) {
-        if (idCarrera == null || idCarrera <= 0) {
-            throw new IllegalArgumentException("El ID de la carrera debe ser un número positivo");
-        }
+        if (idCarrera == null || idCarrera <= 0) throw new IllegalArgumentException("El ID de la carrera debe ser positivo");
 
-        // 1. Obtener entidad gestionada
         Carrera carrera = carreraRepository.findById(idCarrera)
                 .orElseThrow(() -> new IllegalArgumentException("Carrera no encontrada con ID: " + idCarrera));
-
         String nombreNormalizado = dto.getNombreCarrera().trim();
-
-        // 2. Detección No-Op (Idempotencia)
         boolean nombreIgual = Objects.equals(carrera.getNombreCarrera(), nombreNormalizado);
-        boolean facultadIgual = carrera.getFacultad() != null &&
-                Objects.equals(carrera.getFacultad().getIdFacultad(), dto.getIdFacultad());
-        boolean nivelIgual = carrera.getNivel() != null &&
-                Objects.equals(carrera.getNivel().getIdNivel(), dto.getIdNivel());
+        boolean facultadIgual = carrera.getFacultad() != null && Objects.equals(carrera.getFacultad().getIdFacultad(), dto.getIdFacultad());
+        boolean nivelIgual = carrera.getNivel() != null && Objects.equals(carrera.getNivel().getIdNivel(), dto.getIdNivel());
 
-        if (nombreIgual && facultadIgual && nivelIgual) {
-            return; // Salida temprana: Petición redundante, sin UPDATE ni fila vacía en auditoría
+        List<Long> idsSolicitados = dto.getIdsSedes();
+        if (idsSolicitados == null || idsSolicitados.isEmpty() || idsSolicitados.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new IllegalArgumentException("Debe seleccionar al menos una sede válida");
         }
+        Set<Long> idsUnicos = new HashSet<>(idsSolicitados);
+        if (idsUnicos.size() != idsSolicitados.size()) throw new IllegalArgumentException("No se permiten sedes duplicadas");
 
-        // 3. Unicidad excluyente del nombre (carreras_nombre_carrera_key)
+        List<CarreraSede> actuales = carreraSedeRepository.findByCarreraIdConSede(idCarrera);
+        Set<Long> idsActuales = actuales.stream().map(cs -> cs.getSede().getIdSede()).collect(Collectors.toSet());
+        Set<Long> idsAgregar = new HashSet<>(idsUnicos);
+        idsAgregar.removeAll(idsActuales);
+        List<CarreraSede> retirar = actuales.stream().filter(cs -> !idsUnicos.contains(cs.getSede().getIdSede())).toList();
+
+        if (nombreIgual && facultadIgual && nivelIgual && idsAgregar.isEmpty() && retirar.isEmpty()) return;
+
         if (!nombreIgual && carreraRepository.existsByNombreCarreraIgnoreCaseAndIdCarreraNot(nombreNormalizado, idCarrera)) {
             throw new IllegalArgumentException("El nombre de carrera '" + nombreNormalizado + "' ya está registrado en otra carrera");
         }
 
-        // 4. Validación de Facultad (debe existir y estar activa)
+        Facultad nuevaFacultad = null;
         if (!facultadIgual) {
-            Facultad nuevaFacultad = facultadRepository.findByIdConEstado(dto.getIdFacultad())
+            nuevaFacultad = facultadRepository.findByIdConEstado(dto.getIdFacultad())
                     .orElseThrow(() -> new IllegalArgumentException("Facultad no encontrada con ID: " + dto.getIdFacultad()));
-
-            if (nuevaFacultad.getEstadoFacultad() == null || nuevaFacultad.getEstadoFacultad().getIdEstadoFacultad() != 1L) {
+            if (nuevaFacultad.getEstadoFacultad() == null || !Objects.equals(nuevaFacultad.getEstadoFacultad().getIdEstadoFacultad(), 1L)) {
                 throw new IllegalArgumentException("No se puede vincular una carrera a una facultad inactiva");
             }
-            carrera.setFacultad(nuevaFacultad);
         }
 
-        // 5. Validación de Nivel Académico
+        NivelAcademico nuevoNivel = null;
         if (!nivelIgual) {
-            NivelAcademico nuevoNivel = nivelAcademicoRepository.findById(dto.getIdNivel())
+            nuevoNivel = nivelAcademicoRepository.findById(dto.getIdNivel())
                     .orElseThrow(() -> new IllegalArgumentException("Nivel académico no encontrado con ID: " + dto.getIdNivel()));
-            carrera.setNivel(nuevoNivel);
         }
 
-        // 6. Mutación del nombre (el código permanece intacto)
-        carrera.setNombreCarrera(nombreNormalizado);
+        List<Sede> sedesAgregar = idsAgregar.isEmpty() ? List.of() : sedeRepository.findAllById(idsAgregar);
+        if (sedesAgregar.size() != idsAgregar.size()) throw new IllegalArgumentException("Una o más sedes seleccionadas no existen");
+        for (Sede sede : sedesAgregar) {
+            if (sede.getEstadoSede() == null || !Objects.equals(sede.getEstadoSede().getIdEstadoSede(), 1L)) {
+                throw new IllegalArgumentException("La sede '" + sede.getNombreSede() + "' se encuentra inactiva");
+            }
+        }
 
-        // 7. Auditoría Forense obligatoria
-        auditoriaService.registrarEvento(
-                "ACTUALIZACION_CARRERA",
-                "carreras",
-                carrera.getIdCarrera(),
-                String.format("Actualización de carrera [%s]. Nuevo nombre: '%s', Facultad ID: %d, Nivel ID: %d",
-                        carrera.getCodigoCarrera(), nombreNormalizado, dto.getIdFacultad(), dto.getIdNivel())
-        );
+        if (!retirar.isEmpty()) {
+            for (CarreraSede cs : retirar) {
+                if (carreraSedeRepository.contarEstudiantesAsociados(cs.getIdCarreraSede()) > 0) {
+                    throw new IllegalArgumentException("No se puede retirar la sede '" + cs.getSede().getNombreSede() + "' porque tiene estudiantes asociados");
+                }
+                if (carreraSedeRepository.contarGruposPotencialmenteRelacionados(idCarrera, cs.getSede().getIdSede()) > 0) {
+                    throw new IllegalArgumentException("No se puede retirar la sede '" + cs.getSede().getNombreSede() + "' porque existen grupos de materias de esta carrera en esa sede");
+                }
+            }
+        }
 
-        // Hibernate Dirty Checking sincroniza automáticamente en PostgreSQL al confirmar la transacción
+        if (!facultadIgual) carrera.setFacultad(nuevaFacultad);
+        if (!nivelIgual) carrera.setNivel(nuevoNivel);
+        if (!nombreIgual) carrera.setNombreCarrera(nombreNormalizado);
+
+        // Mantener sincronizada la colección gestionada: orphanRemoval elimina únicamente las asociaciones retiradas.
+        for (CarreraSede cs : retirar) carrera.getCarrerasSedes().remove(cs);
+        for (Sede sede : sedesAgregar) {
+            CarreraSede asociacion = new CarreraSede();
+            asociacion.setCarrera(carrera);
+            asociacion.setSede(sede);
+            carrera.getCarrerasSedes().add(asociacion);
+        }
+
+        auditoriaService.registrarEvento("ACTUALIZACION_CARRERA", "carreras", carrera.getIdCarrera(),
+                String.format("Actualización de carrera [%s]. Nombre: '%s', Facultad ID: %d, Nivel ID: %d. Sedes agregadas: %s. Sedes retiradas: %s",
+                        carrera.getCodigoCarrera(), nombreNormalizado, dto.getIdFacultad(), dto.getIdNivel(), idsAgregar,
+                        retirar.stream().map(cs -> cs.getSede().getIdSede()).toList()));
     }
 
 
     @Transactional(propagation = Propagation.REQUIRED)
     public void desactivarCarrera(Long idCarrera, CarreraDesactivacionRequestDTO dto) {
-        if (idCarrera == null || idCarrera <= 0) {
-            throw new IllegalArgumentException("El ID de la carrera debe ser un número positivo");
-        }
+        cambiarEstadoCarrera(idCarrera, dto, "INACTIVA", "DESACTIVACION_CARRERA", "Desactivación");
+    }
 
-        // 1. Obtener entidad gestionada
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void reactivarCarrera(Long idCarrera, CarreraDesactivacionRequestDTO dto) {
+        cambiarEstadoCarrera(idCarrera, dto, "ACTIVA", "REACTIVACION_CARRERA", "Reactivación");
+    }
+
+    private void cambiarEstadoCarrera(Long idCarrera, CarreraDesactivacionRequestDTO dto, String nuevoEstado, String accionAuditoria, String descripcionAccion) {
+        if (idCarrera == null || idCarrera <= 0) throw new IllegalArgumentException("El ID de la carrera debe ser un número positivo");
+        if (dto == null || dto.getMotivo() == null || dto.getMotivo().trim().length() < 10 || dto.getMotivo().trim().length() > 250)
+            throw new IllegalArgumentException("La justificación debe contener entre 10 y 250 caracteres");
+
         Carrera carrera = carreraRepository.findById(idCarrera)
                 .orElseThrow(() -> new IllegalArgumentException("Carrera no encontrada con ID: " + idCarrera));
+        EstadoCarrera estadoDestino = estadoCarreraRepository.findByEstadoCarreraIgnoreCase(nuevoEstado)
+                .orElseThrow(() -> new IllegalStateException("El catálogo estados_carrera no contiene el estado '" + nuevoEstado + "'"));
 
-        // 2. Obtener dinámicamente el estado INACTIVA desde la BD
-        EstadoCarrera estadoInactivo = estadoCarreraRepository.findByEstadoCarreraIgnoreCase("INACTIVA")
-                .orElseThrow(() -> new IllegalStateException("El catálogo estados_carrera no contiene el estado 'INACTIVA'"));
-
-        // 3. Comprobación No-Op (Idempotencia)
-        if (carrera.getEstadoCarrera() != null &&
-                Objects.equals(carrera.getEstadoCarrera().getIdEstadoCarrera(), estadoInactivo.getIdEstadoCarrera())) {
-            log.info("La carrera ID [{}] ya se encuentra en estado INACTIVA. No se ejecutan cambios.", idCarrera);
-            return; // Salida temprana: no hay mutación ni registro redundante en auditoría
+        if (carrera.getEstadoCarrera() != null && Objects.equals(carrera.getEstadoCarrera().getIdEstadoCarrera(), estadoDestino.getIdEstadoCarrera())) {
+            log.info("La carrera ID [{}] ya se encuentra en estado {}. No se ejecutan cambios.", idCarrera, nuevoEstado);
+            return;
         }
 
-        String motivoLimpio = dto.getMotivo().trim();
-
-        // 4. Mutación de estado de dominio
-        carrera.setEstadoCarrera(estadoInactivo);
-
-        // 5. Auditoría Forense obligatoria
-        auditoriaService.registrarEvento(
-                "DESACTIVACION_CARRERA",
-                "carreras",
-                carrera.getIdCarrera(),
-                String.format("Baja lógica de carrera [%s - %s]. Transición a INACTIVA. Motivo: %s",
-                        carrera.getCodigoCarrera(), carrera.getNombreCarrera(), motivoLimpio)
-        );
-
-        log.info("Carrera ID [{}] desactivada exitosamente.", idCarrera);
-        // Hibernate Dirty Checking se encarga de ejecutar el UPDATE al confirmar la transacción
+        String estadoAnterior = carrera.getEstadoCarrera() != null ? carrera.getEstadoCarrera().getEstadoCarrera() : "SIN_ESTADO";
+        carrera.setEstadoCarrera(estadoDestino);
+        auditoriaService.registrarEvento(accionAuditoria, "carreras", carrera.getIdCarrera(),
+                String.format("%s de carrera [%s - %s]. Estado: %s -> %s. Motivo: %s", descripcionAccion,
+                        carrera.getCodigoCarrera(), carrera.getNombreCarrera(), estadoAnterior, nuevoEstado, dto.getMotivo().trim()));
+        log.info("Carrera ID [{}]: estado actualizado de {} a {}.", idCarrera, estadoAnterior, nuevoEstado);
     }
 
 /*
@@ -245,5 +304,28 @@ public class CarreraService {
                 idEstado,
                 nombreEstado
         );
+    }
+
+    @Transactional(readOnly = true)
+    public List<CarreraAdministracionResponseDTO> listarCarrerasAdministracion() {
+        return carreraRepository.findAllParaAdministracion().stream()
+                .map(carrera -> new CarreraAdministracionResponseDTO(
+                        carrera.getIdCarrera(),
+                        carrera.getCodigoCarrera(),
+                        carrera.getNombreCarrera(),
+                        carrera.getFacultad().getIdFacultad(),
+                        carrera.getFacultad().getNombreFacultad(),
+                        carrera.getNivel().getIdNivel(),
+                        carrera.getEstadoCarrera().getIdEstadoCarrera(),
+                        carrera.getEstadoCarrera().getEstadoCarrera(),
+                        carrera.getCarrerasSedes().stream()
+                                .map(cs -> new CarreraAdministracionResponseDTO.SedeAsignadaDTO(
+                                        cs.getSede().getIdSede(),
+                                        cs.getSede().getNombreSede()
+                                ))
+                                .sorted(java.util.Comparator.comparing(CarreraAdministracionResponseDTO.SedeAsignadaDTO::idSede))
+                                .toList()
+                ))
+                .toList();
     }
 }

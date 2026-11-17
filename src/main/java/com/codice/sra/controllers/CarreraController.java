@@ -1,9 +1,6 @@
 package com.codice.sra.controllers;
 
-import com.codice.sra.dtos.CarreraActualizacionRequestDTO;
-import com.codice.sra.dtos.CarreraCreacionRequestDTO;
-import com.codice.sra.dtos.CarreraDesactivacionRequestDTO;
-import com.codice.sra.dtos.CarreraResponseDTO;
+import com.codice.sra.dtos.*;
 import com.codice.sra.services.CarreraService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -103,5 +100,29 @@ public class CarreraController {
 
         carreraService.desactivarCarrera(idCarrera, request);
         return ResponseEntity.noContent().build(); // HTTP 204 No Content
+    }
+
+    @PatchMapping("/{idCarrera}/reactivar")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @Operation(summary = "Reactivar carrera académica", description = "Cambia el estado a ACTIVA para permitir nuevas ofertas. Conserva los registros existentes y exige justificación auditable.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Carrera reactivada o ya activa"),
+            @ApiResponse(responseCode = "400", description = "ID inválido o justificación insuficiente"),
+            @ApiResponse(responseCode = "401", description = "No autenticado"),
+            @ApiResponse(responseCode = "403", description = "Solo administradores")
+    })
+    public ResponseEntity<Void> reactivarCarrera(@PathVariable Long idCarrera, @Valid @RequestBody CarreraDesactivacionRequestDTO request) {
+        carreraService.reactivarCarrera(idCarrera, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/administracion")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @Operation(
+            summary = "Listar todas las carreras para administración",
+            description = "Incluye carreras activas, inactivas y en planificación, con sus sedes asociadas, independientemente de si tienen pensum vigente."
+    )
+    public ResponseEntity<List<CarreraAdministracionResponseDTO>> listarCarrerasAdministracion() {
+        return ResponseEntity.ok(carreraService.listarCarrerasAdministracion());
     }
 }
