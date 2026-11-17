@@ -14,7 +14,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -91,11 +90,10 @@ public class CalificacionService {
 
     @Transactional(readOnly = true)
     public PlantillaNotasResponseDTO generarPlantilla(Long idGrupo) {
-        Grupo grupo = grupoRepository.findById(idGrupo).orElseThrow(() -> new RuntimeException("Grupo no encontrado"));
+        Grupo grupo = grupoRepository.findById(idGrupo)
+                .orElseThrow(() -> new RuntimeException("Grupo no encontrado"));
 
-        // =========================================================================
-        // FILTRO: Excluir a los estudiantes retirados del archivo de Excel
-        // =========================================================================
+        // Excluir a los estudiantes retirados del archivo de Excel
         List<Inscripcion> inscripciones = inscripcionRepository.findByGrupoIdGrupo(idGrupo).stream()
                 .filter(insc -> insc.getEstadoMateria() == null ||
                         !insc.getEstadoMateria().getEstadoMateria().equalsIgnoreCase("RETIRADA"))
@@ -129,7 +127,8 @@ public class CalificacionService {
             }
             for (int i = 0; i < evaluaciones.size(); i++) {
                 Cell cell = headerRow.createCell(i + 2);
-                cell.setCellValue(evaluaciones.get(i).getTipoEvaluacion().getTipoEvaluacion().substring(0, 3).toUpperCase() + " " + evaluaciones.get(i).getNumeroEvaluacion());
+                cell.setCellValue(evaluaciones.get(i).getTipoEvaluacion().getTipoEvaluacion().substring(0, 3).toUpperCase()
+                        + " " + evaluaciones.get(i).getNumeroEvaluacion());
                 cell.setCellStyle(headerStyle);
             }
 
@@ -142,13 +141,17 @@ public class CalificacionService {
                 cellCarnet.setCellStyle(readOnlyStyle);
 
                 Cell cellNombre = row.createCell(1);
-                cellNombre.setCellValue(inscripcion.getMatricula().getEstudiante().getPersona().getNombres() + " " + inscripcion.getMatricula().getEstudiante().getPersona().getApellidos());
+                cellNombre.setCellValue(inscripcion.getMatricula().getEstudiante().getPersona().getNombres()
+                        + " " + inscripcion.getMatricula().getEstudiante().getPersona().getApellidos());
                 cellNombre.setCellStyle(readOnlyStyle);
 
                 for (int i = 0; i < evaluaciones.size(); i++) {
                     Cell cell = row.createCell(i + 2);
                     cell.setCellStyle(editableStyle);
-                    Optional<Calificacion> califOpt = calificacionRepository.findByInscripcionIdInscripcionAndEvaluacionIdEvaluacion(inscripcion.getIdInscripcion(), evaluaciones.get(i).getIdEvaluacion());
+                    Optional<Calificacion> califOpt = calificacionRepository
+                            .findByInscripcionIdInscripcionAndEvaluacionIdEvaluacion(
+                                    inscripcion.getIdInscripcion(),
+                                    evaluaciones.get(i).getIdEvaluacion());
                     if (califOpt.isPresent() && califOpt.get().getNota() != null) {
                         cell.setCellValue(califOpt.get().getNota().doubleValue());
                     }
@@ -156,16 +159,22 @@ public class CalificacionService {
                 rowNum++;
             }
 
-            DataValidationHelper validationHelper = sheet.getDataValidationHelper();
-            String customFormula = "AND(ISNUMBER(C2), C2>=0, C2<=10, TRUNC(C2,1)=C2)";
-            DataValidationConstraint constraint = validationHelper.createCustomConstraint(customFormula);
+            if (!evaluaciones.isEmpty()) {
+                int ultimaFilaValidacion = Math.max(100, inscripciones.size());
+                DataValidationHelper validationHelper = sheet.getDataValidationHelper();
+                String customFormula = "AND(ISNUMBER(C2), C2>=0, C2<=10, ROUND(C2,1)=C2)";
+                DataValidationConstraint constraint = validationHelper.createCustomConstraint(customFormula);
 
-            CellRangeAddressList addressList = new CellRangeAddressList(1, 100, 2, 2 + evaluaciones.size() - 1);
-            DataValidation validation = validationHelper.createValidation(constraint, addressList);
+                CellRangeAddressList addressList = new CellRangeAddressList(1, ultimaFilaValidacion, 2, 2 + evaluaciones.size() - 1);
+                DataValidation validation = validationHelper.createValidation(constraint, addressList);
 
-            validation.setShowErrorBox(true);
-            validation.createErrorBox("Formato inválido", "Solo se permiten notas de 0.0 a 10.0 con máximo un decimal. No se aproxima automáticamente.");
-            sheet.addValidationData(validation);
+                validation.setShowErrorBox(true);
+                validation.createErrorBox(
+                        "Formato inválido",
+                        "Solo se permiten notas numéricas de 0.0 a 10.0 con máximo un decimal. No se permiten fórmulas ni aproximaciones."
+                );
+                sheet.addValidationData(validation);
+            }
 
             sheet.protectSheet("notas2026");
             sheet.setColumnWidth(0, 15 * 256);
@@ -189,8 +198,12 @@ public class CalificacionService {
         }
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public List<CalificacionResponseDTO> cargarNotasDesdeExcel(MultipartFile archivo, Long idGrupo, Long idUsuarioDocente) {
+        if (archivo == null || archivo.isEmpty()) {
+            throw new RuntimeException("Debe seleccionar un archivo Excel válido.");
+        }
+
         List<CalificacionResponseDTO> respuestas = new ArrayList<>();
         List<Evaluacion> todasEvaluaciones = evaluacionRepository.findByIdGrupoOrderByPeriodo(idGrupo);
         LocalDateTime ahora = LocalDateTime.now();
@@ -228,7 +241,7 @@ public class CalificacionService {
                 Cell cell = headerRow.getCell(i);
                 if (cell != null) {
                     String encabezado = cell.toString().toUpperCase().trim();
-                    String[] partes = encabezado.split(" ");
+                    String[] partes = encabezado.split("\\s+");
                     if (partes.length >= 2) {
                         String tipo = partes[0];
                         String numero = partes[1];
@@ -261,9 +274,7 @@ public class CalificacionService {
                 Inscripcion inscripcion = inscripcionRepository.findByCarnetAndGrupo(carnet, idGrupo)
                         .orElseThrow(() -> new RuntimeException("Fila " + filaActual + ": Estudiante con carnet " + carnet + " no encontrado."));
 
-                // =========================================================================
-                // FILTRO: Ignorar filas del Excel si el estudiante ya retiró la materia
-                // =========================================================================
+                // Ignorar filas del Excel si el estudiante ya retiró la materia
                 if (inscripcion.getEstadoMateria() != null &&
                         inscripcion.getEstadoMateria().getEstadoMateria().equalsIgnoreCase("RETIRADA")) {
                     continue;
@@ -275,32 +286,70 @@ public class CalificacionService {
 
                     if (indiceColumna == null) continue;
 
+                    String nombreEvaluacion = evaluacion.getTipoEvaluacion().getTipoEvaluacion() + " " + evaluacion.getNumeroEvaluacion();
                     Cell cell = row.getCell(indiceColumna);
-                    if (cell == null || cell.getCellType() == CellType.BLANK) continue;
 
-                    if (cell.getCellType() == CellType.NUMERIC) {
-                        BigDecimal nota = BigDecimal.valueOf(cell.getNumericCellValue()).setScale(1, RoundingMode.HALF_DOWN);
+                    if (cell == null || cell.getCellType() == CellType.BLANK) {
+                        continue;
+                    }
 
-                        if (nota.stripTrailingZeros().scale() > 1) {
-                            throw new RuntimeException("Fila " + filaActual + ": La nota tiene más de 1 decimal.");
-                        }
+                    // 1. Bloquear fórmulas explícitamente
+                    if (cell.getCellType() == CellType.FORMULA) {
+                        throw new RuntimeException("Fila " + filaActual + " (" + carnet + "), " + nombreEvaluacion +
+                                ": No se permiten fórmulas en las celdas de notas. Ingrese únicamente el valor numérico.");
+                    }
 
-                        Optional<Calificacion> califExistente = calificacionRepository.findByInscripcionIdInscripcionAndEvaluacionIdEvaluacion(inscripcion.getIdInscripcion(), evaluacion.getIdEvaluacion());
-                        if (califExistente.isPresent() && "PUBLICADA".equalsIgnoreCase(califExistente.get().getEstadoCalificacion().getEstadoCalificacion())) {
+                    // 2. Bloquear fechas o tipos no numéricos
+                    if (cell.getCellType() == CellType.STRING) {
+                        if (cell.getStringCellValue().trim().isEmpty()) {
                             continue;
                         }
-
-                        CalificacionRegistroRequestDTO request = new CalificacionRegistroRequestDTO();
-                        request.setIdInscripcion(inscripcion.getIdInscripcion());
-                        request.setIdEvaluacion(evaluacion.getIdEvaluacion());
-                        request.setNota(nota);
-
-                        respuestas.add(registrarCalificacion(request, idUsuarioDocente));
+                        throw new RuntimeException("Fila " + filaActual + " (" + carnet + "), " + nombreEvaluacion +
+                                ": El valor '" + cell.getStringCellValue().trim() + "' no es un número válido.");
                     }
+
+                    if (cell.getCellType() != CellType.NUMERIC || DateUtil.isCellDateFormatted(cell)) {
+                        throw new RuntimeException("Fila " + filaActual + " (" + carnet + "), " + nombreEvaluacion +
+                                ": Formato de celda inválido. Debe ser un número entre 0.0 y 10.0.");
+                    }
+
+                    // 3. Validar rango y cantidad de decimales SIN redondear silenciosamente
+                    BigDecimal notaReal = BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros();
+
+                    if (notaReal.compareTo(BigDecimal.ZERO) < 0 || notaReal.compareTo(new BigDecimal("10")) > 0) {
+                        throw new RuntimeException("Fila " + filaActual + " (" + carnet + "), " + nombreEvaluacion +
+                                ": La nota (" + notaReal.toPlainString() + ") está fuera del rango permitido de 0.0 a 10.0.");
+                    }
+
+                    if (notaReal.scale() > 1) {
+                        throw new RuntimeException("Fila " + filaActual + " (" + carnet + "), " + nombreEvaluacion +
+                                ": La nota (" + notaReal.toPlainString() + ") tiene más de 1 decimal. No se aproxima automáticamente.");
+                    }
+
+                    BigDecimal notaNormalizada = notaReal.setScale(1);
+
+                    Optional<Calificacion> califExistente = calificacionRepository
+                            .findByInscripcionIdInscripcionAndEvaluacionIdEvaluacion(
+                                    inscripcion.getIdInscripcion(),
+                                    evaluacion.getIdEvaluacion());
+
+                    if (califExistente.isPresent() &&
+                            "PUBLICADA".equalsIgnoreCase(califExistente.get().getEstadoCalificacion().getEstadoCalificacion())) {
+                        continue;
+                    }
+
+                    CalificacionRegistroRequestDTO request = new CalificacionRegistroRequestDTO();
+                    request.setIdInscripcion(inscripcion.getIdInscripcion());
+                    request.setIdEvaluacion(evaluacion.getIdEvaluacion());
+                    request.setNota(notaNormalizada);
+
+                    respuestas.add(registrarCalificacion(request, idUsuarioDocente));
                 }
             }
             return respuestas;
 
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("Error al procesar el archivo Excel: " + e.getMessage());
         }
@@ -309,7 +358,9 @@ public class CalificacionService {
     private String getCellValueAsString(Cell cell) {
         if (cell == null) return null;
         if (cell.getCellType() == CellType.STRING) return cell.getStringCellValue().trim();
-        if (cell.getCellType() == CellType.NUMERIC) return String.valueOf((long) cell.getNumericCellValue());
+        if (cell.getCellType() == CellType.NUMERIC && !DateUtil.isCellDateFormatted(cell)) {
+            return String.valueOf((long) cell.getNumericCellValue());
+        }
         return null;
     }
 

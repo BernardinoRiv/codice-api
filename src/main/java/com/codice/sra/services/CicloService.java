@@ -236,7 +236,7 @@ public class CicloService {
         Ciclo ciclo = cicloRepository.findById(idCiclo)
                 .orElseThrow(() -> GrupoException.noEncontrado("Ciclo no encontrado con ID: " + idCiclo));
 
-        List<ConceptoCobro> conceptos = conceptoCobroRepository.findByCiclo_IdCiclo(idCiclo);
+        List<ConceptoCobro> conceptos = conceptoCobroRepository.findByCiclo_IdCicloAndActivoTrue(idCiclo);
 
         ConceptoCobro matPre = null;
         ConceptoCobro cuoPre = null;

@@ -28,4 +28,7 @@ public class ConceptoCobro {
 
     @Column(name = "monto_base", nullable = false, precision = 14, scale = 2)
     private BigDecimal montoBase;
+
+    @Column(name = "activo", nullable = false)
+    private Boolean activo = true;
 }
