@@ -60,7 +60,7 @@ public class SecurityConfig {
 
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         // AJUSTE 1: Añadido "Idempotency-Key" para soportar el pago en línea sin bloqueo del navegador
-        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "Idempotency-Key"));
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "Idempotency-Key", "X-Admision-Token"));
         configuration.setAllowCredentials(true);
         configuration.setExposedHeaders(Arrays.asList("Authorization", "Location", "Content-Disposition"));
         configuration.setMaxAge(3600L);
