@@ -17,6 +17,10 @@ public interface ConceptoCobroRepository extends JpaRepository<ConceptoCobro, Lo
 
     List<ConceptoCobro> findByCiclo_IdCicloAndTipoCobro_TipoCobroContainingIgnoreCase(Long idCiclo, String palabraClave);
     List<ConceptoCobro> findByCiclo_IdCiclo(Long idCiclo);
+    List<ConceptoCobro> findByCiclo_IdCicloAndActivoTrue(Long idCiclo);
+    List<ConceptoCobro> findByActivoTrue();
+    List<ConceptoCobro> findByCiclo_IdCicloAndTipoCobro_TipoCobroContainingIgnoreCaseAndActivoTrue(Long idCiclo, String palabraClave);
+    Optional<ConceptoCobro> findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(Long idCiclo, Long idTipoCobro);
 
     boolean existsByCiclo_IdCiclo(Long idCiclo);
 
@@ -30,7 +34,7 @@ public interface ConceptoCobroRepository extends JpaRepository<ConceptoCobro, Lo
     Optional<ConceptoCobro> findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(Long idCiclo, Long idTipoCobro);
 
     // En ConceptoCobroRepository.java
-    @Query("SELECT c FROM ConceptoCobro c WHERE c.ciclo.idCiclo = :idCiclo AND UPPER(c.tipoCobro.tipoCobro) LIKE '%RETIRO%MATERIA%'")
+    @Query("SELECT c FROM ConceptoCobro c WHERE c.ciclo.idCiclo = :idCiclo AND c.activo = true AND UPPER(c.tipoCobro.tipoCobro) LIKE '%RETIRO%MATERIA%'")
     Optional<ConceptoCobro> findConceptoRetiroPorCiclo(@Param("idCiclo") Long idCiclo);
 
 }

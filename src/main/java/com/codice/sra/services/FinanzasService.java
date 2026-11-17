@@ -59,7 +59,7 @@ public class FinanzasService {
         Ciclo cicloNuevo = cicloRepository.findById(idCicloNuevo)
                 .orElseThrow(() -> new RuntimeException("El ciclo destino no existe."));
 
-        List<ConceptoCobro> arancelesViejos = conceptoCobroRepository.findByCiclo_IdCiclo(idCicloAnterior);
+        List<ConceptoCobro> arancelesViejos = conceptoCobroRepository.findByCiclo_IdCicloAndActivoTrue(idCicloAnterior);
 
         if (arancelesViejos.isEmpty()) {
             throw new RuntimeException("El ciclo anterior no tiene aranceles registrados para clonar.");
@@ -71,6 +71,7 @@ public class FinanzasService {
             nuevo.setCiclo(cicloNuevo);
             nuevo.setTipoCobro(viejo.getTipoCobro());
             nuevo.setMontoBase(viejo.getMontoBase());
+            nuevo.setActivo(true);
 
             conceptoCobroRepository.save(nuevo);
             clonados++;
@@ -129,6 +130,9 @@ public class FinanzasService {
                         .orElseThrow(() -> new RuntimeException("Arancel de matrícula no encontrado. ID: " + idConceptoMatriculaAplicar));
                 ConceptoCobro conceptoMensualidad = conceptoCobroRepository.findById(idConceptoCuotaAplicar)
                         .orElseThrow(() -> new RuntimeException("Arancel de mensualidad no encontrado. ID: " + idConceptoCuotaAplicar));
+                if (!Boolean.TRUE.equals(conceptoMatricula.getActivo()) || !Boolean.TRUE.equals(conceptoMensualidad.getActivo())) {
+                    continue;
+                }
 
                 boolean existeMatricula = cargoEstudianteRepository.existsByMatricula_IdMatriculaAndConceptoCobro_IdConceptoCobroAndNumeroCuota(
                         matricula.getIdMatricula(), conceptoMatricula.getIdConceptoCobro(), 1);
@@ -269,7 +273,7 @@ public class FinanzasService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> obtenerCatalogoArancelesExtras() {
-        List<ConceptoCobro> todosLosConceptos = conceptoCobroRepository.findAll();
+        List<ConceptoCobro> todosLosConceptos = conceptoCobroRepository.findByActivoTrue();
         Map<String, Map<String, Object>> arancelesUnicos = new HashMap<>();
 
         for (ConceptoCobro cc : todosLosConceptos) {
@@ -357,6 +361,9 @@ public class FinanzasService {
             for (Long idConcepto : request.getArancelesAdicionales()) {
                 ConceptoCobro concepto = conceptoCobroRepository.findById(idConcepto)
                         .orElseThrow(() -> new RuntimeException("El arancel solicitado no existe en el catálogo."));
+                if (!Boolean.TRUE.equals(concepto.getActivo())) {
+                    throw new RuntimeException("El arancel '" + concepto.getTipoCobro().getTipoCobro() + "' se encuentra desactivado y no puede ser cobrado.");
+                }
 
                 CargoEstudiante nuevoCargo = new CargoEstudiante();
                 nuevoCargo.setMatricula(matriculaActiva);
@@ -590,7 +597,9 @@ public class FinanzasService {
 
         CompletableFuture.runAsync(() -> {
             try {
+                log.info("Generando PDF para factura {} del pago {}", nroFactura, nuevoPago.getIdPago());
                 byte[] pdfBytes = comprobantePdfService.generarPdf(comprobanteDTO);
+                log.info("PDF generado correctamente para factura {} del pago {}", nroFactura, nuevoPago.getIdPago());
 
                 if (correoReal != null && !correoReal.trim().isEmpty()) {
                     emailService.enviarComprobantePago(
@@ -599,6 +608,7 @@ public class FinanzasService {
                             nroFactura,
                             pdfBytes
                     );
+                    log.info("Correo de comprobante enviado a {} para factura {}", correoReal, nroFactura);
 
                     if (esNuevoIngreso) {
                         emailService.enviarCredencialesYBienvenida(
@@ -619,6 +629,7 @@ public class FinanzasService {
 
         Map<String, Object> respuesta = new HashMap<>();
         respuesta.put("mensaje", "Pago procesado exitosamente");
+        respuesta.put("idPago", nuevoPago.getIdPago());
         respuesta.put("factura", factura.getNumeroFactura());
         respuesta.put("totalCobrado", totalEsperado);
 
@@ -626,8 +637,10 @@ public class FinanzasService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> obtenerArancelesPorCiclo(Long idCiclo) {
-        List<ConceptoCobro> conceptos = conceptoCobroRepository.findByCiclo_IdCiclo(idCiclo);
+    public List<Map<String, Object>> obtenerArancelesPorCiclo(Long idCiclo, boolean soloActivos) {
+        List<ConceptoCobro> conceptos = soloActivos
+                ? conceptoCobroRepository.findByCiclo_IdCicloAndActivoTrue(idCiclo)
+                : conceptoCobroRepository.findByCiclo_IdCiclo(idCiclo);
         List<Map<String, Object>> lista = new ArrayList<>();
 
         for (ConceptoCobro c : conceptos) {
@@ -638,11 +651,29 @@ public class FinanzasService {
 
             dto.put("concepto", nombreCapitalizado);
             dto.put("montoBase", c.getMontoBase());
+            dto.put("activo", Boolean.TRUE.equals(c.getActivo()));
 
             lista.add(dto);
         }
 
         return lista;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> cambiarEstadoArancel(Long idConcepto, Boolean activo) {
+        ConceptoCobro concepto = conceptoCobroRepository.findById(idConcepto)
+                .orElseThrow(() -> new RuntimeException("El arancel solicitado no existe."));
+        String estadoCiclo = concepto.getCiclo().getEstadoCiclo().getEstadoCiclo().toUpperCase();
+        if (!estadoCiclo.equals("PLANIFICACION") && !estadoCiclo.equals("PLANIFICADO")) {
+            throw new RuntimeException("Acción denegada. Solo se pueden activar o desactivar aranceles cuando el ciclo está en planificación.");
+        }
+        concepto.setActivo(activo);
+        conceptoCobroRepository.save(concepto);
+        Map<String, Object> resultado = new HashMap<>();
+        resultado.put("exito", true);
+        resultado.put("activo", activo);
+        resultado.put("mensaje", activo ? "Arancel activado correctamente." : "Arancel desactivado correctamente.");
+        return resultado;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -695,8 +726,11 @@ public class FinanzasService {
                     return tipoCobroRepository.save(nuevoTipo);
                 });
 
-        boolean yaExiste = conceptoCobroRepository.existsByCiclo_IdCicloAndTipoCobro_IdTipoCobro(idCiclo, tipoCobro.getIdTipoCobro());
-        if (yaExiste) {
+        Optional<ConceptoCobro> existente = conceptoCobroRepository.findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(idCiclo, tipoCobro.getIdTipoCobro());
+        if (existente.isPresent() && !Boolean.TRUE.equals(existente.get().getActivo())) {
+            throw new RuntimeException("Este arancel ya existe desactivado y puede reactivarse desde el catálogo.");
+        }
+        if (existente.isPresent()) {
             throw new RuntimeException("Este arancel ya se encuentra registrado para el ciclo actual.");
         }
 
@@ -704,6 +738,7 @@ public class FinanzasService {
         nuevoConcepto.setCiclo(ciclo);
         nuevoConcepto.setTipoCobro(tipoCobro);
         nuevoConcepto.setMontoBase(montoBase);
+        nuevoConcepto.setActivo(true);
 
         conceptoCobroRepository.save(nuevoConcepto);
 
@@ -873,9 +908,12 @@ public class FinanzasService {
             cajero = pago.getUsuarioRegistro().getPersona().getNombres() + " " + pago.getUsuarioRegistro().getPersona().getApellidos();
         }
 
+        Factura factura = facturaRepository.findByPago_IdPago(idPago).orElse(null);
+        String numeroFactura = factura != null ? factura.getNumeroFactura() : pago.getReferencia();
+        LocalDateTime fechaEmision = factura != null ? factura.getFechaEmision() : pago.getFechaPago();
         ComprobantePagoDTO comprobanteDTO = ComprobantePagoDTO.builder()
-                .numeroFactura(pago.getReferencia())
-                .fechaEmision(pago.getFechaPago())
+                .numeroFactura(numeroFactura)
+                .fechaEmision(fechaEmision)
                 .nombreCompleto(persona.getNombres() + " " + persona.getApellidos())
                 .carnetEstudiante(estudiante.getCarnet())
                 .correoEstudiante(persona.getCorreoPersonal() != null ? persona.getCorreoPersonal() : "N/A")
@@ -899,6 +937,9 @@ public class FinanzasService {
             Map<String, Object> map = new HashMap<>();
             map.put("idPago", p.getIdPago());
             map.put("referencia", p.getReferencia());
+            Optional<Factura> facturaOpt = facturaRepository.findByPago_IdPago(p.getIdPago());
+            map.put("numeroFactura", facturaOpt.map(Factura::getNumeroFactura).orElse(p.getReferencia()));
+            map.put("idFactura", facturaOpt.map(Factura::getIdFactura).orElse(null));
             map.put("fechaPago", p.getFechaPago());
             map.put("montoTotal", p.getMontoPagado());
             map.put("metodoPago", p.getMetodoPago().getMetodoPago());
@@ -934,9 +975,12 @@ public class FinanzasService {
         String cajero = (pago.getUsuarioRegistro() != null) ?
                 pago.getUsuarioRegistro().getPersona().getNombres() + " " + pago.getUsuarioRegistro().getPersona().getApellidos() : "Pago en línea";
 
+        Factura factura = facturaRepository.findByPago_IdPago(idPago).orElse(null);
+        String numeroFactura = factura != null ? factura.getNumeroFactura() : pago.getReferencia();
+        LocalDateTime fechaEmision = factura != null ? factura.getFechaEmision() : pago.getFechaPago();
         ComprobantePagoDTO comprobanteDTO = ComprobantePagoDTO.builder()
-                .numeroFactura(pago.getReferencia())
-                .fechaEmision(pago.getFechaPago())
+                .numeroFactura(numeroFactura)
+                .fechaEmision(fechaEmision)
                 .nombreCompleto(persona.getNombres() + " " + persona.getApellidos())
                 .carnetEstudiante(estudiante.getCarnet())
                 .correoEstudiante(correoReal)
@@ -945,20 +989,18 @@ public class FinanzasService {
                 .detalles(detalles)
                 .build();
 
-        // Enviar en segundo plano para no bloquear al cliente
-        CompletableFuture.runAsync(() -> {
-            try {
-                byte[] pdfBytes = comprobantePdfService.generarPdf(comprobanteDTO);
-                emailService.enviarComprobantePago(
-                        correoReal,
-                        persona.getNombres() + " " + persona.getApellidos(),
-                        pago.getReferencia(),
-                        pdfBytes
-                );
-            } catch (Exception e) {
-                log.error("Error al reenviar el comprobante: {}", e.getMessage());
-            }
-        });
+        try {
+            byte[] pdfBytes = comprobantePdfService.generarPdf(comprobanteDTO);
+            emailService.enviarComprobantePago(
+                    correoReal,
+                    persona.getNombres() + " " + persona.getApellidos(),
+                    numeroFactura,
+                    pdfBytes
+            );
+        } catch (Exception e) {
+            log.error("Error al reenviar comprobante del pago {}: {}", idPago, e.getMessage(), e);
+            throw new RuntimeException("No se pudo enviar el correo: " + e.getMessage(), e);
+        }
 
         Map<String, String> res = new HashMap<>();
         res.put("mensaje", "Comprobante enviado con éxito a " + correoReal);

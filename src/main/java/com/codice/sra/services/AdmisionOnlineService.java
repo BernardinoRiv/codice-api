@@ -466,12 +466,12 @@ public class AdmisionOnlineService {
 
         // Concepto: Matrícula de Pregrado[cite: 3]
         ConceptoCobro arancelMatricula = conceptoCobroRepository
-                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(cicloMatricula.getIdCiclo(), ID_TIPO_COBRO_MATRICULA)
+                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(cicloMatricula.getIdCiclo(), ID_TIPO_COBRO_MATRICULA)
                 .orElseThrow(() -> new IllegalStateException("El arancel de Matrícula no está configurado para el ciclo " + cicloMatricula.getCodigoCiclo()));
 
         // Concepto: Cuota Mensual de Pregrado[cite: 3]
         ConceptoCobro arancelCuota = conceptoCobroRepository
-                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(cicloMatricula.getIdCiclo(), 2L)
+                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(cicloMatricula.getIdCiclo(), 2L)
                 .orElseThrow(() -> new IllegalStateException("La cuota mensual no está configurada para el ciclo " + cicloMatricula.getCodigoCiclo()));
 
         LocalDate fechaLimitePreMatricula = LocalDate.now().plusDays(2); // 48 horas de vigencia
@@ -494,7 +494,7 @@ public class AdmisionOnlineService {
         BigDecimal totalExtraordinaria = BigDecimal.ZERO;
         if (esExtraordinaria) {
             ConceptoCobro arancelExtra = conceptoCobroRepository
-                    .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(cicloMatricula.getIdCiclo(), ID_TIPO_COBRO_EXTRAORDINARIA)
+                    .findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(cicloMatricula.getIdCiclo(), ID_TIPO_COBRO_EXTRAORDINARIA)
                     .orElseThrow(() -> new IllegalStateException("Arancel de matrícula extraordinaria no configurado para este ciclo."));
 
             CargoEstudiante cargoExtra = new CargoEstudiante();
@@ -560,7 +560,7 @@ public class AdmisionOnlineService {
 
         // Matrícula ordinaria.
         ConceptoCobro conceptoMatricula = conceptoCobroRepository
-                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(
+                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(
                         ciclo.getIdCiclo(),
                         ID_TIPO_COBRO_MATRICULA
                 )
@@ -570,7 +570,7 @@ public class AdmisionOnlineService {
 
         // Cuota mensual.
         ConceptoCobro conceptoCuota = conceptoCobroRepository
-                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(
+                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(
                         ciclo.getIdCiclo(),
                         2L
                 )
@@ -586,7 +586,7 @@ public class AdmisionOnlineService {
 
         if (evaluacion.esExtraordinaria()) {
             ConceptoCobro conceptoExtra = conceptoCobroRepository
-                    .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(
+                    .findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(
                             ciclo.getIdCiclo(),
                             ID_TIPO_COBRO_EXTRAORDINARIA
                     )
