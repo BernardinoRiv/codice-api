@@ -11,6 +11,7 @@ import java.time.LocalDate;
 public class DocenteListaResponseDTO {
 
     private Long idDocente;
+    private Long idUsuario;
     private String codigoDocente;
     private String nombres;
     private String apellidos;

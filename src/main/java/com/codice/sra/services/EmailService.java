@@ -633,4 +633,79 @@ public class EmailService {
             );
         }
     }
+
+
+    // 10. Restablecimiento de contraseña desde Administración
+    @Async
+    public void enviarRestablecimientoAdministrativo(String destinatario, String nombreCompleto, String correoInstitucional, String passwordTemporal) {
+        try {
+            MimeMessage mensaje = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mensaje, true, "UTF-8");
+
+            helper.setTo(destinatario);
+            helper.setSubject("Restablecimiento de Contraseña - Administración SRA UMA");
+
+            String htmlContent = String.format("""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>%s</style>
+                </head>
+                <body>
+                    <div class="email-container">
+                        <div class="email-header">
+                            <img src="https://www.uma.edu.sv/regionales/san-miguel/assets/logo25.png" alt="Escudo UMA">
+                        </div>
+
+                        <div class="email-body">
+                            <h2>Restablecimiento de Contraseña</h2>
+
+                            <p>Estimado/a <strong>%s</strong>,</p>
+
+                            <p>Le informamos que el Departamento de Administración ha realizado el restablecimiento de la contraseña de su cuenta en el <strong>Sistema de Registro Académico (SRA)</strong> de la Universidad Modular Abierta.</p>
+
+                            <p>Para acceder nuevamente a la plataforma, utilice las siguientes credenciales:</p>
+
+                            <div class="highlight-box">
+                                <p style="margin: 0 0 12px 0;"><strong>Correo Institucional:</strong> <span style="color: #0056b3;">%s</span></p>
+                                <p style="margin: 0;"><strong>Contraseña Temporal:</strong> <span style="font-family: monospace; font-size: 18px; font-weight: bold; color: #b30000; background-color: #f0f0f0; padding: 4px 8px; border-radius: 4px;">%s</span></p>
+                            </div>
+
+                            <div style="background-color: #fff8e6; border-left: 4px solid #d97706; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                                <p style="margin: 0; color: #754600;"><strong>Cambio obligatorio de contraseña</strong></p>
+                                <p style="margin: 8px 0 0 0; color: #754600;">Por motivos de seguridad, al iniciar sesión deberá establecer una nueva contraseña personal antes de continuar utilizando el sistema.</p>
+                            </div>
+
+                            <p><strong>Recomendaciones de seguridad:</strong></p>
+                            <ul style="padding-left: 20px;">
+                                <li>No comparta su contraseña temporal con otras personas.</li>
+                                <li>Establezca una contraseña nueva y diferente a las utilizadas anteriormente.</li>
+                                <li>Si no reconoce este restablecimiento, comuníquese inmediatamente con Administración.</li>
+                            </ul>
+
+                            <p>Este mensaje ha sido generado automáticamente por el Sistema de Registro Académico.</p>
+
+                            <p style="margin-top: 30px;">Atentamente,<br><strong>Dirección de Tecnologías - UMA</strong></p>
+                        </div>
+
+                        <div class="email-footer">
+                            &copy; 2026 Universidad Modular Abierta (UMA). Todos los derechos reservados.
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """, CSS_BASE, nombreCompleto, correoInstitucional, passwordTemporal);
+
+            helper.setText(htmlContent, true);
+            mailSender.send(mensaje);
+
+            log.info("Correo de restablecimiento administrativo enviado a: {}", destinatario);
+
+        } catch (Exception e) {
+            log.error("Error al enviar restablecimiento administrativo a {}", destinatario, e);
+            throw new RuntimeException("No fue posible enviar el correo de restablecimiento administrativo.", e);
+        }
+    }
+
 }

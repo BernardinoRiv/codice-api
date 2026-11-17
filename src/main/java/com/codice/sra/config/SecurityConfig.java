@@ -85,6 +85,7 @@ public class SecurityConfig {
                                 "/api/v1/personas/buscar-por-documento",
                                 "/api/v1/ciclos/operativo-oferta"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/admin/usuarios/*/reset-password").hasRole("ADMINISTRADOR")
                         .requestMatchers(
                                 "/",
                                 "/error",

@@ -6,7 +6,7 @@ import java.util.function.Function;
 
 public class UserUtils {
 
-    private static final String CARACTERES_PASSWORD = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*";
+    private static final String CARACTERES_PASSWORD = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String DOMINIO_INSTITUCIONAL = "uma.edu.sv";
 
