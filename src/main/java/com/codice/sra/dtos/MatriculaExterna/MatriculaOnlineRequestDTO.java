@@ -19,7 +19,10 @@ public class MatriculaOnlineRequestDTO {
     private Long idTipoDocumento;
 
     @NotBlank(message = "El número de documento es obligatorio.")
-    @Pattern(regexp = "^[0-9A-Za-z-]{7,15}$", message = "Formato de documento de identidad inválido.")
+    @Pattern(
+            regexp = "^[0-9A-Za-z-]{7,17}$",
+            message = "Formato de documento de identidad inválido."
+    )
     @Schema(description = "Número oficial de documento de identidad", example = "06123456-7")
     private String numeroDocumento;
 

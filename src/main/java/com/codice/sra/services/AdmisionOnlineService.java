@@ -1,5 +1,6 @@
 package com.codice.sra.services;
 
+import com.codice.sra.dtos.ComprobantePagoDTO;
 import com.codice.sra.dtos.MatriculaExterna.*;
 import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
@@ -63,6 +64,7 @@ public class AdmisionOnlineService {
     private final UsuarioService usuarioService;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
+    private final ComprobantePdfService comprobantePdfService;
 
     private final SecureRandom secureRandom = new SecureRandom();
     private final ConcurrentMap<Long, CodigoAdmision> codigosAdmision = new ConcurrentHashMap<>();
@@ -129,15 +131,25 @@ public class AdmisionOnlineService {
                     evalCiclo.ciclo().getIdCiclo()
             );
 
+
             if (yaMatriculadoEnCiclo) {
                 return VerificacionIdentidadPublicaResponseDTO.builder()
                         .existePersona(true)
                         .esEstudianteActivo(false)
                         .requiereLogin(false)
-                        .idPersona(persona.getIdPersona())
-                        .mensaje("Ya posees una pre-matrícula registrada para el ciclo " + evalCiclo.ciclo().getCodigoCiclo() + ". Procede con el pago en ventanilla o verifica tu correo.")
+                        .requiereVerificacionCorreo(true)
+                        .correoEnmascarado(
+                                enmascararCorreo(persona.getCorreoPersonal())
+                        )
+                        .mensaje(
+                                "Ya tienes una prematrícula registrada para el ciclo "
+                                        + evalCiclo.ciclo().getCodigoCiclo()
+                                        + ". Verifica tu correo para recuperar el trámite "
+                                        + "y continuar con el pago."
+                        )
                         .build();
             }
+
         }
 
         // 1.5 Si existe la persona pero no tiene matrícula vigente en este ciclo
@@ -211,6 +223,7 @@ public class AdmisionOnlineService {
 
             validarPersonaAdmisible(existente);
 
+
         } else {
 
             if (dto.getIdPersona() != null) {
@@ -219,14 +232,15 @@ public class AdmisionOnlineService {
                 );
             }
 
-            if (dto.getTokenVerificacion() != null &&
-                    !dto.getTokenVerificacion().isBlank()) {
-
-                throw new IllegalArgumentException(
-                        "No se requiere un token para una persona nueva."
-                );
-            }
+            // Aspirante nuevo: debe verificar la posesión del correo.
+            validarAutorizacionCorreoNuevo(
+                    dto.getTokenVerificacion(),
+                    dto.getIdTipoDocumento(),
+                    docLimpio,
+                    dto.getCorreoPersonal().trim().toLowerCase(Locale.ROOT)
+            );
         }
+
 
         // 2. Validación de ciclo lectivo hábil y cálculo del período
         CicloMatriculaValidatorService.EvaluacionCicloMatricula evalCiclo =
@@ -311,17 +325,19 @@ public class AdmisionOnlineService {
             persona.setDireccion(dto.getDireccion().trim());
         }
 
-// Estado de registro
+        // Estado de registro
+
         EstadoRegistroPersona estadoRegistro =
                 estadoRegistroPersonaRepository
-                        .findByEstadoRegistro("COMPLETADO")
+                        .findByEstadoRegistro("PENDIENTE")
                         .orElseGet(() ->
                                 estadoRegistroPersonaRepository
-                                        .findById(2L)
+                                        .findById(1L)
                                         .orElseThrow()
                         );
 
         persona.setEstadoRegistro(estadoRegistro);
+
 
 // Guardar una sola vez.
         persona = personaRepository.save(persona);
@@ -364,17 +380,8 @@ public class AdmisionOnlineService {
         // =========================================================================
         // 2.3.2 CONTROL DE IDEMPOTENCIA: VALIDAR MATRÍCULA DUPLICADA EN ESTE CICLO
         // =========================================================================
-        boolean yaMatriculadoEnCiclo = matriculaRepository.existsByEstudiante_IdEstudianteAndCiclo_IdCiclo(
-                estudiante.getIdEstudiante(),
-                cicloMatricula.getIdCiclo()
-        );
+        validarSinMatriculaEnCiclo(estudiante, cicloMatricula);
 
-        if (yaMatriculadoEnCiclo) {
-            throw new IllegalArgumentException(String.format(
-                    "El aspirante con documento %s ya cuenta con una matrícula o trámite registrado para el ciclo %s.",
-                    docLimpio, cicloMatricula.getCodigoCiclo()
-            ));
-        }
 
         // =========================================================================
         // 2.4 REGISTRO DE LA TRAYECTORIA ACADÉMICA ACTIVA
@@ -539,6 +546,90 @@ public class AdmisionOnlineService {
 
 
 
+    // ============================================================
+    // CONSULTA FINANCIERA SIN CREAR PREMATRÍCULA
+    // ============================================================
+    @Transactional(readOnly = true)
+    public Map<String, Object> consultarPlanFinanciero() {
+
+        // Obtener ciclo habilitado y período de matrícula.
+        CicloMatriculaValidatorService.EvaluacionCicloMatricula evaluacion =
+                cicloMatriculaValidatorService.resolverCicloHabilParaMatricula();
+
+        Ciclo ciclo = evaluacion.ciclo();
+
+        // Matrícula ordinaria.
+        ConceptoCobro conceptoMatricula = conceptoCobroRepository
+                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(
+                        ciclo.getIdCiclo(),
+                        ID_TIPO_COBRO_MATRICULA
+                )
+                .orElseThrow(() -> new IllegalStateException(
+                        "No existe arancel de matrícula para el ciclo."
+                ));
+
+        // Cuota mensual.
+        ConceptoCobro conceptoCuota = conceptoCobroRepository
+                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(
+                        ciclo.getIdCiclo(),
+                        2L
+                )
+                .orElseThrow(() -> new IllegalStateException(
+                        "No existe arancel de cuota mensual para el ciclo."
+                ));
+
+        BigDecimal montoMatricula = conceptoMatricula.getMontoBase();
+        BigDecimal montoCuota = conceptoCuota.getMontoBase();
+
+        // Matrícula extraordinaria, cuando corresponda.
+        BigDecimal montoExtraordinaria = BigDecimal.ZERO;
+
+        if (evaluacion.esExtraordinaria()) {
+            ConceptoCobro conceptoExtra = conceptoCobroRepository
+                    .findByCiclo_IdCicloAndTipoCobro_IdTipoCobro(
+                            ciclo.getIdCiclo(),
+                            ID_TIPO_COBRO_EXTRAORDINARIA
+                    )
+                    .orElseThrow(() -> new IllegalStateException(
+                            "No existe arancel extraordinario para el ciclo."
+                    ));
+
+            montoExtraordinaria = conceptoExtra.getMontoBase();
+        }
+
+        int numeroCuotas = 5;
+
+        BigDecimal totalCuotas = montoCuota.multiply(
+                BigDecimal.valueOf(numeroCuotas)
+        );
+
+        BigDecimal totalCiclo = montoMatricula
+                .add(totalCuotas)
+                .add(montoExtraordinaria);
+
+        BigDecimal totalInicial = montoMatricula
+                .add(montoCuota)
+                .add(montoExtraordinaria);
+
+        Map<String, Object> resultado = new LinkedHashMap<>();
+
+        resultado.put("idCiclo", ciclo.getIdCiclo());
+        resultado.put("codigoCiclo", ciclo.getCodigoCiclo());
+        resultado.put("esExtraordinaria", evaluacion.esExtraordinaria());
+        resultado.put("montoMatricula", montoMatricula);
+        resultado.put("montoCuota", montoCuota);
+        resultado.put("numeroCuotas", numeroCuotas);
+        resultado.put("montoExtraordinaria", montoExtraordinaria);
+        resultado.put("totalCuotas", totalCuotas);
+        resultado.put("totalCiclo", totalCiclo);
+        resultado.put("totalInicial", totalInicial);
+        resultado.put("mensaje",
+                "Plan financiero calculado. No se ha creado ninguna prematrícula.");
+
+        return resultado;
+    }
+
+
     // =========================================================================
     // CASO 3: LIQUIDACIÓN EN LÍNEA, DETONANTE IAM Y FACTURACIÓN (Fase 2)
     // =========================================================================
@@ -700,6 +791,73 @@ public class AdmisionOnlineService {
         matricula.setEstadoMatricula(estadoMatriculada);
         matriculaRepository.saveAndFlush(matricula);
 
+
+        List<ComprobantePagoDTO.DetalleComprobanteDTO> detalles = new ArrayList<>();
+
+        for (CargoEstudiante cargo : cargosALiquidar) {detalles.add(
+                    ComprobantePagoDTO.DetalleComprobanteDTO.builder()
+                            .concepto(cargo.getConceptoCobro().getTipoCobro().getTipoCobro())
+                            .montoTotal(cargo.getMontoTotal())
+                            .build());
+        }
+
+        String correoDestino = persona.getCorreoPersonal();
+        String nombreCompleto = persona.getNombres() + " " + persona.getApellidos();
+
+        ComprobantePagoDTO comprobante = ComprobantePagoDTO.builder()
+                .numeroFactura(factura.getNumeroFactura())
+                .fechaEmision(factura.getFechaEmision())
+                .nombreCompleto(nombreCompleto)
+                .carnetEstudiante(estudiante.getCarnet())
+                .correoEstudiante(correoDestino)
+                .totalCobrado(totalCobrar)
+                .cajeroResponsable("PAGO EN LÍNEA (PORTAL)")
+                .detalles(detalles)
+                .build();
+
+        String numeroFactura = factura.getNumeroFactura();
+
+        // Enviar únicamente después de confirmar la transacción en PostgreSQL.
+        if (org.springframework.transaction.support.TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+
+            org.springframework.transaction.support.TransactionSynchronizationManager
+                    .registerSynchronization(
+                            new org.springframework.transaction.support.TransactionSynchronization() {
+                                @Override
+                                public void afterCommit() {
+                                    java.util.concurrent.CompletableFuture.runAsync(() -> {
+                                        try {
+                                            byte[] pdf = comprobantePdfService
+                                                    .generarPdf(comprobante);
+
+                                            emailService.enviarComprobantePago(
+                                                    correoDestino,
+                                                    nombreCompleto,
+                                                    numeroFactura,
+                                                    pdf
+                                            );
+
+                                            log.info(
+                                                    "Factura {} enviada al correo {}",
+                                                    numeroFactura,
+                                                    correoDestino
+                                            );
+                                        } catch (Exception e) {
+                                            log.error(
+                                                    "No se pudo enviar la factura {}: {}",
+                                                    numeroFactura,
+                                                    e.getMessage(),
+                                                    e
+                                            );
+                                        }
+                                    });
+                                }
+                            }
+                    );
+        }
+
+
         return ConfirmacionMatriculaOnlineDTO.builder()
                 .carnet(estudiante.getCarnet())
                 .correoInstitucional(usuarioFinal.getCorreoInstitucional())
@@ -835,8 +993,81 @@ public class AdmisionOnlineService {
         return candidato;
     }
 
+
+    private void validarAccesoMatricula(
+            Long idMatricula,
+            String tokenVerificacion
+    ) {
+        if (tokenVerificacion == null ||
+                tokenVerificacion.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Debes verificar tu identidad."
+            );
+        }
+
+        Matricula matricula = matriculaRepository.findById(idMatricula)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No se pudo autorizar la solicitud."
+                ));
+
+        Persona persona = matricula.getEstudiante().getPersona();
+
+        AutorizacionAdmision autorizacion =
+                autorizaciones.get(tokenVerificacion);
+
+        boolean autorizacionExistenteValida =
+                autorizacion != null
+                        && LocalDateTime.now().isBefore(
+                        autorizacion.expiracion()
+                )
+                        && Objects.equals(
+                        autorizacion.idPersona(),
+                        persona.getIdPersona()
+                );
+
+        boolean autorizacionNuevaValida = false;
+
+        AutorizacionCorreoNuevo autorizacionNueva =
+                autorizacionesCorreoNuevo.get(tokenVerificacion);
+
+        if (autorizacionNueva != null) {
+            autorizacionNuevaValida =
+                    LocalDateTime.now().isBefore(
+                            autorizacionNueva.expiracion()
+                    )
+                            && Objects.equals(
+                            autorizacionNueva.idTipoDocumento(),
+                            persona.getTipoDocumento().getIdTipoDocumento()
+                    )
+                            && Objects.equals(
+                            autorizacionNueva.numeroDocumento(),
+                            ValidadorDocumentoUtil.normalizar(
+                                    persona.getNumeroDocumento()
+                            )
+                    )
+                            && Objects.equals(
+                            autorizacionNueva.correoPersonal(),
+                            persona.getCorreoPersonal()
+                                    .trim()
+                                    .toLowerCase(Locale.ROOT)
+                    );
+        }
+
+        if (!autorizacionExistenteValida &&
+                !autorizacionNuevaValida) {
+            throw new IllegalArgumentException(
+                    "No se pudo autorizar la solicitud."
+            );
+        }
+    }
+
+
     @Transactional(readOnly = true)
-    public String generarYDespacharBoletaNpe(Long idMatricula) {
+    public String generarYDespacharBoletaNpe(
+            Long idMatricula,
+            String tokenVerificacion) {
+
+        validarAccesoMatricula(idMatricula, tokenVerificacion);
         Matricula matricula = matriculaRepository.findById(idMatricula)
                 .orElseThrow(() -> new IllegalArgumentException("Matrícula no encontrada."));
 
@@ -1082,6 +1313,7 @@ public class AdmisionOnlineService {
         return token;
     }
 
+
     private void validarPersonaAdmisible(Persona persona) {
 
         if (usuarioRepository.existsByPersona_IdPersonaAndRol_Rol(
@@ -1089,7 +1321,7 @@ public class AdmisionOnlineService {
                 "ADMINISTRADOR"
         )) {
             throw new IllegalStateException(
-                    "Esta cuenta no puede realizar prematrícula pública."
+                    "Esta cuenta no puede realizar trámites públicos de admisión."
             );
         }
 
@@ -1103,26 +1335,34 @@ public class AdmisionOnlineService {
 
             if (estudiante.getUsuario() != null) {
                 throw new IllegalStateException(
-                        "Debes utilizar el portal estudiantil."
-                );
-            }
-
-            Long idCiclo = cicloMatriculaValidatorService
-                    .resolverCicloHabilParaMatricula()
-                    .ciclo()
-                    .getIdCiclo();
-
-            if (matriculaRepository
-                    .existsByEstudiante_IdEstudianteAndCiclo_IdCiclo(
-                            estudiante.getIdEstudiante(),
-                            idCiclo
-                    )) {
-                throw new IllegalStateException(
-                        "Ya existe una prematrícula para el ciclo actual."
+                        "Ya posees un usuario activo. Inicia sesión en el portal estudiantil."
                 );
             }
         }
     }
+
+
+    private void validarSinMatriculaEnCiclo(
+            Estudiante estudiante,
+            Ciclo ciclo
+    ) {
+        boolean existeMatricula =
+                matriculaRepository
+                        .existsByEstudiante_IdEstudianteAndCiclo_IdCiclo(
+                                estudiante.getIdEstudiante(),
+                                ciclo.getIdCiclo()
+                        );
+
+        if (existeMatricula) {
+            throw new IllegalStateException(
+                    "Ya existe una matrícula o prematrícula para el ciclo "
+                            + ciclo.getCodigoCiclo()
+                            + ". Debes recuperar el trámite existente."
+            );
+        }
+    }
+
+
 
     @Transactional(readOnly = true)
     public Map<String, Object> obtenerDatosVerificados(String token) {
@@ -1185,6 +1425,42 @@ public class AdmisionOnlineService {
         return datos;
     }
 
+    private void validarAutorizacionCorreoNuevo(
+            String token,
+            Long idTipoDocumento,
+            String numeroDocumento,
+            String correoPersonal
+    ) {
+        if (token == null || token.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Debes verificar tu correo electrónico antes de continuar."
+            );
+        }
+
+        AutorizacionCorreoNuevo autorizacion =
+                autorizacionesCorreoNuevo.get(token);
+
+        if (autorizacion == null ||
+                !LocalDateTime.now().isBefore(autorizacion.expiracion()) ||
+                !Objects.equals(
+                        autorizacion.idTipoDocumento(),
+                        idTipoDocumento
+                ) ||
+                !Objects.equals(
+                        autorizacion.numeroDocumento(),
+                        numeroDocumento
+                ) ||
+                !Objects.equals(
+                        autorizacion.correoPersonal(),
+                        correoPersonal
+                )) {
+
+            throw new IllegalArgumentException(
+                    "La verificación del correo no es válida o ha expirado."
+            );
+        }
+    }
+
     private record CodigoAdmision(
             String hash,
             LocalDateTime expiracion,
@@ -1196,5 +1472,271 @@ public class AdmisionOnlineService {
             Long idPersona,
             LocalDateTime expiracion
     ) {}
+
+    private record CodigoCorreoNuevo(
+            String hash,
+            LocalDateTime expiracion,
+            int intentos,
+            LocalDateTime ultimoEnvio
+    ) {}
+    private record AutorizacionCorreoNuevo(
+            Long idTipoDocumento,
+            String numeroDocumento,
+            String correoPersonal,
+            LocalDateTime expiracion
+    ) {}
+
+
+    private final ConcurrentMap<String, AutorizacionCorreoNuevo> autorizacionesCorreoNuevo =
+            new ConcurrentHashMap<>();
+
+    private final ConcurrentMap<String, CodigoCorreoNuevo> codigosCorreoNuevo =
+            new ConcurrentHashMap<>();
+
+    private String claveCorreoNuevo(
+            Long idTipoDocumento,
+            String numeroDocumento,
+            String correoPersonal
+    ) {
+        return idTipoDocumento + ":" +
+                numeroDocumento + ":" +
+                correoPersonal;
+    }
+
+
+    public void solicitarCodigoCorreoNuevo(
+            Long idTipoDocumento,
+            String numeroDocumento,
+            String correoPersonal,
+            String nombres
+    ) {
+        String documento = ValidadorDocumentoUtil.normalizar(numeroDocumento);
+        ValidadorDocumentoUtil.validar(idTipoDocumento, documento);
+
+        if (correoPersonal == null || correoPersonal.isBlank()) {
+            throw new IllegalArgumentException("Ingresa un correo válido.");
+        }
+
+        String correo = correoPersonal.trim().toLowerCase(Locale.ROOT);
+
+        if (!correo.matches(
+                "^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$"
+        )) {
+            throw new IllegalArgumentException("El formato del correo es inválido.");
+        }
+
+        String clave = claveCorreoNuevo(idTipoDocumento, documento, correo);
+        LocalDateTime ahora = LocalDateTime.now();
+
+        synchronized (codigosCorreoNuevo) {
+            CodigoCorreoNuevo anterior = codigosCorreoNuevo.get(clave);
+
+            if (anterior != null &&
+                    ahora.isBefore(anterior.ultimoEnvio().plusSeconds(60))) {
+                throw new IllegalStateException(
+                        "Debes esperar 60 segundos antes de solicitar otro código."
+                );
+            }
+
+            // Nunca utilizar este flujo para recuperar un expediente existente.
+            if (personaRepository.findByNumeroDocumento(documento).isPresent()) {
+                throw new IllegalArgumentException(
+                        "No se pudo procesar la solicitud."
+                );
+            }
+
+            // Respuesta genérica: no revelar si el correo pertenece a otra persona.
+            if (personaRepository.findByCorreoPersonal(correo).isPresent()) {
+                return;
+            }
+
+            String codigo = String.format(
+                    "%06d",
+                    secureRandom.nextInt(1_000_000)
+            );
+
+            CodigoCorreoNuevo registro = new CodigoCorreoNuevo(
+                    passwordEncoder.encode(codigo),
+                    ahora.plusMinutes(10),
+                    0,
+                    ahora
+            );
+
+            codigosCorreoNuevo.put(clave, registro);
+
+            try {
+                emailService.enviarCodigoVerificacionAdmision(
+                        correo,
+                        nombres == null || nombres.isBlank()
+                                ? "Aspirante"
+                                : nombres.trim(),
+                        codigo
+                );
+            } catch (RuntimeException ex) {
+                codigosCorreoNuevo.remove(clave, registro);
+                throw new IllegalStateException(
+                        "No se pudo enviar el código de verificación."
+                );
+            }
+        }
+    }
+
+
+    public String verificarCodigoCorreoNuevo(
+            Long idTipoDocumento,
+            String numeroDocumento,
+            String correoPersonal,
+            String codigo
+    ) {
+        String documento = ValidadorDocumentoUtil.normalizar(numeroDocumento);
+        ValidadorDocumentoUtil.validar(idTipoDocumento, documento);
+
+        if (correoPersonal == null || correoPersonal.isBlank()
+                || codigo == null || !codigo.matches("\\d{6}")) {
+            throw new IllegalArgumentException("Verificación inválida.");
+        }
+
+        String correo = correoPersonal.trim().toLowerCase(Locale.ROOT);
+        String clave = claveCorreoNuevo(idTipoDocumento, documento, correo);
+
+        synchronized (codigosCorreoNuevo) {
+            CodigoCorreoNuevo registro = codigosCorreoNuevo.get(clave);
+            LocalDateTime ahora = LocalDateTime.now();
+
+            if (registro == null || !ahora.isBefore(registro.expiracion())) {
+                codigosCorreoNuevo.remove(clave);
+                throw new IllegalArgumentException(
+                        "El código no existe o ha expirado."
+                );
+            }
+
+            if (registro.intentos() >= 5) {
+                codigosCorreoNuevo.remove(clave);
+                throw new IllegalArgumentException(
+                        "Se superó el número de intentos permitidos."
+                );
+            }
+
+            if (!passwordEncoder.matches(codigo, registro.hash())) {
+                int intentos = registro.intentos() + 1;
+
+                if (intentos >= 5) {
+                    codigosCorreoNuevo.remove(clave);
+                } else {
+                    codigosCorreoNuevo.put(
+                            clave,
+                            new CodigoCorreoNuevo(
+                                    registro.hash(),
+                                    registro.expiracion(),
+                                    intentos,
+                                    registro.ultimoEnvio()
+                            )
+                    );
+                }
+
+                throw new IllegalArgumentException(
+                        "Código incorrecto o verificación inválida."
+                );
+            }
+
+            if (personaRepository.findByNumeroDocumento(documento).isPresent()
+                    || personaRepository.findByCorreoPersonal(correo).isPresent()) {
+                codigosCorreoNuevo.remove(clave);
+                throw new IllegalArgumentException(
+                        "No es posible continuar con los datos proporcionados."
+                );
+            }
+
+            codigosCorreoNuevo.remove(clave);
+
+            String token = UUID.randomUUID().toString();
+
+            autorizacionesCorreoNuevo.put(
+                    token,
+                    new AutorizacionCorreoNuevo(
+                            idTipoDocumento,
+                            documento,
+                            correo,
+                            ahora.plusMinutes(30)
+                    )
+            );
+
+            return token;
+        }
+    }
+
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> consultarEstadoSolicitud(
+            Long idMatricula,
+            String tokenVerificacion) {
+
+        validarAccesoMatricula(idMatricula, tokenVerificacion);
+
+        Matricula matricula = matriculaRepository.findById(idMatricula)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No se encontró la solicitud."));
+
+        String estado = matricula.getEstadoMatricula().getEstadoMatricula();
+
+        Map<String, Object> respuesta = new LinkedHashMap<>();
+        respuesta.put("idMatricula", matricula.getIdMatricula());
+        respuesta.put("estado", estado);
+
+        if ("PENDIENTE_PAGO".equalsIgnoreCase(estado)) {
+
+            List<CargoEstudiante> cargos = cargoEstudianteRepository
+                    .findByMatricula_IdMatriculaAndEstadoCargo_EstadoCargoOrderByNumeroCuotaAsc(
+                            idMatricula, "PENDIENTE");
+
+            CargoEstudiante cargoMatricula = cargos.stream()
+                    .filter(c -> c.getNumeroCuota() == 1
+                            && Objects.equals(
+                            c.getConceptoCobro()
+                                    .getTipoCobro()
+                                    .getIdTipoCobro(),
+                            ID_TIPO_COBRO_MATRICULA))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "No se encontró el cargo de matrícula."));
+
+            BigDecimal totalInicial = cargos.stream()
+                    .filter(c -> c.getNumeroCuota() == 1)
+                    .map(CargoEstudiante::getMontoTotal)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            String npe = String.format(
+                    "0981%08d%06d%04d",
+                    matricula.getEstudiante().getIdEstudiante(),
+                    cargoMatricula.getIdCargoEstudiante(),
+                    matricula.getCiclo().getAnio()
+            );
+
+            respuesta.put("npe", npe);
+            respuesta.put("totalAPagar", totalInicial);
+            respuesta.put(
+                    "fechaVencimiento",
+                    cargoMatricula.getFechaVencimiento()
+            );
+        }
+
+        if ("MATRICULADA".equalsIgnoreCase(estado)) {
+            Estudiante estudiante = matricula.getEstudiante();
+
+            respuesta.put("carnet", estudiante.getCarnet());
+
+            if (estudiante.getUsuario() != null) {
+                respuesta.put(
+                        "correoInstitucional",
+                        estudiante.getUsuario().getCorreoInstitucional()
+                );
+            }
+        }
+
+        return respuesta;
+    }
+
+
+
 
 }
