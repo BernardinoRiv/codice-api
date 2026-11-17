@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -18,5 +19,11 @@ public interface PensumRepository extends JpaRepository<Pensum, Integer> {
     // Consulta explícita por Long mapeando a la propiedad real 'idPensum'
     @Query("SELECT p FROM Pensum p WHERE p.idPensum = :id")
     Optional<Pensum> findByIdPensumLong(@Param("id") Long id);
+
+    @Query("SELECT p FROM Pensum p JOIN FETCH p.carrera c JOIN FETCH p.estadoPensum ORDER BY c.nombreCarrera ASC, p.version DESC")
+    List<Pensum> findTodosParaAdministracion();
+
+    @Query("SELECT p FROM Pensum p JOIN FETCH p.carrera JOIN FETCH p.estadoPensum WHERE p.idPensum = :idPensum")
+    Optional<Pensum> findDetalleCabecera(@Param("idPensum") Long idPensum);
 
 }
