@@ -1,14 +1,13 @@
 package com.codice.sra.dtos;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+
+import java.util.List;
 
 @Getter
 @Setter
@@ -31,4 +30,8 @@ public class CarreraCreacionRequestDTO {
     @NotNull(message = "El nivel académico es obligatorio")
     @Positive(message = "El ID del nivel académico debe ser un número positivo")
     private Long idNivel;
+
+    @Schema(description = "Identificadores de las sedes donde se ofrecerá la carrera", example = "[1, 2]")
+    @NotEmpty(message = "Debe seleccionar al menos una sede")
+    private List<@NotNull(message = "El ID de sede no puede ser nulo") @Positive(message = "El ID de sede debe ser positivo") Long> idsSedes;
 }
