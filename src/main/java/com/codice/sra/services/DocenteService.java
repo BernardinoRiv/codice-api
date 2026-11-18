@@ -145,6 +145,7 @@ public class DocenteService {
 
             return new DocenteListaResponseDTO(
                     docente.getIdDocente(),
+                    docente.getUsuario().getIdUsuario(),
                     docente.getCodigoDocente(),
                     persona.getNombres(),
                     persona.getApellidos(),

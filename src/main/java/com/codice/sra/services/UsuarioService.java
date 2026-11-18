@@ -83,76 +83,7 @@ public class UsuarioService {
         return crearCuentaUsuario(persona, rol, longitudPassword);
     }
 
-//    /**
-//     * Lógica atómica de aprovisionamiento de credenciales y persistencia.
-//     */
-//    private Usuario crearCuentaUsuario(Persona persona, Rol rol, int longitudPassword) {
-//        // 1. REGLA SoD: Si la persona física ya es Administrador, no puede recibir roles operativos
-//        boolean esAdminActual = usuarioRepository.existsByPersona_IdPersonaAndRol_Rol(
-//                persona.getIdPersona(),
-//                ROL_ADMINISTRADOR
-//        );
-//
-//        if (esAdminActual && !ROL_ADMINISTRADOR.equalsIgnoreCase(rol.getRol())) {
-//            throw new IllegalArgumentException(
-//                    "Incompatibilidad de seguridad: Esta persona no puede recibir cuentas operativas."
-//            );
-//        }
-//
-//        // 2. REGLA SoD INVERSA: Si tiene roles operativos y se le intenta asignar rol ADMINISTRADOR
-//        if (ROL_ADMINISTRADOR.equalsIgnoreCase(rol.getRol())
-//                && usuarioRepository.existsByPersona_IdPersona(persona.getIdPersona())
-//                && !esAdminActual) {
-//            throw new IllegalArgumentException(
-//                    "Incompatibilidad de seguridad: Cuentas con roles operativos incompatibles."
-//            );
-//        }
-//
-//        // 3. IDEMPOTENCIA: Verificar duplicidad del mismo rol
-//        if (usuarioRepository.existsByPersona_IdPersonaAndRol_IdRol(persona.getIdPersona(), rol.getIdRol())) {
-//            throw new IllegalArgumentException("La persona ya tiene asignada una cuenta activa con ese rol");
-//        }
-//
-//        EstadoUsuario estadoActivo = estadoUsuarioRepository.findByEstadoUsuario(ESTADO_ACTIVO)
-//                .orElseThrow(() -> new IllegalStateException("El estado '" + ESTADO_ACTIVO + "' no está configurado en la base de datos"));
-//
-//        String correoInstitucional = UserUtils.generarCorreoInstitucional(persona.getNombres(), persona.getApellidos(), rol.getRol());
-//        if (usuarioRepository.existsByCorreoInstitucional(correoInstitucional)) {
-//            correoInstitucional = UserUtils.generarCorreoUnico(
-//                    persona.getNombres(),
-//                    persona.getApellidos(),
-//                    rol.getRol(),
-//                    usuarioRepository::existsByCorreoInstitucional
-//            );
-//        }
-//
-//
-//        String passwordPlano = UserUtils.generarPasswordAleatorio(longitudPassword);
-//
-//        Usuario usuario = new Usuario();
-//        usuario.setPersona(persona);
-//        usuario.setRol(rol);
-//        usuario.setEstadoUsuario(estadoActivo);
-//        usuario.setCorreoInstitucional(correoInstitucional);
-//        usuario.setPasswordHash(passwordEncoder.encode(passwordPlano));
-//        usuario.setIntentosFallidos(0);
-//        usuario = usuarioRepository.save(usuario);
-//
-//        if (persona.getCorreoPersonal() != null && !persona.getCorreoPersonal().isBlank()) {
-//            emailService.enviarCredenciales(
-//                    persona.getCorreoPersonal(),
-//                    persona.getNombres() + " " + persona.getApellidos(),
-//                    correoInstitucional,
-//                    passwordPlano
-//            );
-//        }
-//
-//        return usuario;
-//    }
 
-    /**
-     * TU MÉTODO ORIGINAL: Lógica atómica de validaciones (SoD), encriptación y persistencia.
-     */
     private Usuario crearCuentaUsuario(Persona persona, Rol rol, String correoInstitucional, String passwordPlano) {
         // 1. REGLA SoD: Si la persona física ya es Administrador, no puede recibir roles operativos
         boolean esAdminActual = usuarioRepository.existsByPersona_IdPersonaAndRol_Rol(persona.getIdPersona(), ROL_ADMINISTRADOR);

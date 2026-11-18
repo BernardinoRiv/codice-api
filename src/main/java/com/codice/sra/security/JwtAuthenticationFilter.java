@@ -69,17 +69,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 // VALIDACIÓN CRÍTICA CORREGIDA:
                 // Verificamos que ESTA sesión específica (la del token de la computadora) siga activa
-                if (idSesion != null) {
-                    Optional<SesionUsuario> sesionOpt = sesionUsuarioRepository.findById(idSesion);
+//                if (idSesion != null) {
+//                    Optional<SesionUsuario> sesionOpt = sesionUsuarioRepository.findById(idSesion);
+//
+//                    // Si la sesión no existe o YA TIENE fecha_fin, se rechaza la petición inmediatamente
+//                    if (sesionOpt.isEmpty() || sesionOpt.get().getFechaFin() != null) {
+//                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+//                        response.setContentType("application/json");
+//                        response.setCharacterEncoding("UTF-8");
+//                        response.getWriter().write("{\"error\": \"Sesion cerrada o invalida\"}");
+//                        return;
+//                    }
+//                }
+                // Verificar que el JWT pertenezca a una sesión activa del usuario
 
-                    // Si la sesión no existe o YA TIENE fecha_fin, se rechaza la petición inmediatamente
-                    if (sesionOpt.isEmpty() || sesionOpt.get().getFechaFin() != null) {
-                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        response.setContentType("application/json");
-                        response.setCharacterEncoding("UTF-8");
-                        response.getWriter().write("{\"error\": \"Sesion cerrada o invalida\"}");
-                        return;
-                    }
+                Optional<SesionUsuario> sesionOpt = idSesion != null ? sesionUsuarioRepository.findById(idSesion) : Optional.empty();
+
+                if (sesionOpt.isEmpty() || sesionOpt.get().getFechaFin() != null
+                        || !sesionOpt.get().getUsuario().getIdUsuario().equals(idUsuario)) {
+
+                    SecurityContextHolder.clearContext();
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json");
+                    response.setCharacterEncoding("UTF-8");
+                    response.getWriter().write("{\"error\": \"Sesion cerrada o invalida\"}");
+                    return;
                 }
 
                 List<GrantedAuthority> authorities = Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + rol));

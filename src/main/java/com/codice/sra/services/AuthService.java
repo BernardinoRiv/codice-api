@@ -2,16 +2,17 @@ package com.codice.sra.services;
 
 import com.codice.sra.dtos.*;
 import com.codice.sra.models.*;
-import com.codice.sra.repositories.CicloRepository;
-import com.codice.sra.repositories.EmpleadoRepository;
-import com.codice.sra.repositories.RecuperacionClaveRepository;
-import com.codice.sra.repositories.UsuarioRepository;
+import com.codice.sra.repositories.*;
 import com.codice.sra.security.JwtService;
+import com.codice.sra.utils.UserUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -29,6 +30,7 @@ public class AuthService {
     private final EmailService emailService;
     private final EmpleadoRepository empleadoRepository;
     private final CicloRepository cicloRepository;
+    private final AuditoriaRepository auditoriaRepository;
 
     @Autowired
     public AuthService(UsuarioRepository usuarioRepository,
@@ -38,7 +40,8 @@ public class AuthService {
                        SesionUsuarioService sesionUsuarioService,
                        EmailService emailService,
                        EmpleadoRepository empleadoRepository,
-                       CicloRepository cicloRepository) {
+                       CicloRepository cicloRepository,
+                       AuditoriaRepository auditoriaRepository) {
         this.usuarioRepository = usuarioRepository;
         this.recuperacionClaveRepository = recuperacionClaveRepository;
         this.passwordEncoder = passwordEncoder;
@@ -47,6 +50,7 @@ public class AuthService {
         this.emailService = emailService;
         this.empleadoRepository = empleadoRepository;
         this.cicloRepository = cicloRepository;
+        this.auditoriaRepository = auditoriaRepository;
     }
 
     public AuthLoginResponseDTO login(AuthLoginRequestDTO request, HttpServletRequest httpRequest) {
@@ -283,4 +287,77 @@ public class AuthService {
 
         return new CambiarContrasenaResponseDTO(true, "Contraseña restablecida exitosamente. Ya puede iniciar sesión.");
     }
+
+    @Transactional
+    public void resetPassAdmin(Long idAdministrador, Long idUsuario, HttpServletRequest request) {
+
+        String direccionIp = obtenerIpCliente(request);
+
+        // 1. Verificar quién realiza la operación
+        Usuario administrador = usuarioRepository.findById(idAdministrador)
+                .orElseThrow(() -> new AccessDeniedException(
+                        "Administrador no autorizado"));
+
+        if (!"ADMINISTRADOR".equalsIgnoreCase(administrador.getRol().getRol())) {
+            throw new AccessDeniedException("No tiene permisos para restablecer contraseñas");
+        }
+
+        // 2. Buscar el usuario afectado
+        Usuario usuario = usuarioRepository.findById(idUsuario).orElseThrow(() -> new IllegalArgumentException(
+                        "Usuario no encontrado"));
+
+        // 3. Proteger las cuentas administrativas
+        String rol = usuario.getRol().getRol();
+
+        if ("ADMINISTRADOR".equalsIgnoreCase(rol)) {
+            throw new AccessDeniedException("No se permite restablecer contraseñas de administradores");
+        }
+
+        // 4. Generar contraseña temporal
+        String passwordTemporal = UserUtils.generarPasswordAleatorio(8);
+
+        // 5. Actualizar credenciales
+        usuario.setPasswordHash(passwordEncoder.encode(passwordTemporal));
+        usuario.setUltimoAcceso(null);
+        usuario.setIntentosFallidos(0);
+        usuario.setBloqueadoHasta(null);
+
+        usuarioRepository.save(usuario);
+
+        // 6. Invalidar sesiones anteriores
+        sesionUsuarioService.cerrarTodasLasSesiones(idUsuario);
+
+        // 7. Registrar auditoría
+        Auditoria auditoria = new Auditoria();
+
+        auditoria.setUsuario(administrador);
+        auditoria.setAccion("RESET_PASSWORD_ADMIN");
+        auditoria.setTabla("usuarios");
+        auditoria.setIdRegistro(idUsuario);
+        auditoria.setDireccionIp(direccionIp);
+
+        String nombreAfectado = usuario.getPersona().getNombres() + " " + usuario.getPersona().getApellidos();
+
+        auditoria.setDescripcion("Restablecimiento administrativo de contraseña. Usuario afectado: " + idUsuario
+                + ". Nombre: " + nombreAfectado + ". Rol: " + usuario.getRol().getRol());
+
+        auditoriaRepository.save(auditoria);
+
+        String correo = usuario.getCorreoInstitucional();
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        emailService.enviarRestablecimientoAdministrativo(
+                                correo,
+                                nombreAfectado,
+                                correo,
+                                passwordTemporal
+                        );
+                    }
+                }
+        );
+    }
+
 }
