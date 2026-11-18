@@ -344,15 +344,27 @@ public class AuthService {
         auditoriaRepository.save(auditoria);
 
         String correo = usuario.getCorreoInstitucional();
+        String correoPersonal = usuario.getPersona().getCorreoPersonal();
 
+        // Correo institucional (nombre de usuario para iniciar sesión)
+        String correoInstitucional = usuario.getCorreoInstitucional();
+
+        // Validar que exista un correo personal
+        if (correoPersonal == null || correoPersonal.isBlank()) {
+            throw new IllegalStateException(
+                    "El usuario no tiene un correo personal registrado."
+            );
+        }
+
+        // Enviar el correo después de confirmar la transacción
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
                         emailService.enviarRestablecimientoAdministrativo(
-                                correo,
+                                correoPersonal,
                                 nombreAfectado,
-                                correo,
+                                correoInstitucional,
                                 passwordTemporal
                         );
                     }
