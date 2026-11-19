@@ -40,5 +40,10 @@ public interface MateriaRepository extends JpaRepository<Materia, Long> {
           AND UPPER(TRIM(ep.estadoPensum)) = 'VIGENTE'
     """)
     List<String> findCarrerasVigentesPorMateria(@Param("idMateria") Long idMateria);
-    
+
+    @Query("SELECT m FROM Materia m WHERE m.estadoMateria = true ORDER BY m.nombreMateria ASC")
+    List<Materia> findTodasActivas();
+
+    @Query("SELECT DISTINCT m FROM Materia m LEFT JOIN FETCH m.prerrequisitos WHERE m.idMateria = :idMateria")
+    Optional<Materia> findByIdConPrerrequisitos(@Param("idMateria") Long idMateria);
 }
