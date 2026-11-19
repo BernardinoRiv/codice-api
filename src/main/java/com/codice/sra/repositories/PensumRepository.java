@@ -26,6 +26,9 @@ public interface PensumRepository extends JpaRepository<Pensum, Integer> {
     @Query("SELECT p FROM Pensum p JOIN FETCH p.carrera JOIN FETCH p.estadoPensum WHERE p.idPensum = :idPensum")
     Optional<Pensum> findDetalleCabecera(@Param("idPensum") Long idPensum);
 
+    @Query("SELECT p FROM Pensum p WHERE p.carrera.idCarrera = :idCarrera AND p.estadoPensum.estadoPensum = 'VIGENTE'")
+    List<Pensum> findVigentesPorCarrera(@Param("idCarrera") Long idCarrera);
+
     boolean existsByCarrera_IdCarreraAndVersion(Long idCarrera, Integer version);
 
 }

@@ -32,6 +32,13 @@ public class PensumController {
     }
 
 
+    @PostMapping("/{idOrigen}/crear-version")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<PensumListadoDTO> crearVersionDesdeExistente(@PathVariable Long idOrigen, @Valid @RequestBody PensumCrearDTO dto) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(pensumService.crearVersionDesdeExistente(idOrigen, dto));
+    }
+
+
     @PutMapping("/{idPensum}/borrador")
     @PreAuthorize("hasRole('ADMINISTRADOR')")
     public ResponseEntity<PensumDetalleDTO> guardarBorrador(
@@ -77,5 +84,12 @@ public class PensumController {
     @PreAuthorize("hasRole('ADMINISTRADOR')")
     public ResponseEntity<List<PensumMateriaDetalleDTO.PrerrequisitoDTO>> obtenerPrerrequisitos(@PathVariable Long idMateria) {
         return ResponseEntity.ok(pensumService.obtenerPrerrequisitos(idMateria));
+    }
+
+    @DeleteMapping("/{idPensum}")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<Void> eliminarPensum(@PathVariable Long idPensum) {
+        pensumService.eliminarPensum(idPensum);
+        return ResponseEntity.noContent().build();
     }
 }

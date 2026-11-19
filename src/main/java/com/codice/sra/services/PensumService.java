@@ -77,6 +77,45 @@ public class PensumService {
     }
 
 
+    @Transactional
+    public PensumListadoDTO crearVersionDesdeExistente(Long idOrigen, PensumCrearDTO dto) {
+        if (idOrigen == null || idOrigen <= 0 || dto == null || dto.version() == null || dto.anioInicio() == null || dto.anioFin() == null)
+            throw new IllegalArgumentException("Debe indicar el pensum de origen y los años de la nueva versión");
+
+        Pensum origen = pensumRepository.findDetalleCabecera(idOrigen)
+                .orElseThrow(() -> new IllegalArgumentException("No existe el pensum de origen"));
+        String estadoOrigen = origen.getEstadoPensum().getEstadoPensum();
+        if (!"VIGENTE".equals(estadoOrigen) && !"CERRADO".equals(estadoOrigen))
+            throw new IllegalArgumentException("Solo se puede crear una versión desde un pensum VIGENTE o CERRADO");
+        if (!origen.getCarrera().getIdCarrera().equals(dto.idCarrera()))
+            throw new IllegalArgumentException("La nueva versión debe pertenecer a la misma carrera");
+        if (!dto.version().equals(dto.anioInicio()) || dto.anioInicio() <= Year.now().getValue() || dto.anioFin() < dto.anioInicio())
+            throw new IllegalArgumentException("La versión debe coincidir con un año de inicio futuro y tener un año final válido");
+        if (pensumRepository.existsByCarrera_IdCarreraAndVersion(dto.idCarrera(), dto.version()))
+            throw new IllegalArgumentException("Ya existe un pensum para esta carrera y versión");
+
+        EstadoPensum planificando = estadoPensumRepository.findByEstadoPensum("PLANIFICANDO")
+                .orElseThrow(() -> new IllegalArgumentException("No existe el estado PLANIFICANDO"));
+        if (!Boolean.TRUE.equals(planificando.getActivo()))
+            throw new IllegalArgumentException("El estado PLANIFICANDO no está habilitado");
+
+        Pensum nuevo = new Pensum();
+        nuevo.setCarrera(origen.getCarrera());
+        nuevo.setEstadoPensum(planificando);
+        nuevo.setVersion(dto.version());
+        nuevo.setAnioInicio(dto.anioInicio());
+        nuevo.setAnioFin(dto.anioFin());
+        for (PensumMateria anterior : pensumMateriaRepository.findByPensumIdOrderByCicloRecomendado(idOrigen)) {
+            PensumMateria copia = new PensumMateria();
+            copia.setPensum(nuevo);
+            copia.setMateria(anterior.getMateria());
+            copia.setCicloRecomendado(anterior.getCicloRecomendado());
+            copia.setObligatoria(anterior.getObligatoria());
+            nuevo.getPensumMaterias().add(copia);
+        }
+        return mapearCabecera(pensumRepository.saveAndFlush(nuevo));
+    }
+
     @Transactional(readOnly = true)
     public List<PensumListadoDTO> listarTodos() {
         return pensumRepository.findTodosParaAdministracion().stream().map(this::mapearCabecera).toList();
@@ -325,11 +364,16 @@ public class PensumService {
 
         Carrera carrera = pensum.getCarrera();
 
-        if (carrera.getEstadoCarrera() == null || !Long.valueOf(3L).equals(carrera.getEstadoCarrera().getIdEstadoCarrera()))
-            throw new IllegalArgumentException("La carrera debe estar en PLANIFICACION para activar su primer pensum");
+        if (carrera.getEstadoCarrera() == null ||
+                (!Long.valueOf(3L).equals(carrera.getEstadoCarrera().getIdEstadoCarrera()) &&
+                        !Long.valueOf(1L).equals(carrera.getEstadoCarrera().getIdEstadoCarrera())))
+            throw new IllegalArgumentException("La carrera debe estar ACTIVA o en PLANIFICACION");
 
-        if (carreraRepository.tienePensumVigente(carrera.getIdCarrera()))
-            throw new IllegalArgumentException("La carrera ya tiene un pensum vigente");
+        List<Pensum> vigentesAnteriores = pensumRepository.findVigentesPorCarrera(carrera.getIdCarrera());
+        if (vigentesAnteriores.size() > 1)
+            throw new IllegalArgumentException("La carrera tiene más de un pensum vigente. Revise sus datos antes de continuar");
+        if (!vigentesAnteriores.isEmpty() && !Long.valueOf(1L).equals(carrera.getEstadoCarrera().getIdEstadoCarrera()))
+            throw new IllegalArgumentException("Una carrera con pensum vigente debe estar ACTIVA");
 
         if (pensum.getAnioInicio() == null || pensum.getAnioFin() == null || pensum.getAnioFin() < pensum.getAnioInicio())
             throw new IllegalArgumentException("El pensum no tiene un período académico válido");
@@ -383,13 +427,39 @@ public class PensumService {
         if (estadoActiva == null || !"ACTIVA".equals(estadoActiva.getEstadoCarrera()))
             throw new IllegalArgumentException("No se encontró el estado ACTIVA de la carrera");
 
+        if (!vigentesAnteriores.isEmpty()) {
+            EstadoPensum estadoCerrado = estadoPensumRepository.findByEstadoPensum("CERRADO")
+                    .orElseThrow(() -> new IllegalArgumentException("No existe el estado CERRADO"));
+            if (!Boolean.TRUE.equals(estadoCerrado.getActivo()))
+                throw new IllegalArgumentException("El estado CERRADO está deshabilitado");
+            vigentesAnteriores.get(0).setEstadoPensum(estadoCerrado);
+            pensumRepository.saveAndFlush(vigentesAnteriores.get(0));
+        }
         pensum.setEstadoPensum(estadoVigente);
-        carrera.setEstadoCarrera(estadoActiva);
 
-        carreraRepository.save(carrera);
+        if (Long.valueOf(3L).equals(carrera.getEstadoCarrera().getIdEstadoCarrera())) {
+            carrera.setEstadoCarrera(estadoActiva);
+            carreraRepository.save(carrera);
+        }
+
         pensumRepository.saveAndFlush(pensum);
 
         return mapearCabecera(pensum);
+    }
+
+    @Transactional
+    public void eliminarPensum(Long idPensum) {
+        if (idPensum == null || idPensum <= 0)
+            throw new IllegalArgumentException("El ID del pensum debe ser positivo");
+
+        Pensum pensum = pensumRepository.findDetalleCabecera(idPensum)
+                .orElseThrow(() -> new IllegalArgumentException("No existe el pensum solicitado"));
+
+        if (!"PLANIFICANDO".equals(pensum.getEstadoPensum().getEstadoPensum()))
+            throw new IllegalArgumentException("Solo se pueden eliminar pensum en estado PLANIFICANDO");
+
+        pensumRepository.delete(pensum);
+        pensumRepository.flush();
     }
 
 
