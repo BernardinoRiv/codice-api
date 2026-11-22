@@ -214,4 +214,61 @@ public class UsuarioService {
     }
 
 
+    @Transactional
+    public void bloquearUsuarioEmpleado(Long idUsuario, String motivo) {
+        cambiarEstadoUsuarioEmpleado(idUsuario, "BLOQUEADO", motivo);
+    }
+
+    @Transactional
+    public void desbloquearUsuarioEmpleado(Long idUsuario, String motivo) {
+        cambiarEstadoUsuarioEmpleado(idUsuario, "ACTIVO", motivo);
+    }
+
+    private void cambiarEstadoUsuarioEmpleado(Long idUsuario, String nuevoEstadoNombre, String motivo) {
+        if (motivo == null || motivo.isBlank() || motivo.trim().length() < 5 || motivo.trim().length() > 500) {
+            throw new IllegalArgumentException("Debe indicar un motivo de 5 a 500 caracteres.");
+        }
+
+        Usuario usuario = usuarioRepository.findById(idUsuario)
+                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado: " + idUsuario));
+
+        if (usuario.getRol() == null || !"EMPLEADO".equalsIgnoreCase(usuario.getRol().getRol())) {
+            throw new IllegalArgumentException("La cuenta no pertenece a un usuario con rol EMPLEADO.");
+        }
+
+        EstadoUsuario estadoActual = usuario.getEstadoUsuario();
+
+        if (estadoActual == null) {
+            throw new IllegalStateException("El usuario no tiene un estado asignado.");
+        }
+
+        if (estadoActual.getEstadoUsuario().equalsIgnoreCase(nuevoEstadoNombre)) {
+            throw new IllegalArgumentException("El usuario ya se encuentra en estado " + nuevoEstadoNombre);
+        }
+
+        if ("ACTIVO".equalsIgnoreCase(nuevoEstadoNombre) && !"BLOQUEADO".equalsIgnoreCase(estadoActual.getEstadoUsuario())) {
+            throw new IllegalArgumentException("Solo se pueden desbloquear cuentas en estado BLOQUEADO.");
+        }
+
+        EstadoUsuario nuevoEstado = estadoUsuarioRepository.findByEstadoUsuario(nuevoEstadoNombre)
+                .filter(estado -> Boolean.TRUE.equals(estado.getActivo()))
+                .orElseThrow(() -> new IllegalStateException("Estado de usuario no disponible: " + nuevoEstadoNombre));
+
+        String estadoAnterior = estadoActual.getEstadoUsuario();
+        usuario.setEstadoUsuario(nuevoEstado);
+
+        if ("BLOQUEADO".equalsIgnoreCase(nuevoEstadoNombre)) {
+            sesionUsuarioService.cerrarTodasLasSesiones(idUsuario);
+        }
+
+        usuarioRepository.save(usuario);
+
+        auditoriaService.registrarEvento(
+                "BLOQUEADO".equalsIgnoreCase(nuevoEstadoNombre) ? "BLOQUEO_USUARIO_EMPLEADO" : "DESBLOQUEO_USUARIO_EMPLEADO",
+                "usuarios", idUsuario,
+                "Cambio de estado de '" + estadoAnterior + "' a '" + nuevoEstadoNombre + "'. Motivo: " + motivo.trim()
+        );
+    }
+
+
 }

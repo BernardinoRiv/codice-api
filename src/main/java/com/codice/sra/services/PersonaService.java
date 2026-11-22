@@ -456,4 +456,149 @@ public class PersonaService {
     }
 
 
+    @Transactional
+    public boolean actualizarDatosPersonalesEmpleado(Long idPersona, EmpleadoDatosPersonalesDTO dto) {
+        Persona persona = personaRepository.findByIdForUpdate(idPersona)
+                .orElseThrow(() -> new ResourceNotFoundException("Persona no encontrada: " + idPersona));
+
+        if (dto == null) throw new IllegalArgumentException("Los datos personales son obligatorios.");
+
+        String nombres = normalizarNombre(dto.getNombres());
+        String apellidos = normalizarNombre(dto.getApellidos());
+        String sexo = dto.getSexo() == null ? "" : dto.getSexo().trim().toUpperCase(Locale.ROOT);
+        String telefono = normalizarTelefonoEstudiante(dto.getTelefono());
+        String correo = dto.getCorreoPersonal() == null || dto.getCorreoPersonal().isBlank()
+                ? null : dto.getCorreoPersonal().trim().toLowerCase(Locale.ROOT);
+        String direccion = dto.getDireccion() == null ? "" : dto.getDireccion().trim().replaceAll("\\s+", " ");
+
+        if (nombres.isBlank() || apellidos.isBlank() || direccion.isBlank()) {
+            throw new IllegalArgumentException("Nombres, apellidos y dirección son obligatorios.");
+        }
+
+        if (nombres.length() > 100 || apellidos.length() > 100) {
+            throw new IllegalArgumentException("Los nombres y apellidos no pueden superar 100 caracteres.");
+        }
+
+        if (dto.getFechaNacimiento() == null || !dto.getFechaNacimiento().isBefore(LocalDate.now())) {
+            throw new IllegalArgumentException("La fecha de nacimiento debe ser anterior a la fecha actual.");
+        }
+
+        if (!sexo.equals("M") && !sexo.equals("F")) {
+            throw new IllegalArgumentException("El sexo debe ser M o F.");
+        }
+
+        if (correo != null && (!correo.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$") || correo.length() > 150)) {
+            throw new IllegalArgumentException("El correo personal no tiene un formato válido.");
+        }
+
+        if (correo != null && !Objects.equals(persona.getCorreoPersonal(), correo)
+                && personaRepository.existsByCorreoPersonalAndIdPersonaNot(correo, idPersona)) {
+            throw new DuplicateResourceException("El correo personal ya está registrado por otra persona.");
+        }
+
+        Distrito distrito = distritoRepository.findById(dto.getIdDistrito())
+                .orElseThrow(() -> new IllegalArgumentException("Distrito no encontrado: " + dto.getIdDistrito()));
+
+        List<String> cambios = new ArrayList<>();
+
+        if (!Objects.equals(persona.getNombres(), nombres)) {
+            cambios.add("nombres");
+            persona.setNombres(nombres);
+        }
+
+        if (!Objects.equals(persona.getApellidos(), apellidos)) {
+            cambios.add("apellidos");
+            persona.setApellidos(apellidos);
+        }
+
+        if (!Objects.equals(persona.getFechaNacimiento(), dto.getFechaNacimiento())) {
+            cambios.add("fecha_nacimiento");
+            persona.setFechaNacimiento(dto.getFechaNacimiento());
+        }
+
+        if (!Objects.equals(persona.getSexo(), sexo)) {
+            cambios.add("sexo");
+            persona.setSexo(sexo);
+        }
+
+        if (!Objects.equals(persona.getTelefono(), telefono)) {
+            cambios.add("telefono");
+            persona.setTelefono(telefono);
+        }
+
+        if (!Objects.equals(persona.getCorreoPersonal(), correo)) {
+            cambios.add("correo_personal");
+            persona.setCorreoPersonal(correo);
+        }
+
+        if (!Objects.equals(persona.getDireccion(), direccion)) {
+            cambios.add("direccion");
+            persona.setDireccion(direccion);
+        }
+
+        if (persona.getDistrito() == null || !Objects.equals(persona.getDistrito().getIdDistrito(), distrito.getIdDistrito())) {
+            cambios.add("id_distrito");
+            persona.setDistrito(distrito);
+        }
+
+        if (cambios.isEmpty()) return false;
+
+        personaRepository.save(persona);
+        auditoriaService.registrarEvento("EDICION_DATOS_PERSONALES_EMPLEADO", "personas", idPersona,
+                "Se modificaron los campos: " + String.join(", ", cambios));
+
+        return true;
+    }
+
+
+    @Transactional
+    public void cambiarDocumentoEmpleado(Long idPersona, EmpleadoCambioDocumentoDTO dto) {
+        Persona persona = personaRepository.findByIdForUpdate(idPersona)
+                .orElseThrow(() -> new ResourceNotFoundException("Persona no encontrada: " + idPersona));
+
+        if (dto == null) throw new IllegalArgumentException("Los datos del documento son obligatorios.");
+
+        String documentoActual = ValidadorDocumentoUtil.normalizar(dto.getDocumentoActual());
+        String documentoNuevo = ValidadorDocumentoUtil.normalizar(dto.getNumeroDocumento());
+        String motivo = dto.getMotivo() == null ? "" : dto.getMotivo().trim();
+
+        if (motivo.length() < 10 || motivo.length() > 500) {
+            throw new IllegalArgumentException("Debe proporcionar una justificación de 10 a 500 caracteres.");
+        }
+
+        if (!Objects.equals(persona.getNumeroDocumento(), documentoActual)) {
+            throw new IllegalArgumentException("El documento actual no coincide con el registrado.");
+        }
+
+        ValidadorDocumentoUtil.validar(dto.getIdTipoDocumento(), documentoNuevo);
+
+        TipoDocumento nuevoTipo = tipoDocumentoRepository.findById(dto.getIdTipoDocumento())
+                .orElseThrow(() -> new IllegalArgumentException("Tipo de documento no encontrado."));
+
+        Long tipoAnterior = persona.getTipoDocumento().getIdTipoDocumento();
+        String numeroAnterior = persona.getNumeroDocumento();
+
+        if (Objects.equals(tipoAnterior, dto.getIdTipoDocumento()) && Objects.equals(numeroAnterior, documentoNuevo)) {
+            throw new IllegalArgumentException("El documento nuevo es igual al actual.");
+        }
+
+        if (!Objects.equals(numeroAnterior, documentoNuevo) && personaRepository.existsByNumeroDocumento(documentoNuevo)) {
+            throw new DuplicateResourceException("El documento ya está registrado por otra persona.");
+        }
+
+        persona.setTipoDocumento(nuevoTipo);
+        persona.setNumeroDocumento(documentoNuevo);
+        personaRepository.saveAndFlush(persona);
+
+        auditoriaService.registrarEvento("CAMBIO_DOCUMENTO_EMPLEADO", "personas", idPersona,
+                "Cambio de documento. Tipo anterior: " + tipoAnterior
+                        + ", tipo nuevo: " + dto.getIdTipoDocumento()
+                        + ". Documento anterior: " + enmascararDocumento(numeroAnterior)
+                        + ", documento nuevo: " + enmascararDocumento(documentoNuevo)
+                        + ". Motivo: " + motivo);
+    }
+
+
+
+
 }
