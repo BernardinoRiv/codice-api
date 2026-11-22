@@ -18,6 +18,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.http.HttpMethod;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.Arrays;
 
@@ -86,6 +87,7 @@ public class SecurityConfig {
                                 "/api/v1/ciclos/operativo-oferta"
                         ).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/admin/usuarios/*/reset-password").hasRole("ADMINISTRADOR")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/refresh").authenticated()
                         .requestMatchers(
                                 "/",
                                 "/error",
@@ -99,6 +101,8 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
+                .exceptionHandling(ex -> ex.authenticationEntryPoint((request, response, exception) ->
+                        response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Autenticación requerida o sesión expirada")))
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
                 .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)

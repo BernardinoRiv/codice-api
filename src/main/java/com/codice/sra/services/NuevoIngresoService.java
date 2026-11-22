@@ -2,6 +2,7 @@ package com.codice.sra.services;
 
 import com.codice.sra.dtos.NuevoIngresoRequestDTO;
 import com.codice.sra.models.*;
+import com.codice.sra.exceptions.GrupoException;
 import com.codice.sra.repositories.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,8 @@ public class NuevoIngresoService {
     private final ConceptoCobroRepository conceptoCobroRepository;
     private final GrupoRepository grupoRepository;
     private final CicloRepository cicloRepository;
+    private final CicloMatriculaValidatorService cicloMatriculaValidatorService;
+    private final HorarioRepository horarioRepository;
 
     private final TipoDocumentoRepository tipoDocumentoRepository;
     private final DistritoRepository distritoRepository;
@@ -59,13 +62,12 @@ public class NuevoIngresoService {
     public Map<String, Object> procesarPreMatricula(NuevoIngresoRequestDTO dto) {
 
         if (dto.getIdGruposSeleccionados() == null || dto.getIdGruposSeleccionados().isEmpty()) {
-            throw new RuntimeException("Debe seleccionar al menos un grupo para matricular.");
+            throw new IllegalArgumentException("Debe seleccionar al menos un grupo para matricular.");
         }
+        if (dto.getIdSede() == null) throw new IllegalArgumentException("Debe indicar la sede para validar los grupos seleccionados.");
 
-        Long idPrimerGrupo = dto.getIdGruposSeleccionados().get(0);
-        Grupo primerGrupo = grupoRepository.findById(idPrimerGrupo)
-                .orElseThrow(() -> new RuntimeException("Grupo no encontrado."));
-        Ciclo cicloActivo = primerGrupo.getCiclo();
+        Ciclo cicloActivo = cicloMatriculaValidatorService.resolverCicloHabilParaMatricula().ciclo();
+        List<Grupo> gruposValidados = validarGruposNuevoIngreso(dto, cicloActivo);
 
         Persona persona;
         if (dto.getIdPersona() != null) {
@@ -113,9 +115,7 @@ public class NuevoIngresoService {
         matricula.setEstadoMatricula(estadoMatriculaRepository.findById(1L).orElseThrow());
         matricula = matriculaRepository.save(matricula);
 
-        for (Long idGrupo : dto.getIdGruposSeleccionados()) {
-            Grupo grupo = grupoRepository.findById(idGrupo)
-                    .orElseThrow(() -> new RuntimeException("Grupo " + idGrupo + " no encontrado."));
+        for (Grupo grupo : gruposValidados) {
 
             Inscripcion inscripcion = new Inscripcion();
             inscripcion.setMatricula(matricula);
@@ -334,6 +334,47 @@ public class NuevoIngresoService {
         }
 
         return respuesta;
+    }
+
+    private List<Grupo> validarGruposNuevoIngreso(NuevoIngresoRequestDTO dto, Ciclo ciclo) {
+        if (new java.util.HashSet<>(dto.getIdGruposSeleccionados()).size() != dto.getIdGruposSeleccionados().size())
+            throw new IllegalArgumentException("La selección contiene grupos duplicados.");
+        if (dto.getIdGruposSeleccionados().stream().anyMatch(java.util.Objects::isNull))
+            throw new IllegalArgumentException("Los identificadores de grupo no pueden ser nulos.");
+        List<Grupo> grupos = new ArrayList<>();
+        java.util.Set<Long> materias = new java.util.HashSet<>();
+        for (Long id : dto.getIdGruposSeleccionados().stream().sorted().toList()) {
+            Grupo g = grupoRepository.findByIdWithLock(id)
+                    .orElseThrow(() -> new IllegalArgumentException("Grupo " + id + " no encontrado."));
+            if (!java.util.Objects.equals(g.getCiclo().getIdCiclo(), ciclo.getIdCiclo()))
+                throw GrupoException.reglaNegocio("El grupo " + g.getCodigoGrupo() + " pertenece al ciclo " + g.getCiclo().getCodigoCiclo()
+                        + ", no al ciclo habilitado " + ciclo.getCodigoCiclo() + ".");
+            if (dto.getIdSede() != null && !java.util.Objects.equals(g.getSede().getIdSede(), dto.getIdSede()))
+                throw GrupoException.reglaNegocio("El grupo " + g.getCodigoGrupo() + " no pertenece a la sede seleccionada.");
+            if (g.getEstadoGrupo() == null || g.getEstadoGrupo().getIdEstadoGrupo() != 1L)
+                throw GrupoException.reglaNegocio("El grupo " + g.getCodigoGrupo() + " no está ABIERTO.");
+            if (!materias.add(g.getMateria().getIdMateria()))
+                throw GrupoException.reglaNegocio("La selección contiene más de un grupo para " + g.getMateria().getNombreMateria() + ".");
+            if (inscripcionRepository.countInscripcionesActivasPorGrupo(g.getIdGrupo()) >= g.getCupoMaximo())
+                throw GrupoException.reglaNegocio("El grupo " + g.getCodigoGrupo() + " no tiene cupos disponibles.");
+            grupos.add(g);
+        }
+        for (int i = 0; i < grupos.size(); i++) {
+            for (int j = i + 1; j < grupos.size(); j++) {
+                Grupo a = grupos.get(i), b = grupos.get(j);
+                for (com.codice.sra.models.Horario ha : horarioRepository.findByGrupo_IdGrupo(a.getIdGrupo())) {
+                    for (com.codice.sra.models.Horario hb : horarioRepository.findByGrupo_IdGrupo(b.getIdGrupo())) {
+                        if (java.util.Objects.equals(ha.getDia().getIdDia(), hb.getDia().getIdDia())
+                                && ha.getHoraInicio().isBefore(hb.getHoraFin())
+                                && hb.getHoraInicio().isBefore(ha.getHoraFin()))
+                            throw GrupoException.reglaNegocio("Choque de horario entre " + a.getCodigoGrupo() + " (" + a.getMateria().getNombreMateria()
+                                    + ") y " + b.getCodigoGrupo() + " (" + b.getMateria().getNombreMateria() + ") el " + ha.getDia().getDia()
+                                    + " de " + ha.getHoraInicio() + " a " + ha.getHoraFin() + ".");
+                    }
+                }
+            }
+        }
+        return grupos;
     }
 
     private BigDecimal calcularDescuento(BigDecimal porcentaje, BigDecimal montoFijo, BigDecimal montoBase) {

@@ -32,10 +32,11 @@ public class CicloMatriculaValidatorService {
         LocalDate hoy = LocalDate.now();
 
         // PRIORIDAD 1: Ciclo en estado PLANIFICADO (Aprobado por Junta Directiva para admisión regular)
-        var cicloPlanificadoOpt = cicloRepository.findCicloPlanificadoParaMatricula();
+        var cicloPlanificadoOpt = cicloRepository.findCiclosHabilitadosPlanificacion().stream()
+                .filter(c -> c.getFechaFin() == null || !c.getFechaFin().isBefore(hoy)).findFirst();
         if (cicloPlanificadoOpt.isPresent()) {
             Ciclo ciclo = cicloPlanificadoOpt.get();
-            log.info("Ciclo PLANIFICADO localizado: [{}]. Admisión anticipada habilitada.", ciclo.getCodigoCiclo());
+            log.info("Ciclo planificado localizado: [{}]. Admisión anticipada habilitada.", ciclo.getCodigoCiclo());
             return new EvaluacionCicloMatricula(
                     ciclo,
                     false,
@@ -44,10 +45,15 @@ public class CicloMatriculaValidatorService {
         }
 
         // PRIORIDAD 2: Ciclo en estado ACTIVO (Condicionado a los primeros 30 días tras fecha_inicio)
-        var cicloActivoOpt = cicloRepository.findCicloActivo();
+        var cicloActivoOpt = cicloRepository.findCicloPorEstadoActivo();
         if (cicloActivoOpt.isPresent()) {
             Ciclo ciclo = cicloActivoOpt.get();
             LocalDate fechaInicio = ciclo.getFechaInicio();
+
+            if (ciclo.getFechaFin() != null && hoy.isAfter(ciclo.getFechaFin())) {
+                throw com.codice.sra.exceptions.GrupoException.reglaNegocio(
+                        "El ciclo " + ciclo.getCodigoCiclo() + " ya está fuera de vigencia.");
+            }
 
             // Si el ciclo está marcado ACTIVO administrativamente pero aún no llega la fecha física de inicio
             if (hoy.isBefore(fechaInicio)) {
@@ -73,7 +79,7 @@ public class CicloMatriculaValidatorService {
                                 : "Matrícula regular en curso."
                 );
             } else {
-                throw new IllegalStateException(
+                throw com.codice.sra.exceptions.GrupoException.reglaNegocio(
                         "El período de admisiones para el ciclo " + ciclo.getCodigoCiclo() +
                                 " ha finalizado. Han transcurrido " + diasTranscurridos + " días desde su inicio (Límite: " +
                                 DIAS_MAXIMOS_MATRICULA_EXTRAORDINARIA + " días)."
@@ -81,6 +87,17 @@ public class CicloMatriculaValidatorService {
             }
         }
 
-        throw new IllegalStateException("Actualmente no existen ciclos académicos habilitados para matrícula.");
+        throw com.codice.sra.exceptions.GrupoException.reglaNegocio(
+                "Actualmente no existen ciclos académicos habilitados para matrícula.");
+    }
+
+    public EvaluacionCicloMatricula resolverCicloParaIngresoContinuo() {
+        return cicloRepository.findCiclosHabilitadosPlanificacion().stream()
+                .filter(c -> c.getFechaFin() == null || !c.getFechaFin().isBefore(LocalDate.now()))
+                .findFirst()
+                .map(c -> new EvaluacionCicloMatricula(c, false,
+                        "Matrícula habilitada para el ciclo " + c.getCodigoCiclo()))
+                .orElseThrow(() -> com.codice.sra.exceptions.GrupoException.reglaNegocio(
+                        "No hay un período de matrícula habilitado actualmente."));
     }
 }

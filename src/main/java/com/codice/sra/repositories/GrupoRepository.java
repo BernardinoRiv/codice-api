@@ -90,7 +90,7 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
     void deleteByCiclo_IdCiclo(@Param("idCiclo") Long idCiclo);
 
     // Trae los grupos activos de una lista de materias en una sede y ciclo específicos
-    @Query("SELECT g FROM Grupo g JOIN FETCH g.docente d JOIN FETCH d.persona p WHERE g.materia.idMateria IN :idMaterias AND g.sede.idSede = :idSede AND g.ciclo.idCiclo = :idCiclo AND g.estadoGrupo.estadoGrupo = 'ACTIVO'")
+    @Query("SELECT g FROM Grupo g JOIN FETCH g.docente d JOIN FETCH d.persona p WHERE g.materia.idMateria IN :idMaterias AND g.sede.idSede = :idSede AND g.ciclo.idCiclo = :idCiclo AND UPPER(TRIM(g.estadoGrupo.estadoGrupo)) = 'ABIERTO'")
     List<Grupo> findGruposDisponiblesParaMaterias(@Param("idMaterias") List<Long> idMaterias, @Param("idSede") Long idSede, @Param("idCiclo") Long idCiclo);
 
     @Query("SELECT g FROM Grupo g " +
@@ -101,7 +101,7 @@ public interface GrupoRepository extends JpaRepository<Grupo, Long> {
             "WHERE m.idMateria IN :idMaterias " +
             "AND g.sede.idSede = :idSede " +
             "AND g.ciclo.idCiclo = :idCiclo " +
-            "AND UPPER(eg.estadoGrupo) IN ('ABIERTO', 'ACTIVO')")
+            "AND UPPER(TRIM(eg.estadoGrupo)) = 'ABIERTO'")
     List<Grupo> findGruposParaOfertaAcademica(@Param("idMaterias") List<Long> idMaterias,
                                               @Param("idSede") Long idSede,
                                               @Param("idCiclo") Long idCiclo);
