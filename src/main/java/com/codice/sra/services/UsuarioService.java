@@ -28,19 +28,25 @@ public class UsuarioService {
     private final EstadoUsuarioRepository estadoUsuarioRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
+    private final SesionUsuarioService sesionUsuarioService;
+    private final AuditoriaService auditoriaService;
 
     public UsuarioService(UsuarioRepository usuarioRepository,
                           PersonaRepository personaRepository,
                           RolRepository rolRepository,
                           EstadoUsuarioRepository estadoUsuarioRepository,
                           PasswordEncoder passwordEncoder,
-                          EmailService emailService) {
+                          EmailService emailService,
+                          SesionUsuarioService sesionUsuarioService,
+                          AuditoriaService auditoriaService) {
         this.usuarioRepository = usuarioRepository;
         this.personaRepository = personaRepository;
         this.rolRepository = rolRepository;
         this.estadoUsuarioRepository = estadoUsuarioRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
+        this.sesionUsuarioService = sesionUsuarioService;
+        this.auditoriaService = auditoriaService;
     }
 
     /**
@@ -149,5 +155,63 @@ public class UsuarioService {
         // Llama a tu método original de validaciones
         return crearCuentaUsuario(persona, rolEstudiante, correoInstitucional, passwordPlano);
     }
+
+
+    @Transactional
+    public void bloquearUsuarioEstudiante(Long idUsuario, String motivo) {
+        cambiarEstadoUsuarioEstudiante(idUsuario, "BLOQUEADO", motivo);
+    }
+
+    @Transactional
+    public void desbloquearUsuarioEstudiante(Long idUsuario, String motivo) {
+        cambiarEstadoUsuarioEstudiante(idUsuario, "ACTIVO", motivo);
+    }
+
+    private void cambiarEstadoUsuarioEstudiante(Long idUsuario, String nuevoEstadoNombre, String motivo) {
+        if (motivo == null || motivo.isBlank()) {
+            throw new IllegalArgumentException("Debe indicar el motivo de la operación.");
+        }
+
+        Usuario usuario = usuarioRepository.findById(idUsuario)
+                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado: " + idUsuario));
+
+        if (!"ESTUDIANTE".equalsIgnoreCase(usuario.getRol().getRol())) {
+            throw new IllegalArgumentException("La cuenta no pertenece a un usuario con rol ESTUDIANTE.");
+        }
+
+        EstadoUsuario estadoActual = usuario.getEstadoUsuario();
+
+        if (estadoActual.getEstadoUsuario().equalsIgnoreCase(nuevoEstadoNombre)) {
+            throw new IllegalArgumentException("El usuario ya se encuentra en estado " + nuevoEstadoNombre);
+        }
+
+        if ("ACTIVO".equalsIgnoreCase(nuevoEstadoNombre)
+                && !"BLOQUEADO".equalsIgnoreCase(estadoActual.getEstadoUsuario())) {
+            throw new IllegalArgumentException("Solo se pueden desbloquear cuentas en estado BLOQUEADO.");
+        }
+
+        EstadoUsuario nuevoEstado = estadoUsuarioRepository.findByEstadoUsuario(nuevoEstadoNombre)
+                .filter(estado -> Boolean.TRUE.equals(estado.getActivo()))
+                .orElseThrow(() -> new IllegalStateException("Estado de usuario no disponible: " + nuevoEstadoNombre));
+
+        String estadoAnterior = estadoActual.getEstadoUsuario();
+
+        usuario.setEstadoUsuario(nuevoEstado);
+
+        if ("BLOQUEADO".equalsIgnoreCase(nuevoEstadoNombre)) {
+            sesionUsuarioService.cerrarTodasLasSesiones(idUsuario);
+        }
+
+        usuarioRepository.save(usuario);
+
+        auditoriaService.registrarEvento(
+                "BLOQUEADO".equalsIgnoreCase(nuevoEstadoNombre) ? "BLOQUEO_USUARIO_ESTUDIANTE" : "DESBLOQUEO_USUARIO_ESTUDIANTE",
+                "usuarios",
+                idUsuario,
+                "Cambio de estado de '" + estadoAnterior + "' a '" + nuevoEstadoNombre
+                        + "'. Motivo: " + motivo.trim()
+        );
+    }
+
 
 }

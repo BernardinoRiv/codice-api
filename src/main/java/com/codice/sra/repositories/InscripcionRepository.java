@@ -81,4 +81,16 @@ public interface InscripcionRepository extends JpaRepository<Inscripcion, Long> 
     // Buscar las inscripciones de una matrícula que estén en estado "RETIRO PENDIENTE"
     @Query("SELECT i FROM Inscripcion i WHERE i.matricula.idMatricula = :idMatricula AND i.estadoMateria.estadoMateria = 'RETIRO PENDIENTE'")
     List<Inscripcion> findByMatriculaAndEstadoRetiroPendiente(@Param("idMatricula") Long idMatricula);
+    @Query("""
+        SELECT i FROM Inscripcion i
+        JOIN FETCH i.matricula m
+        JOIN FETCH m.ciclo
+        JOIN FETCH m.estadoMatricula
+        JOIN FETCH i.grupo g
+        JOIN FETCH g.materia
+        LEFT JOIN FETCH i.estadoMateria
+        LEFT JOIN FETCH i.estadoInscripcion
+        WHERE m.estudianteCarrera.idEstudianteCarrera = :idEstudianteCarrera
+        """)
+    List<Inscripcion> findByEstudianteCarreraId(@Param("idEstudianteCarrera") Long idEstudianteCarrera);
 }

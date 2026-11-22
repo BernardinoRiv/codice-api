@@ -2,6 +2,7 @@ package com.codice.sra.security;
 
 import com.codice.sra.models.SesionUsuario;
 import com.codice.sra.repositories.SesionUsuarioRepository;
+import com.codice.sra.repositories.UsuarioRepository;
 import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -27,12 +28,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final SesionUsuarioRepository sesionUsuarioRepository;
+    private final UsuarioRepository usuarioRepository;
 
     @Autowired
     public JwtAuthenticationFilter(JwtService jwtService,
-                                   SesionUsuarioRepository sesionUsuarioRepository) {
+                                   SesionUsuarioRepository sesionUsuarioRepository,
+                                   UsuarioRepository usuarioRepository) {
         this.jwtService = jwtService;
         this.sesionUsuarioRepository = sesionUsuarioRepository;
+        this.usuarioRepository = usuarioRepository;
     }
 
     @Override
@@ -67,22 +71,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 Long idUsuario = jwtService.extractClaim(jwt, claims -> claims.get("idUsuario", Long.class));
                 Long idSesion = jwtService.extractClaim(jwt, claims -> claims.get("idSesion", Long.class));
 
-                // VALIDACIÓN CRÍTICA CORREGIDA:
-                // Verificamos que ESTA sesión específica (la del token de la computadora) siga activa
-//                if (idSesion != null) {
-//                    Optional<SesionUsuario> sesionOpt = sesionUsuarioRepository.findById(idSesion);
-//
-//                    // Si la sesión no existe o YA TIENE fecha_fin, se rechaza la petición inmediatamente
-//                    if (sesionOpt.isEmpty() || sesionOpt.get().getFechaFin() != null) {
-//                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-//                        response.setContentType("application/json");
-//                        response.setCharacterEncoding("UTF-8");
-//                        response.getWriter().write("{\"error\": \"Sesion cerrada o invalida\"}");
-//                        return;
-//                    }
-//                }
-                // Verificar que el JWT pertenezca a una sesión activa del usuario
-
                 Optional<SesionUsuario> sesionOpt = idSesion != null ? sesionUsuarioRepository.findById(idSesion) : Optional.empty();
 
                 if (sesionOpt.isEmpty() || sesionOpt.get().getFechaFin() != null
@@ -95,6 +83,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     response.getWriter().write("{\"error\": \"Sesion cerrada o invalida\"}");
                     return;
                 }
+
+
+                boolean usuarioActivo = usuarioRepository.findById(idUsuario)
+                        .map(usuario -> usuario.getEstadoUsuario() != null
+                                && "ACTIVO".equalsIgnoreCase(usuario.getEstadoUsuario().getEstadoUsuario()))
+                        .orElse(false);
+
+                if (!usuarioActivo) {
+                    SecurityContextHolder.clearContext();
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json");
+                    response.setCharacterEncoding("UTF-8");
+                    response.getWriter().write("{\"error\":\"La cuenta se encuentra bloqueada o inactiva\"}");
+                    return;
+                }
+
 
                 List<GrantedAuthority> authorities = Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + rol));
 
