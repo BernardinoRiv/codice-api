@@ -11,5 +11,6 @@ public class MateriaPensumDTO {
     private BigDecimal uvs;
     private Integer cicloRecomendado;
     private String estado;
+    private String codigoCicloInscrito;
     private List<String> prerrequisitos;
 }

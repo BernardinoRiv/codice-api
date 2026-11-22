@@ -47,6 +47,9 @@ public interface CargoEstudianteRepository extends JpaRepository<CargoEstudiante
     Optional<CargoEstudiante> findByMatricula_IdMatriculaAndConceptoCobro_TipoCobro_IdTipoCobro(
             Long idMatricula, Long idTipoCobro);
 
+    Optional<CargoEstudiante> findByMatricula_IdMatriculaAndConceptoCobro_TipoCobro_IdTipoCobroAndNumeroCuota(
+            Long idMatricula, Long idTipoCobro, Integer numeroCuota);
+
 
     // Firma requerida para listar los cargos pendientes asociados a la matrícula
     List<CargoEstudiante> findByMatricula_IdMatriculaAndEstadoCargo_EstadoCargo(Long idMatricula, String estadoCargo);

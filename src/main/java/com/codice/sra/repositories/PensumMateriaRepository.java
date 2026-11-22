@@ -17,4 +17,9 @@ public interface PensumMateriaRepository extends JpaRepository<PensumMateria, Lo
 
     @Query("SELECT pm FROM PensumMateria pm JOIN FETCH pm.materia m WHERE pm.pensum.idPensum = :idPensum ORDER BY pm.cicloRecomendado ASC")
     List<PensumMateria> findByPensumIdOrderByCicloRecomendado(@Param("idPensum") Long idPensum);
+
+    @Query("SELECT DISTINCT pm FROM PensumMateria pm JOIN FETCH pm.materia m " +
+            "LEFT JOIN FETCH m.prerrequisitos WHERE pm.pensum.idPensum = :idPensum " +
+            "ORDER BY pm.cicloRecomendado ASC, m.codigoMateria ASC")
+    List<PensumMateria> findDetalleByPensumId(@Param("idPensum") Long idPensum);
 }

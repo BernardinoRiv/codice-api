@@ -80,10 +80,15 @@ public interface CicloRepository extends JpaRepository<Ciclo, Long> {
      * Localiza el ciclo aprobado por Junta Directiva en estado 'PLANIFICADO'
      * listo para recibir pre-matrícula anticipada.
      */
-    @Query("SELECT c FROM Ciclo c " +
-            "WHERE UPPER(c.estadoCiclo.estadoCiclo) = 'PLANIFICADO' " +
-            "ORDER BY c.fechaInicio ASC LIMIT 1")
+    @Query("SELECT c FROM Ciclo c JOIN FETCH c.estadoCiclo ec " +
+            "WHERE ec.idEstadoCiclo = 1 " +
+            "ORDER BY c.anio ASC, c.numeroCiclo ASC LIMIT 1")
     Optional<Ciclo> findCicloPlanificadoParaMatricula();
+
+    @Query("SELECT c FROM Ciclo c JOIN FETCH c.estadoCiclo ec " +
+            "WHERE ec.idEstadoCiclo = 1 " +
+            "ORDER BY c.anio ASC, c.numeroCiclo ASC")
+    List<Ciclo> findCiclosHabilitadosPlanificacion();
 
     Optional<Ciclo> findByEstadoCiclo_EstadoCicloIgnoreCase(String estadoCiclo);
 

@@ -88,9 +88,6 @@ public class EstudianteClasesService {
         Long idPensum = historial.get(0).getMatricula().getEstudianteCarrera().getPensum().getIdPensum();
         List<PensumMateria> estructuraPensum = pensumMateriaRepo.findByPensumIdOrderByCicloRecomendado(idPensum);
 
-        Ciclo cicloActivo = cicloRepository.findCicloActivo().orElse(null);
-        Long idCicloActivo = (cicloActivo != null) ? cicloActivo.getIdCiclo() : -1L;
-
         Map<Long, List<Inscripcion>> inscripcionesPorMateria = historial.stream()
                 .collect(Collectors.groupingBy(i -> i.getGrupo().getMateria().getIdMateria()));
 
@@ -119,49 +116,37 @@ public class EstudianteClasesService {
                 dto.setPrerrequisitos(List.of("Bachillerato"));
             }
 
-            List<Inscripcion> inscripcionesMateria = inscripcionesPorMateria.getOrDefault(pm.getMateria().getIdMateria(), new ArrayList<>());
+            List<Inscripcion> inscripcionesMateria = inscripcionesPorMateria.getOrDefault(
+                    pm.getMateria().getIdMateria(), List.of());
+            boolean estaAprobada = inscripcionesMateria.stream().anyMatch(i ->
+                    i.getEstadoMateria() != null && (Objects.equals(i.getEstadoMateria().getIdEstadoMateria(), 2L)
+                            || "APROBADA".equalsIgnoreCase(i.getEstadoMateria().getEstadoMateria())));
+            boolean estaCursandoActivo = inscripcionesMateria.stream().anyMatch(i ->
+                    i.getEstadoMateria() != null && Objects.equals(i.getEstadoMateria().getIdEstadoMateria(), 1L)
+                            && i.getGrupo().getCiclo().getEstadoCiclo() != null
+                            && Objects.equals(i.getGrupo().getCiclo().getEstadoCiclo().getIdEstadoCiclo(), 2L));
+            Inscripcion inscritaPlanificada = inscripcionesMateria.stream()
+                    .filter(i -> i.getEstadoMateria() != null
+                            && Objects.equals(i.getEstadoMateria().getIdEstadoMateria(), 1L)
+                            && i.getGrupo().getCiclo().getEstadoCiclo() != null
+                            && Objects.equals(i.getGrupo().getCiclo().getEstadoCiclo().getIdEstadoCiclo(), 1L))
+                    .min(Comparator.comparing((Inscripcion i) -> i.getGrupo().getCiclo().getAnio())
+                            .thenComparing(i -> i.getGrupo().getCiclo().getNumeroCiclo()))
+                    .orElse(null);
 
-            if (inscripcionesMateria.isEmpty()) {
-                dto.setEstado("pendiente");
-                pendientes++;
+            if (estaAprobada) {
+                dto.setEstado("APROBADA");
+                aprobadas++;
+            } else if (estaCursandoActivo) {
+                dto.setEstado("CURSANDO");
+                cursando++;
+            } else if (inscritaPlanificada != null) {
+                dto.setEstado("INSCRITA");
+                dto.setCodigoCicloInscrito(inscritaPlanificada.getGrupo().getCiclo().getCodigoCiclo());
+                cursando++;
             } else {
-                boolean estaAprobada = false;
-                boolean estaCursando = false;
-                boolean estaRetirada = false;
-                boolean estaReprobada = false;
-
-                for (Inscripcion insc : inscripcionesMateria) {
-                    String estadoInsc = insc.getEstadoMateria() != null ? insc.getEstadoMateria().getEstadoMateria().toUpperCase() : "";
-
-                    if ("APROBADA".equals(estadoInsc)) {
-                        estaAprobada = true;
-                    }
-                    if (insc.getGrupo().getCiclo().getIdCiclo().equals(idCicloActivo)) {
-                        if ("RETIRADA".equals(estadoInsc) || "RETIRO PENDIENTE".equals(estadoInsc)) {
-                            estaRetirada = true;
-                        } else if ("CURSANDO".equals(estadoInsc)) {
-                            estaCursando = true;
-                        } else if ("REPROBADA".equals(estadoInsc)) {
-                            estaReprobada = true;
-                        }
-                    }
-                }
-
-                if (estaAprobada) {
-                    dto.setEstado("aprobada");
-                    aprobadas++;
-                } else if (estaRetirada) {
-                    dto.setEstado("retirada");
-                } else if (estaReprobada) {
-                    dto.setEstado("reprobada");
-                    pendientes++;
-                } else if (estaCursando) {
-                    dto.setEstado("cursando");
-                    cursando++;
-                } else {
-                    dto.setEstado("pendiente");
-                    pendientes++;
-                }
+                dto.setEstado("PENDIENTE");
+                pendientes++;
             }
             agrupadoPorCiclo.computeIfAbsent(pm.getCicloRecomendado(), k -> new ArrayList<>()).add(dto);
         }
