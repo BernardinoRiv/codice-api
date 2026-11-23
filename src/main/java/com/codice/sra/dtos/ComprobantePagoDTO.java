@@ -15,6 +15,8 @@ public class ComprobantePagoDTO {
     private String carnetEstudiante;
     private String correoEstudiante;
     private BigDecimal totalCobrado;
+    private BigDecimal subtotal;
+    private BigDecimal descuento;
     private String cajeroResponsable;
     private List<DetalleComprobanteDTO> detalles;
 
@@ -22,6 +24,8 @@ public class ComprobantePagoDTO {
     @Builder
     public static class DetalleComprobanteDTO {
         private String concepto;
+        private BigDecimal montoBase;
+        private BigDecimal montoDescuento;
         private BigDecimal montoTotal;
     }
 }

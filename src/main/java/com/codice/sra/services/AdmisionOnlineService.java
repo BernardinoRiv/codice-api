@@ -37,6 +37,9 @@ public class AdmisionOnlineService {
     private final EstudianteCarreraRepository estudianteCarreraRepository;
     private final CargoEstudianteRepository cargoEstudianteRepository;
     private final ConceptoCobroRepository conceptoCobroRepository;
+    private final BeneficioRepository beneficioRepository;
+    private final EstudianteBeneficioRepository estudianteBeneficioRepository;
+    private final EstadoBeneficioEstudianteRepository estadoBeneficioEstudianteRepository;
     private final PagoRepository pagoRepository;
     private final PagoCargoRepository pagoCargoRepository;
     private final FacturaRepository facturaRepository;
@@ -465,14 +468,23 @@ public class AdmisionOnlineService {
                 .orElseGet(() -> estadoCargoRepository.findById(1L).orElseThrow());
 
         // Concepto: Matrícula de Pregrado[cite: 3]
-        ConceptoCobro arancelMatricula = conceptoCobroRepository
-                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(cicloMatricula.getIdCiclo(), ID_TIPO_COBRO_MATRICULA)
-                .orElseThrow(() -> new IllegalStateException("El arancel de Matrícula no está configurado para el ciclo " + cicloMatricula.getCodigoCiclo()));
+        boolean posgrado = esPosgrado(carreraSede.getCarrera());
+        List<ConceptoCobro> arancelesNivel = conceptoCobroRepository.findByCiclo_IdCicloAndActivoTrue(cicloMatricula.getIdCiclo());
+        ConceptoCobro arancelMatricula = arancelesNivel.stream()
+                .filter(c -> nombreTipo(c).contains("matricul"))
+                .filter(c -> correspondeNivel(c, posgrado))
+                .findFirst().orElseThrow(() -> new IllegalStateException("No hay arancel de matrícula configurado para el nivel " + carreraSede.getCarrera().getNivel().getNivel()));
+        ConceptoCobro arancelCuota = arancelesNivel.stream()
+                .filter(c -> nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual"))
+                .filter(c -> correspondeNivel(c, posgrado))
+                .findFirst().orElseThrow(() -> new IllegalStateException("No hay arancel de cuota configurado para el nivel " + carreraSede.getCarrera().getNivel().getNivel()));
 
-        // Concepto: Cuota Mensual de Pregrado[cite: 3]
-        ConceptoCobro arancelCuota = conceptoCobroRepository
-                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(cicloMatricula.getIdCiclo(), 2L)
-                .orElseThrow(() -> new IllegalStateException("La cuota mensual no está configurada para el ciclo " + cicloMatricula.getCodigoCiclo()));
+        EstudianteBeneficio beneficioAsignado = asignarBeneficio(dto.getIdBeneficio(), estudiante);
+        String nombreBeneficio = beneficioAsignado == null ? "" : beneficioAsignado.getBeneficio().getBeneficio().toLowerCase(Locale.ROOT);
+        boolean becaCompleta = nombreBeneficio.contains("100%") || nombreBeneficio.contains("completa") || nombreBeneficio.contains("institucional")
+                || (beneficioAsignado != null && beneficioAsignado.getBeneficio().getPorcentaje() != null
+                && beneficioAsignado.getBeneficio().getPorcentaje().compareTo(new BigDecimal("100")) >= 0);
+        boolean becaTerceros = nombreBeneficio.contains("tercero") || nombreBeneficio.contains("externa");
 
         LocalDate fechaLimitePreMatricula = LocalDate.now().plusDays(2); // 48 horas de vigencia
 
@@ -480,11 +492,14 @@ public class AdmisionOnlineService {
         CargoEstudiante cargoMatricula = new CargoEstudiante();
         cargoMatricula.setMatricula(matricula);
         cargoMatricula.setConceptoCobro(arancelMatricula);
-        cargoMatricula.setEstadoCargo(estadoPendiente);
+        EstadoCargo estadoCargoMatricula = becaCompleta ? estadoCargoRepository.findById(2L).orElseThrow() : estadoPendiente;
+        cargoMatricula.setEstadoCargo(estadoCargoMatricula);
         cargoMatricula.setMontoBase(arancelMatricula.getMontoBase());
         cargoMatricula.setMontoDescuento(BigDecimal.ZERO);
         cargoMatricula.setMontoRecargo(BigDecimal.ZERO);
-        cargoMatricula.setMontoTotal(arancelMatricula.getMontoBase());
+        cargoMatricula.setMontoDescuento(becaCompleta ? arancelMatricula.getMontoBase() : BigDecimal.ZERO);
+        cargoMatricula.setMontoTotal(becaCompleta ? BigDecimal.ZERO : arancelMatricula.getMontoBase());
+        cargoMatricula.setEstudianteBeneficio(beneficioAsignado);
         cargoMatricula.setFechaGeneracion(LocalDateTime.now());
         cargoMatricula.setNumeroCuota(1);
         cargoMatricula.setFechaVencimiento(fechaLimitePreMatricula);
@@ -515,15 +530,18 @@ public class AdmisionOnlineService {
 
         // 3. Proyección de las 5 cuotas del ciclo (Cuotas 1 a 5)
         LocalDate fechaBaseCiclo = (cicloMatricula.getFechaInicio() != null) ? cicloMatricula.getFechaInicio() : LocalDate.now();
-        for (int i = 1; i <= 5; i++) {
+        for (int i = 1; i <= 6; i++) {
             CargoEstudiante cuota = new CargoEstudiante();
             cuota.setMatricula(matricula);
             cuota.setConceptoCobro(arancelCuota);
-            cuota.setEstadoCargo(estadoPendiente);
+            cuota.setEstadoCargo(becaCompleta ? estadoCargoMatricula : estadoPendiente);
             cuota.setMontoBase(arancelCuota.getMontoBase());
-            cuota.setMontoDescuento(BigDecimal.ZERO);
+            BigDecimal descuento = becaTerceros || beneficioAsignado == null ? BigDecimal.ZERO
+                    : becaCompleta ? arancelCuota.getMontoBase() : calcularDescuento(beneficioAsignado.getBeneficio(), arancelCuota.getMontoBase());
+            cuota.setMontoDescuento(descuento);
             cuota.setMontoRecargo(BigDecimal.ZERO);
-            cuota.setMontoTotal(arancelCuota.getMontoBase());
+            cuota.setMontoTotal(arancelCuota.getMontoBase().subtract(descuento).max(BigDecimal.ZERO));
+            cuota.setEstudianteBeneficio(beneficioAsignado);
             cuota.setFechaGeneracion(LocalDateTime.now());
             cuota.setNumeroCuota(i);
             cuota.setFechaVencimiento(i == 1 ? fechaLimitePreMatricula : fechaBaseCiclo.plusMonths(i - 1));
@@ -531,16 +549,55 @@ public class AdmisionOnlineService {
         }
 
         // Regla de Negocio 1 + 1: Matrícula ($70.00) + Primera Cuota Mensual ($70.00) obligatorias[cite: 3]
-        BigDecimal totalInicialExigible = arancelMatricula.getMontoBase()
-                .add(arancelCuota.getMontoBase())
+        BigDecimal totalInicialExigible = cargoMatricula.getMontoTotal()
+                .add(arancelCuota.getMontoBase().subtract(becaTerceros || beneficioAsignado == null ? BigDecimal.ZERO : becaCompleta ? arancelCuota.getMontoBase() : calcularDescuento(beneficioAsignado.getBeneficio(), arancelCuota.getMontoBase())).max(BigDecimal.ZERO))
                 .add(totalExtraordinaria);
+
+        if (becaCompleta) {
+            matricula.setEstadoMatricula(estadoMatriculaRepository.findByEstadoMatricula("ACTIVA")
+                    .or(() -> estadoMatriculaRepository.findByEstadoMatricula("MATRICULADA"))
+                    .orElseGet(() -> estadoMatriculaRepository.findById(2L).orElseThrow()));
+            matriculaRepository.save(matricula);
+            EstadoInscripcion inscrito = estadoInscripcionRepository.findByEstadoInscripcion("INSCRITO")
+                    .orElseGet(() -> estadoInscripcionRepository.findByEstadoInscripcion("ACTIVA").orElseThrow());
+            for (Inscripcion inscripcion : inscripcionRepository.findByMatricula_IdMatricula(matricula.getIdMatricula())) {
+                inscripcion.setEstadoInscripcion(inscrito);
+                inscripcionRepository.save(inscripcion);
+            }
+            Usuario usuario = usuarioService.aprovisionarUsuarioEstudiante(persona, estudiante.getCarnet());
+            estudiante.setUsuario(usuario);
+            estudianteRepository.save(estudiante);
+            List<ComprobantePagoDTO.DetalleComprobanteDTO> detalleBeca = new ArrayList<>();
+            List<CargoEstudiante> cargosBeca = cargoEstudianteRepository.findByMatricula_IdMatricula(matricula.getIdMatricula());
+            for (CargoEstudiante cargo : cargosBeca) detalleBeca.add(ComprobantePagoDTO.DetalleComprobanteDTO.builder()
+                    .concepto(cargo.getConceptoCobro().getTipoCobro().getTipoCobro())
+                    .montoBase(cargo.getMontoBase()).montoDescuento(cargo.getMontoDescuento()).montoTotal(cargo.getMontoTotal()).build());
+            byte[] pdfBeca = comprobantePdfService.generarComprobanteBecaCompleta(
+                    persona.getNombres() + " " + persona.getApellidos(), estudiante.getCarnet(),
+                    carreraSede.getCarrera().getNombreCarrera(), cicloMatricula.getCodigoCiclo(), detalleBeca);
+            String destino = persona.getCorreoPersonal();
+            String nombre = persona.getNombres() + " " + persona.getApellidos();
+            String carnet = estudiante.getCarnet();
+            String correoInstitucional = usuario.getCorreoInstitucional();
+            if (destino != null && !destino.isBlank()) {
+                org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                        new org.springframework.transaction.support.TransactionSynchronization() {
+                            @Override public void afterCommit() {
+                                emailService.enviarCredencialesYComprobanteBeca(destino, nombre, carnet,
+                                        correoInstitucional, carnet + "Uma*", pdfBeca);
+                            }
+                        });
+            }
+        }
 
         // Retorno limpio sin enviar correos ni validar el canal de pago aquí
         return MatriculaOnlineResponseDTO.builder()
                 .idMatricula(matricula.getIdMatricula())
                 .totalAPagar(totalInicialExigible)
                 .fechaVencimiento(fechaLimitePreMatricula)
-                .mensaje("Cupos reservados exitosamente. Procede a seleccionar tu método de pago.")
+                .mensaje(becaCompleta ? "Matrícula confirmada por beca institucional del 100%. Comprobante y credenciales enviados al correo."
+                        : becaTerceros ? "Cupos reservados. Beneficio de terceros registrado; el arancel se paga íntegro."
+                        : "Cupos reservados exitosamente. Procede a seleccionar tu método de pago.")
                 .build();
     }
 
@@ -550,7 +607,7 @@ public class AdmisionOnlineService {
     // CONSULTA FINANCIERA SIN CREAR PREMATRÍCULA
     // ============================================================
     @Transactional(readOnly = true)
-    public Map<String, Object> consultarPlanFinanciero() {
+    public Map<String, Object> consultarPlanFinanciero(Long idCarreraSede) {
 
         // Obtener ciclo habilitado y período de matrícula.
         CicloMatriculaValidatorService.EvaluacionCicloMatricula evaluacion =
@@ -559,24 +616,19 @@ public class AdmisionOnlineService {
         Ciclo ciclo = evaluacion.ciclo();
 
         // Matrícula ordinaria.
-        ConceptoCobro conceptoMatricula = conceptoCobroRepository
-                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(
-                        ciclo.getIdCiclo(),
-                        ID_TIPO_COBRO_MATRICULA
-                )
-                .orElseThrow(() -> new IllegalStateException(
-                        "No existe arancel de matrícula para el ciclo."
-                ));
+        if (idCarreraSede == null) throw new IllegalArgumentException("idCarreraSede es obligatorio para calcular el arancel.");
+        Carrera carrera = carreraSedeRepository.findById(idCarreraSede)
+                .orElseThrow(() -> new IllegalArgumentException("Oferta carrera-sede no encontrada.")).getCarrera();
+        boolean posgrado = esPosgrado(carrera);
+        List<ConceptoCobro> conceptos = conceptoCobroRepository.findByCiclo_IdCicloAndActivoTrue(ciclo.getIdCiclo());
+        ConceptoCobro conceptoMatricula = conceptos.stream().filter(c -> nombreTipo(c).contains("matricul"))
+                .filter(c -> correspondeNivel(c, posgrado)).findFirst()
+                .orElseThrow(() -> new IllegalStateException("No existe arancel de matrícula para el nivel seleccionado."));
 
         // Cuota mensual.
-        ConceptoCobro conceptoCuota = conceptoCobroRepository
-                .findByCiclo_IdCicloAndTipoCobro_IdTipoCobroAndActivoTrue(
-                        ciclo.getIdCiclo(),
-                        2L
-                )
-                .orElseThrow(() -> new IllegalStateException(
-                        "No existe arancel de cuota mensual para el ciclo."
-                ));
+        ConceptoCobro conceptoCuota = conceptos.stream().filter(c -> nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual"))
+                .filter(c -> correspondeNivel(c, posgrado)).findFirst()
+                .orElseThrow(() -> new IllegalStateException("No existe arancel de cuota mensual para el nivel seleccionado."));
 
         BigDecimal montoMatricula = conceptoMatricula.getMontoBase();
         BigDecimal montoCuota = conceptoCuota.getMontoBase();
@@ -614,6 +666,8 @@ public class AdmisionOnlineService {
         Map<String, Object> resultado = new LinkedHashMap<>();
 
         resultado.put("idCiclo", ciclo.getIdCiclo());
+        resultado.put("idCarrera", carrera.getIdCarrera());
+        resultado.put("nivelAcademico", carrera.getNivel().getNivel());
         resultado.put("codigoCiclo", ciclo.getCodigoCiclo());
         resultado.put("esExtraordinaria", evaluacion.esExtraordinaria());
         resultado.put("montoMatricula", montoMatricula);
@@ -627,6 +681,56 @@ public class AdmisionOnlineService {
                 "Plan financiero calculado. No se ha creado ninguna prematrícula.");
 
         return resultado;
+    }
+
+    private String nombreTipo(ConceptoCobro concepto) {
+        return concepto.getTipoCobro().getTipoCobro().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean esPosgrado(Carrera carrera) {
+        String nivel = carrera.getNivel().getNivel().toLowerCase(Locale.ROOT);
+        return nivel.contains("posgrado") || nivel.contains("maestr") || nivel.contains("postgrado");
+    }
+
+    private boolean correspondeNivel(ConceptoCobro concepto, boolean posgrado) {
+        String tipo = nombreTipo(concepto);
+        boolean conceptoPosgrado = tipo.contains("maestr") || tipo.contains("posgrado") || tipo.contains("postgrado");
+        boolean conceptoPregrado = tipo.contains("pregrado");
+        return posgrado ? conceptoPosgrado : conceptoPregrado && !conceptoPosgrado;
+    }
+
+    private EstudianteBeneficio asignarBeneficio(Long idBeneficio, Estudiante estudiante) {
+        if (idBeneficio == null) return null;
+        Beneficio beneficio = beneficioRepository.findById(idBeneficio)
+                .orElseThrow(() -> new IllegalArgumentException("Beneficio no encontrado."));
+        LocalDate hoy = LocalDate.now();
+        if (!Boolean.TRUE.equals(beneficio.getEstadoBeneficio().getActivo())
+                || beneficio.getFechaInicio().isAfter(hoy)
+                || (beneficio.getFechaFin() != null && beneficio.getFechaFin().isBefore(hoy)))
+            throw new IllegalArgumentException("El beneficio seleccionado no está activo.");
+        EstudianteBeneficio asignacion = new EstudianteBeneficio();
+        asignacion.setEstudiante(estudiante);
+        asignacion.setBeneficio(beneficio);
+        asignacion.setEstadoBeneficioEstudiante(estadoBeneficioEstudianteRepository
+                .findByEstadoBeneficioEstudiante("ACTIVO").orElseThrow());
+        asignacion.setFechaSolicitud(LocalDateTime.now());
+        asignacion.setFechaAprobacion(LocalDateTime.now());
+        return estudianteBeneficioRepository.save(asignacion);
+    }
+
+    private BigDecimal calcularDescuento(Beneficio beneficio, BigDecimal base) {
+        BigDecimal descuento = beneficio.getPorcentaje() != null
+                ? base.multiply(beneficio.getPorcentaje()).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
+                : beneficio.getMonto() != null ? beneficio.getMonto() : BigDecimal.ZERO;
+        return descuento.min(base).max(BigDecimal.ZERO);
+    }
+
+    private void normalizarFranjaLegacy(CargoEstudiante cargo) {
+        String tipo = cargo.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase(Locale.ROOT);
+        if (tipo.contains("franja becaria") && cargo.getMontoDescuento().compareTo(BigDecimal.ZERO) == 0) {
+            cargo.setMontoBase(cargo.getMontoTotal().add(new BigDecimal("17.00")));
+            cargo.setMontoDescuento(new BigDecimal("17.00"));
+        }
     }
 
 
@@ -739,6 +843,7 @@ public class AdmisionOnlineService {
                 .orElseGet(() -> estadoCargoRepository.findById(2L).orElseThrow()); // ID 2 = PAGADO
 
         for (CargoEstudiante cargo : cargosALiquidar) {
+            normalizarFranjaLegacy(cargo);
             cargo.setEstadoCargo(estadoPagado);
             cargoEstudianteRepository.save(cargo);
 
@@ -759,8 +864,10 @@ public class AdmisionOnlineService {
         factura.setCorreoReceptor(persona.getCorreoPersonal());
         factura.setDireccionReceptor(persona.getDireccion() != null && !persona.getDireccion().isBlank()
                 ? persona.getDireccion() : "Santa Ana, El Salvador");
-        factura.setSubtotal(totalCobrar);
-        factura.setDescuento(BigDecimal.ZERO);
+        BigDecimal subtotalFactura = cargosALiquidar.stream().map(CargoEstudiante::getMontoBase).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal descuentoFactura = cargosALiquidar.stream().map(CargoEstudiante::getMontoDescuento).reduce(BigDecimal.ZERO, BigDecimal::add);
+        factura.setSubtotal(subtotalFactura);
+        factura.setDescuento(descuentoFactura);
         factura.setRecargo(BigDecimal.ZERO);
         factura.setTotal(totalCobrar);
         factura.setEstadoFactura(estadoFacturaRepository.findByEstadoFactura("EMITIDA")
@@ -796,8 +903,12 @@ public class AdmisionOnlineService {
 
         for (CargoEstudiante cargo : cargosALiquidar) {detalles.add(
                     ComprobantePagoDTO.DetalleComprobanteDTO.builder()
-                            .concepto(cargo.getConceptoCobro().getTipoCobro().getTipoCobro())
-                            .montoTotal(cargo.getMontoTotal())
+                            .concepto(cargo.getConceptoCobro().getTipoCobro().getTipoCobro()
+                                    + (cargo.getEstudianteBeneficio() != null
+                                    && (cargo.getEstudianteBeneficio().getBeneficio().getBeneficio().toLowerCase(Locale.ROOT).contains("tercero")
+                                    || cargo.getEstudianteBeneficio().getBeneficio().getBeneficio().toLowerCase(Locale.ROOT).contains("externa"))
+                                    ? " - Beca de Terceros / Entidad Externa" : ""))
+                            .montoBase(cargo.getMontoBase()).montoDescuento(cargo.getMontoDescuento()).montoTotal(cargo.getMontoTotal())
                             .build());
         }
 
@@ -811,6 +922,7 @@ public class AdmisionOnlineService {
                 .carnetEstudiante(estudiante.getCarnet())
                 .correoEstudiante(correoDestino)
                 .totalCobrado(totalCobrar)
+                .subtotal(subtotalFactura).descuento(descuentoFactura)
                 .cajeroResponsable("PAGO EN LÍNEA (PORTAL)")
                 .detalles(detalles)
                 .build();

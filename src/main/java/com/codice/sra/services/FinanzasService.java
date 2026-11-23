@@ -161,6 +161,12 @@ public class FinanzasService {
     }
 
     private void crearCargo(Matricula matricula, ConceptoCobro concepto, EstadoCargo estado, Estudiante estudiante, int numeroCuota, LocalDate fechaVencimiento) {
+        String tipoSolicitado = concepto.getTipoCobro().getTipoCobro().toLowerCase(java.util.Locale.ROOT);
+        if (tipoSolicitado.contains("franja becaria")) {
+            concepto = conceptoCobroRepository
+                    .findByCiclo_IdCicloAndTipoCobro_TipoCobroContainingIgnoreCaseAndActivoTrue(concepto.getCiclo().getIdCiclo(), "Cuota Mensual de Pregrado")
+                    .stream().findFirst().orElseThrow(() -> new RuntimeException("No está configurada la Cuota Mensual de Pregrado para sustituir el concepto Franja Becaria."));
+        }
         CargoEstudiante nuevoCargo = new CargoEstudiante();
         nuevoCargo.setMatricula(matricula);
         nuevoCargo.setConceptoCobro(concepto);
@@ -175,9 +181,20 @@ public class FinanzasService {
         Optional<EstudianteBeneficio> beneficioOpt = estudianteBeneficioRepository
                 .findByEstudiante_IdEstudianteAndEstadoBeneficioEstudiante_EstadoBeneficioEstudiante(estudiante.getIdEstudiante(), "ACTIVO");
 
+        String nombreTipo = concepto.getTipoCobro().getTipoCobro().toLowerCase(java.util.Locale.ROOT);
+        boolean esCuota = nombreTipo.contains("cuota") || nombreTipo.contains("mensual");
         if (beneficioOpt.isPresent()) {
             nuevoCargo.setEstudianteBeneficio(beneficioOpt.get());
-            descuento = new BigDecimal("17.00");
+            Beneficio beneficio = beneficioOpt.get().getBeneficio();
+            String nombreBeneficio = beneficio.getBeneficio().toLowerCase(java.util.Locale.ROOT);
+            if (esCuota && !nombreBeneficio.contains("tercero") && !nombreBeneficio.contains("externa")) {
+                descuento = nombreBeneficio.contains("100%") || nombreBeneficio.contains("completa")
+                        ? montoBase
+                        : beneficio.getPorcentaje() != null
+                        ? montoBase.multiply(beneficio.getPorcentaje()).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
+                        : beneficio.getMonto() == null ? BigDecimal.ZERO : beneficio.getMonto();
+                descuento = descuento.max(BigDecimal.ZERO).min(montoBase);
+            }
         }
 
         nuevoCargo.setMontoBase(montoBase);
@@ -337,7 +354,8 @@ public class FinanzasService {
                     cargoBd.setMontoRecargo(recargo);
                 }
 
-                BigDecimal totalCuota = cargoBd.getMontoBase().subtract(cargoBd.getMontoDescuento()).add(recargo);
+                normalizarFranjaLegacy(cargoBd);
+                BigDecimal totalCuota = cargoBd.getMontoTotal().add(recargo);
                 cargoBd.setMontoTotal(totalCuota);
                 totalEsperado = totalEsperado.add(totalCuota);
 
@@ -402,6 +420,9 @@ public class FinanzasService {
         if (request.getMontoRecibido().compareTo(totalEsperado) < 0) {
             throw new RuntimeException("Monto insuficiente. Se esperaban $" + totalEsperado + " pero se recibieron $" + request.getMontoRecibido());
         }
+        if (totalEsperado.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("No se puede registrar un pago por cero; los cargos cubiertos por beca se confirman sin pago.");
+        }
 
         MetodoPago metodoPago = metodoPagoRepository.findById(Long.valueOf(request.getIdMetodoPago().toString()))
                 .orElseThrow(() -> new RuntimeException("El método de pago proporcionado no es válido."));
@@ -445,6 +466,8 @@ public class FinanzasService {
         EstadoCargo estadoPagado = estadoCargoRepository.findById(2L)
                 .orElseThrow(() -> new RuntimeException("Estado PAGADO no configurado (ID 2)."));
 
+        BigDecimal subtotalDoc = cargosProcesados.stream().map(CargoEstudiante::getMontoBase).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal descuentoDoc = cargosProcesados.stream().map(CargoEstudiante::getMontoDescuento).reduce(BigDecimal.ZERO, BigDecimal::add);
         for (CargoEstudiante cargo : cargosProcesados) {
             if (cargo.getEstadoCargo().getIdEstadoCargo() != 2L) {
                 cargo.setEstadoCargo(estadoPagado);
@@ -557,6 +580,13 @@ public class FinanzasService {
         List<ComprobantePagoDTO.DetalleComprobanteDTO> detallesComprobante = new ArrayList<>();
         for (CargoEstudiante cargo : cargosProcesados) {
             String descripcion = cargo.getConceptoCobro().getTipoCobro().getTipoCobro();
+            if (cargo.getEstudianteBeneficio() != null) {
+                String beneficioNombre = cargo.getEstudianteBeneficio().getBeneficio().getBeneficio();
+                if (beneficioNombre.toLowerCase(java.util.Locale.ROOT).contains("tercero")
+                        || beneficioNombre.toLowerCase(java.util.Locale.ROOT).contains("externa")) {
+                    descripcion += " - Beca de Terceros / Entidad Externa";
+                }
+            }
             String nombreLower = descripcion.toLowerCase();
 
             if (nombreLower.contains("cuota") && cargo.getFechaVencimiento() != null) {
@@ -568,6 +598,8 @@ public class FinanzasService {
 
             detallesComprobante.add(ComprobantePagoDTO.DetalleComprobanteDTO.builder()
                     .concepto(descripcion)
+                    .montoBase(cargo.getMontoBase())
+                    .montoDescuento(cargo.getMontoDescuento())
                     .montoTotal(cargo.getMontoTotal())
                     .build());
         }
@@ -591,6 +623,7 @@ public class FinanzasService {
                 .carnetEstudiante(carnetComprobante)
                 .correoEstudiante(correoReal != null && !correoReal.trim().isEmpty() ? correoReal : "N/A")
                 .totalCobrado(totalCobradoFinal)
+                .subtotal(subtotalDoc).descuento(descuentoDoc)
                 .cajeroResponsable(nombreCajero)
                 .detalles(detallesComprobante)
                 .build();
@@ -634,6 +667,26 @@ public class FinanzasService {
         respuesta.put("totalCobrado", totalEsperado);
 
         return respuesta;
+    }
+
+    private void normalizarFranjaLegacy(CargoEstudiante cargo) {
+        String tipo = cargo.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase(java.util.Locale.ROOT);
+        if (tipo.contains("franja becaria") && cargo.getMontoDescuento().compareTo(BigDecimal.ZERO) == 0) {
+            cargo.setMontoBase(cargo.getMontoTotal().add(new BigDecimal("17.00")));
+            cargo.setMontoDescuento(new BigDecimal("17.00"));
+        }
+    }
+
+    private ComprobantePagoDTO.DetalleComprobanteDTO detalleFactura(CargoEstudiante cargo, String concepto, BigDecimal neto) {
+        BigDecimal base = cargo.getMontoBase();
+        BigDecimal descuento = cargo.getMontoDescuento();
+        String tipo = cargo.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase(java.util.Locale.ROOT);
+        if (tipo.contains("franja becaria") && descuento.compareTo(BigDecimal.ZERO) == 0) {
+            base = cargo.getMontoTotal().add(new BigDecimal("17.00"));
+            descuento = new BigDecimal("17.00");
+        }
+        return ComprobantePagoDTO.DetalleComprobanteDTO.builder().concepto(concepto)
+                .montoBase(base).montoDescuento(descuento).montoTotal(neto).build();
     }
 
     @Transactional(readOnly = true)
@@ -897,10 +950,7 @@ public class FinanzasService {
         List<ComprobantePagoDTO.DetalleComprobanteDTO> detalles = new ArrayList<>();
         for (PagoCargo pc : pagosCargos) {
             String concepto = pc.getCargo().getConceptoCobro().getTipoCobro().getTipoCobro();
-            detalles.add(ComprobantePagoDTO.DetalleComprobanteDTO.builder()
-                    .concepto(concepto)
-                    .montoTotal(pc.getMontoAplicado())
-                    .build());
+            detalles.add(detalleFactura(pc.getCargo(), concepto, pc.getMontoAplicado()));
         }
 
         String cajero = "Pago en línea";
@@ -918,6 +968,8 @@ public class FinanzasService {
                 .carnetEstudiante(estudiante.getCarnet())
                 .correoEstudiante(persona.getCorreoPersonal() != null ? persona.getCorreoPersonal() : "N/A")
                 .totalCobrado(pago.getMontoPagado())
+                .subtotal(detalles.stream().map(ComprobantePagoDTO.DetalleComprobanteDTO::getMontoBase).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .descuento(detalles.stream().map(ComprobantePagoDTO.DetalleComprobanteDTO::getMontoDescuento).reduce(BigDecimal.ZERO, BigDecimal::add))
                 .cajeroResponsable(cajero)
                 .detalles(detalles)
                 .build();
@@ -966,10 +1018,7 @@ public class FinanzasService {
         List<PagoCargo> pagosCargos = pagoCargoRepository.findByPago_IdPago(idPago);
         List<ComprobantePagoDTO.DetalleComprobanteDTO> detalles = new ArrayList<>();
         for (PagoCargo pc : pagosCargos) {
-            detalles.add(ComprobantePagoDTO.DetalleComprobanteDTO.builder()
-                    .concepto(pc.getCargo().getConceptoCobro().getTipoCobro().getTipoCobro())
-                    .montoTotal(pc.getMontoAplicado())
-                    .build());
+            detalles.add(detalleFactura(pc.getCargo(), pc.getCargo().getConceptoCobro().getTipoCobro().getTipoCobro(), pc.getMontoAplicado()));
         }
 
         String cajero = (pago.getUsuarioRegistro() != null) ?
@@ -985,6 +1034,8 @@ public class FinanzasService {
                 .carnetEstudiante(estudiante.getCarnet())
                 .correoEstudiante(correoReal)
                 .totalCobrado(pago.getMontoPagado())
+                .subtotal(detalles.stream().map(ComprobantePagoDTO.DetalleComprobanteDTO::getMontoBase).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .descuento(detalles.stream().map(ComprobantePagoDTO.DetalleComprobanteDTO::getMontoDescuento).reduce(BigDecimal.ZERO, BigDecimal::add))
                 .cajeroResponsable(cajero)
                 .detalles(detalles)
                 .build();
