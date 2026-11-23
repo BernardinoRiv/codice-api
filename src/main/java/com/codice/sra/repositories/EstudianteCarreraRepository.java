@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -32,4 +33,22 @@ public interface EstudianteCarreraRepository extends JpaRepository<EstudianteCar
             Long idEstudiante,
             Long idCarreraSede
     );
+
+    @Query("""
+    SELECT ec FROM EstudianteCarrera ec
+    JOIN FETCH ec.carreraSede cs
+    JOIN FETCH cs.carrera
+    JOIN FETCH cs.sede
+    JOIN FETCH ec.estadoTrayectoria
+    JOIN FETCH ec.pensum
+    ORDER BY ec.estudiante.idEstudiante, ec.fechaInicio DESC
+    """)
+    List<EstudianteCarrera> findAllConCarreraSedeYEstado();
+
+    @Query("""
+        SELECT ec FROM EstudianteCarrera ec
+        JOIN FETCH ec.pensum
+        WHERE ec.estudiante.idEstudiante = :idEstudiante
+        """)
+    List<EstudianteCarrera> findByEstudianteIdConPensum(@Param("idEstudiante") Long idEstudiante);
 }

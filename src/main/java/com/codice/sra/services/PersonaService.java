@@ -13,9 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
+import java.time.Period;
+import java.util.*;
 
 @Slf4j
 @Service
@@ -31,6 +30,7 @@ public class PersonaService {
     private final DocenteRepository docenteRepository;
     private final DistritoRepository distritoRepository;
     private final EmpleadoRepository empleadoRepository;
+    private final AuditoriaService auditoriaService;
 
     public PersonaService(PersonaRepository personaRepository,
                           EstadoRegistroPersonaRepository estadoRegistroRepository,
@@ -38,7 +38,8 @@ public class PersonaService {
                           UsuarioRepository usuarioRepository,
                           DocenteRepository docenteRepository,
                           DistritoRepository distritoRepository,
-                          EmpleadoRepository empleadoRepository) {
+                          EmpleadoRepository empleadoRepository,
+                          AuditoriaService auditoriaService) {
         this.personaRepository = personaRepository;
         this.estadoRegistroRepository = estadoRegistroRepository;
         this.tipoDocumentoRepository = tipoDocumentoRepository;
@@ -46,6 +47,7 @@ public class PersonaService {
         this.docenteRepository = docenteRepository;
         this.distritoRepository = distritoRepository;
         this.empleadoRepository = empleadoRepository;
+        this.auditoriaService = auditoriaService;
     }
 
 
@@ -224,4 +226,379 @@ public class PersonaService {
                 "Persona procesada exitosamente"
         );
     }
+
+
+    @Transactional
+    public boolean actualizarDatosPersonalesEstudiante(Long idPersona, EstudianteDatosPersonalesDTO dto) {
+        Persona persona = personaRepository.findByIdForUpdate(idPersona)
+                .orElseThrow(() -> new ResourceNotFoundException("Persona no encontrada: " + idPersona));
+
+        String nombres = normalizarNombre(dto.getNombres());
+        String apellidos = normalizarNombre(dto.getApellidos());
+        String sexo = dto.getSexo().trim().toUpperCase(Locale.ROOT);
+        String telefono = normalizarTelefonoEstudiante(dto.getTelefono());
+        String correo = dto.getCorreoPersonal() == null || dto.getCorreoPersonal().isBlank()
+                ? null : dto.getCorreoPersonal().trim().toLowerCase(Locale.ROOT);
+        String direccion = dto.getDireccion().trim().replaceAll("\\s+", " ");
+
+        if (nombres.isBlank() || apellidos.isBlank() || direccion.isBlank()) {
+            throw new IllegalArgumentException("Nombres, apellidos y dirección son obligatorios.");
+        }
+
+        if (nombres.length() > 100 || apellidos.length() > 100) {
+            throw new IllegalArgumentException("Los nombres y apellidos no pueden superar 100 caracteres.");
+        }
+
+        if (dto.getFechaNacimiento() == null || !dto.getFechaNacimiento().isBefore(LocalDate.now())) {
+            throw new IllegalArgumentException("La fecha de nacimiento debe ser anterior a la fecha actual.");
+        }
+
+        if (!Objects.equals(persona.getFechaNacimiento(), dto.getFechaNacimiento())) {
+            validarEdadPorDocumento(dto.getFechaNacimiento(), persona.getTipoDocumento().getIdTipoDocumento());
+        }
+
+        if (!sexo.equals("M") && !sexo.equals("F")) {
+            throw new IllegalArgumentException("El sexo debe ser M o F.");
+        }
+
+        if (correo != null && !correo.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+            throw new IllegalArgumentException("El correo personal no tiene un formato válido.");
+        }
+
+        if (correo != null && correo.length() > 150) {
+            throw new IllegalArgumentException("El correo personal supera la longitud permitida.");
+        }
+
+        if (!Objects.equals(persona.getCorreoPersonal(), correo)
+                && correo != null
+                && personaRepository.existsByCorreoPersonalAndIdPersonaNot(correo, idPersona)) {
+            throw new DuplicateResourceException("El correo personal ya está registrado por otra persona.");
+        }
+
+        Distrito distrito = distritoRepository.findById(dto.getIdDistrito())
+                .orElseThrow(() -> new IllegalArgumentException("Distrito no encontrado: " + dto.getIdDistrito()));
+
+        List<String> cambios = new ArrayList<>();
+
+        if (!Objects.equals(persona.getNombres(), nombres)) {
+            cambios.add("nombres");
+            persona.setNombres(nombres);
+        }
+
+        if (!Objects.equals(persona.getApellidos(), apellidos)) {
+            cambios.add("apellidos");
+            persona.setApellidos(apellidos);
+        }
+
+        if (!Objects.equals(persona.getFechaNacimiento(), dto.getFechaNacimiento())) {
+            cambios.add("fecha_nacimiento");
+            persona.setFechaNacimiento(dto.getFechaNacimiento());
+        }
+
+        if (!Objects.equals(persona.getSexo(), sexo)) {
+            cambios.add("sexo");
+            persona.setSexo(sexo);
+        }
+
+        if (!Objects.equals(persona.getTelefono(), telefono)) {
+            cambios.add("telefono");
+            persona.setTelefono(telefono);
+        }
+
+        if (!Objects.equals(persona.getCorreoPersonal(), correo)) {
+            cambios.add("correo_personal");
+            persona.setCorreoPersonal(correo);
+        }
+
+        if (!Objects.equals(persona.getDireccion(), direccion)) {
+            cambios.add("direccion");
+            persona.setDireccion(direccion);
+        }
+
+        if (persona.getDistrito() == null
+                || !Objects.equals(persona.getDistrito().getIdDistrito(), distrito.getIdDistrito())) {
+            cambios.add("id_distrito");
+            persona.setDistrito(distrito);
+        }
+
+        if (cambios.isEmpty()) {
+            return false;
+        }
+
+        personaRepository.save(persona);
+
+        auditoriaService.registrarEvento(
+                "EDICION_DATOS_PERSONALES_ESTUDIANTE",
+                "personas",
+                idPersona,
+                "Se modificaron los campos: " + String.join(", ", cambios)
+        );
+
+        return true;
+    }
+
+
+    @Transactional
+    public void cambiarDocumentoEstudiante(Long idPersona, EstudianteCambioDocumentoDTO dto) {
+        Persona persona = personaRepository.findByIdForUpdate(idPersona)
+                .orElseThrow(() -> new ResourceNotFoundException("Persona no encontrada: " + idPersona));
+
+        String documentoActual = ValidadorDocumentoUtil.normalizar(dto.getDocumentoActual());
+        String documentoNuevo = ValidadorDocumentoUtil.normalizar(dto.getNumeroDocumento());
+        String motivo = dto.getMotivo() == null ? "" : dto.getMotivo().trim();
+
+        if (motivo.length() < 10 || motivo.length() > 500) {
+            throw new IllegalArgumentException("Debe proporcionar una justificación de 10 a 500 caracteres.");
+        }
+
+        if (!Objects.equals(persona.getNumeroDocumento(), documentoActual)) {
+            throw new IllegalArgumentException("El documento actual no coincide con el registrado.");
+        }
+
+        ValidadorDocumentoUtil.validar(dto.getIdTipoDocumento(), documentoNuevo);
+        validarEdadPorDocumento(persona.getFechaNacimiento(), dto.getIdTipoDocumento());
+
+        TipoDocumento nuevoTipo = tipoDocumentoRepository.findById(dto.getIdTipoDocumento())
+                .orElseThrow(() -> new IllegalArgumentException("Tipo de documento no encontrado."));
+
+        Long tipoAnterior = persona.getTipoDocumento().getIdTipoDocumento();
+        String numeroAnterior = persona.getNumeroDocumento();
+
+        if (Objects.equals(tipoAnterior, dto.getIdTipoDocumento())
+                && Objects.equals(numeroAnterior, documentoNuevo)) {
+            throw new IllegalArgumentException("El documento nuevo es igual al actual.");
+        }
+
+        if (!Objects.equals(numeroAnterior, documentoNuevo)
+                && personaRepository.existsByNumeroDocumento(documentoNuevo)) {
+            throw new DuplicateResourceException("El documento ya está registrado por otra persona.");
+        }
+
+        persona.setTipoDocumento(nuevoTipo);
+        persona.setNumeroDocumento(documentoNuevo);
+
+        personaRepository.saveAndFlush(persona);
+
+        auditoriaService.registrarEvento(
+                "CAMBIO_DOCUMENTO_ESTUDIANTE",
+                "personas",
+                idPersona,
+                "Cambio de documento. Tipo anterior: " + tipoAnterior
+                        + ", tipo nuevo: " + dto.getIdTipoDocumento()
+                        + ". Documento anterior: " + enmascararDocumento(numeroAnterior)
+                        + ", documento nuevo: " + enmascararDocumento(documentoNuevo)
+                        + ". Motivo: " + motivo
+        );
+    }
+
+    private String enmascararDocumento(String documento) {
+        if (documento == null || documento.isBlank()) return "SIN DOCUMENTO";
+
+        String valor = documento.replaceAll("[^A-Za-z0-9]", "");
+        if (valor.length() <= 4) return "****";
+
+        return "*".repeat(valor.length() - 4) + valor.substring(valor.length() - 4);
+    }
+
+
+    private String normalizarNombre(String valor) {
+        if (valor == null) return "";
+        return valor.trim().replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizarTelefonoEstudiante(String telefono) {
+        if (telefono == null || telefono.isBlank()) return null;
+
+        String digitos = telefono.trim().replaceAll("[\\s-]", "");
+
+        if (!digitos.matches("^[67][0-9]{7}$")) {
+            throw new IllegalArgumentException("El teléfono debe tener 8 dígitos e iniciar con 6 o 7.");
+        }
+
+        return digitos.substring(0, 4) + "-" + digitos.substring(4);
+    }
+
+
+    private void validarEdadPorDocumento(LocalDate fechaNacimiento, Long idTipoDocumento) {
+        if (fechaNacimiento == null || idTipoDocumento == null) {
+            throw new IllegalArgumentException(
+                    "La fecha de nacimiento y el tipo de documento son obligatorios."
+            );
+        }
+
+        LocalDate hoy = LocalDate.now();
+
+        if (fechaNacimiento.isAfter(hoy)) {
+            throw new IllegalArgumentException(
+                    "La fecha de nacimiento no puede ser posterior a la fecha actual."
+            );
+        }
+
+        int edad = Period.between(fechaNacimiento, hoy).getYears();
+
+        if (idTipoDocumento.equals(1L) && edad < 18) {
+            throw new IllegalArgumentException(
+                    "Para utilizar DUI, el estudiante debe tener al menos 18 años."
+            );
+        }
+
+        if (idTipoDocumento.equals(2L) && edad < 15) {
+            throw new IllegalArgumentException(
+                    "Para utilizar pasaporte, el estudiante debe tener al menos 15 años."
+            );
+        }
+
+        if (idTipoDocumento.equals(3L) && edad >= 18) {
+            throw new IllegalArgumentException(
+                    "El NIT solamente se permite a estudiantes menores de 18 años."
+            );
+        }
+    }
+
+
+    @Transactional
+    public boolean actualizarDatosPersonalesEmpleado(Long idPersona, EmpleadoDatosPersonalesDTO dto) {
+        Persona persona = personaRepository.findByIdForUpdate(idPersona)
+                .orElseThrow(() -> new ResourceNotFoundException("Persona no encontrada: " + idPersona));
+
+        if (dto == null) throw new IllegalArgumentException("Los datos personales son obligatorios.");
+
+        String nombres = normalizarNombre(dto.getNombres());
+        String apellidos = normalizarNombre(dto.getApellidos());
+        String sexo = dto.getSexo() == null ? "" : dto.getSexo().trim().toUpperCase(Locale.ROOT);
+        String telefono = normalizarTelefonoEstudiante(dto.getTelefono());
+        String correo = dto.getCorreoPersonal() == null || dto.getCorreoPersonal().isBlank()
+                ? null : dto.getCorreoPersonal().trim().toLowerCase(Locale.ROOT);
+        String direccion = dto.getDireccion() == null ? "" : dto.getDireccion().trim().replaceAll("\\s+", " ");
+
+        if (nombres.isBlank() || apellidos.isBlank() || direccion.isBlank()) {
+            throw new IllegalArgumentException("Nombres, apellidos y dirección son obligatorios.");
+        }
+
+        if (nombres.length() > 100 || apellidos.length() > 100) {
+            throw new IllegalArgumentException("Los nombres y apellidos no pueden superar 100 caracteres.");
+        }
+
+        if (dto.getFechaNacimiento() == null || !dto.getFechaNacimiento().isBefore(LocalDate.now())) {
+            throw new IllegalArgumentException("La fecha de nacimiento debe ser anterior a la fecha actual.");
+        }
+
+        if (!sexo.equals("M") && !sexo.equals("F")) {
+            throw new IllegalArgumentException("El sexo debe ser M o F.");
+        }
+
+        if (correo != null && (!correo.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$") || correo.length() > 150)) {
+            throw new IllegalArgumentException("El correo personal no tiene un formato válido.");
+        }
+
+        if (correo != null && !Objects.equals(persona.getCorreoPersonal(), correo)
+                && personaRepository.existsByCorreoPersonalAndIdPersonaNot(correo, idPersona)) {
+            throw new DuplicateResourceException("El correo personal ya está registrado por otra persona.");
+        }
+
+        Distrito distrito = distritoRepository.findById(dto.getIdDistrito())
+                .orElseThrow(() -> new IllegalArgumentException("Distrito no encontrado: " + dto.getIdDistrito()));
+
+        List<String> cambios = new ArrayList<>();
+
+        if (!Objects.equals(persona.getNombres(), nombres)) {
+            cambios.add("nombres");
+            persona.setNombres(nombres);
+        }
+
+        if (!Objects.equals(persona.getApellidos(), apellidos)) {
+            cambios.add("apellidos");
+            persona.setApellidos(apellidos);
+        }
+
+        if (!Objects.equals(persona.getFechaNacimiento(), dto.getFechaNacimiento())) {
+            cambios.add("fecha_nacimiento");
+            persona.setFechaNacimiento(dto.getFechaNacimiento());
+        }
+
+        if (!Objects.equals(persona.getSexo(), sexo)) {
+            cambios.add("sexo");
+            persona.setSexo(sexo);
+        }
+
+        if (!Objects.equals(persona.getTelefono(), telefono)) {
+            cambios.add("telefono");
+            persona.setTelefono(telefono);
+        }
+
+        if (!Objects.equals(persona.getCorreoPersonal(), correo)) {
+            cambios.add("correo_personal");
+            persona.setCorreoPersonal(correo);
+        }
+
+        if (!Objects.equals(persona.getDireccion(), direccion)) {
+            cambios.add("direccion");
+            persona.setDireccion(direccion);
+        }
+
+        if (persona.getDistrito() == null || !Objects.equals(persona.getDistrito().getIdDistrito(), distrito.getIdDistrito())) {
+            cambios.add("id_distrito");
+            persona.setDistrito(distrito);
+        }
+
+        if (cambios.isEmpty()) return false;
+
+        personaRepository.save(persona);
+        auditoriaService.registrarEvento("EDICION_DATOS_PERSONALES_EMPLEADO", "personas", idPersona,
+                "Se modificaron los campos: " + String.join(", ", cambios));
+
+        return true;
+    }
+
+
+    @Transactional
+    public void cambiarDocumentoEmpleado(Long idPersona, EmpleadoCambioDocumentoDTO dto) {
+        Persona persona = personaRepository.findByIdForUpdate(idPersona)
+                .orElseThrow(() -> new ResourceNotFoundException("Persona no encontrada: " + idPersona));
+
+        if (dto == null) throw new IllegalArgumentException("Los datos del documento son obligatorios.");
+
+        String documentoActual = ValidadorDocumentoUtil.normalizar(dto.getDocumentoActual());
+        String documentoNuevo = ValidadorDocumentoUtil.normalizar(dto.getNumeroDocumento());
+        String motivo = dto.getMotivo() == null ? "" : dto.getMotivo().trim();
+
+        if (motivo.length() < 10 || motivo.length() > 500) {
+            throw new IllegalArgumentException("Debe proporcionar una justificación de 10 a 500 caracteres.");
+        }
+
+        if (!Objects.equals(persona.getNumeroDocumento(), documentoActual)) {
+            throw new IllegalArgumentException("El documento actual no coincide con el registrado.");
+        }
+
+        ValidadorDocumentoUtil.validar(dto.getIdTipoDocumento(), documentoNuevo);
+
+        TipoDocumento nuevoTipo = tipoDocumentoRepository.findById(dto.getIdTipoDocumento())
+                .orElseThrow(() -> new IllegalArgumentException("Tipo de documento no encontrado."));
+
+        Long tipoAnterior = persona.getTipoDocumento().getIdTipoDocumento();
+        String numeroAnterior = persona.getNumeroDocumento();
+
+        if (Objects.equals(tipoAnterior, dto.getIdTipoDocumento()) && Objects.equals(numeroAnterior, documentoNuevo)) {
+            throw new IllegalArgumentException("El documento nuevo es igual al actual.");
+        }
+
+        if (!Objects.equals(numeroAnterior, documentoNuevo) && personaRepository.existsByNumeroDocumento(documentoNuevo)) {
+            throw new DuplicateResourceException("El documento ya está registrado por otra persona.");
+        }
+
+        persona.setTipoDocumento(nuevoTipo);
+        persona.setNumeroDocumento(documentoNuevo);
+        personaRepository.saveAndFlush(persona);
+
+        auditoriaService.registrarEvento("CAMBIO_DOCUMENTO_EMPLEADO", "personas", idPersona,
+                "Cambio de documento. Tipo anterior: " + tipoAnterior
+                        + ", tipo nuevo: " + dto.getIdTipoDocumento()
+                        + ". Documento anterior: " + enmascararDocumento(numeroAnterior)
+                        + ", documento nuevo: " + enmascararDocumento(documentoNuevo)
+                        + ". Motivo: " + motivo);
+    }
+
+
+
+
 }

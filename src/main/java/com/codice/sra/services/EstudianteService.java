@@ -1,23 +1,18 @@
 package com.codice.sra.services;
 
-import com.codice.sra.dtos.HistorialAcademicoDTO;
-import com.codice.sra.dtos.HorarioDTO;
-import com.codice.sra.dtos.MateriaCicloDTO;
-import com.codice.sra.dtos.MateriaHistorialDTO;
-import com.codice.sra.dtos.MateriaNotasDTO;
-import com.codice.sra.dtos.NotasEstudianteResponseDTO;
-import com.codice.sra.dtos.NotasEvaluacionesDTO;
+import com.codice.sra.dtos.*;
+import com.codice.sra.exceptions.ResourceNotFoundException;
 import com.codice.sra.models.Calificacion;
 import com.codice.sra.models.Ciclo;
+import com.codice.sra.models.EstadoEstudiante;
+import com.codice.sra.models.Estudiante;
 import com.codice.sra.models.Inscripcion;
+import com.codice.sra.models.Matricula;
+import com.codice.sra.models.EstudianteCarrera;
+import com.codice.sra.models.PensumMateria;
 import com.codice.sra.models.PeriodoEvaluacion;
 import com.codice.sra.models.PeriodoTipoEvaluacion;
-import com.codice.sra.repositories.CalificacionRepository;
-import com.codice.sra.repositories.CicloRepository;
-import com.codice.sra.repositories.HorarioRepository;
-import com.codice.sra.repositories.InscripcionRepository;
-import com.codice.sra.repositories.PeriodoEvaluacionRepository;
-import com.codice.sra.repositories.PeriodoTipoEvaluacionRepository;
+import com.codice.sra.repositories.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +24,8 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -41,19 +38,43 @@ public class EstudianteService {
     private final PeriodoEvaluacionRepository periodoEvaluacionRepository;
     private final PeriodoTipoEvaluacionRepository periodoTipoEvaluacionRepository;
     private final HorarioRepository horarioRepository; // <-- NUEVO REPOSITORIO INYECTADO
+    private final EstudianteRepository estudianteRepository;
+    private final EstadoEstudianteRepository estadoEstudianteRepository;
+    private final PersonaService personaService;
+    private final AuditoriaService auditoriaService;
+    private final EstudianteCarreraRepository estudianteCarreraRepository;
+    private final MatriculaRepository matriculaRepository;
+    private final PensumMateriaRepository pensumMateriaRepository;
+    private final UsuarioService usuarioService;
 
     public EstudianteService(CicloRepository cicloRepository,
                              InscripcionRepository inscripcionRepository,
                              CalificacionRepository calificacionRepository,
                              PeriodoEvaluacionRepository periodoEvaluacionRepository,
                              PeriodoTipoEvaluacionRepository periodoTipoEvaluacionRepository,
-                             HorarioRepository horarioRepository) {
+                             HorarioRepository horarioRepository,
+                             EstudianteRepository estudianteRepository,
+                             EstadoEstudianteRepository estadoEstudianteRepository,
+                             PersonaService personaService,
+                             AuditoriaService auditoriaService,
+                             EstudianteCarreraRepository estudianteCarreraRepository,
+                             MatriculaRepository matriculaRepository,
+                             PensumMateriaRepository pensumMateriaRepository,
+                             UsuarioService usuarioService) {
         this.cicloRepository = cicloRepository;
         this.inscripcionRepository = inscripcionRepository;
         this.calificacionRepository = calificacionRepository;
         this.periodoEvaluacionRepository = periodoEvaluacionRepository;
         this.periodoTipoEvaluacionRepository = periodoTipoEvaluacionRepository;
         this.horarioRepository = horarioRepository;
+        this.estudianteRepository = estudianteRepository;
+        this.estadoEstudianteRepository = estadoEstudianteRepository;
+        this.personaService = personaService;
+        this.auditoriaService = auditoriaService;
+        this.estudianteCarreraRepository = estudianteCarreraRepository;
+        this.matriculaRepository = matriculaRepository;
+        this.pensumMateriaRepository = pensumMateriaRepository;
+        this.usuarioService = usuarioService;
     }
 
     @Transactional(readOnly = true)
@@ -306,4 +327,242 @@ public class EstudianteService {
 
         return new HistorialAcademicoDTO(cum, totalUV, totalAprobadas, totalReprobadas, materiasPorCiclo, carreraEstudiante);
     }
+
+    @Transactional(readOnly = true)
+    public List<EstudianteListaResponseDTO> obtenerTodosLosEstudiantes() {
+
+        Map<Long, List<EstudianteCarreraListaDTO>> carrerasPorEstudiante = estudianteCarreraRepository.findAllConCarreraSedeYEstado().stream()
+                .collect(Collectors.groupingBy(
+                        ec -> ec.getEstudiante().getIdEstudiante(),
+                        Collectors.mapping(ec -> new EstudianteCarreraListaDTO(
+                                ec.getIdEstudianteCarrera(),
+                                ec.getCarreraSede().getCarrera().getNombreCarrera(),
+                                ec.getCarreraSede().getSede().getNombreSede(),
+                                ec.getEstadoTrayectoria().getEstadoTrayectoria(),
+                                ec.getFechaInicio(),
+                                ec.getFechaFin()
+                        ), Collectors.toList())
+                ));
+
+        return estudianteRepository.findAllBy().stream()
+                .map(estudiante -> new EstudianteListaResponseDTO(
+                        estudiante.getIdEstudiante(),
+                        estudiante.getUsuario() != null ? estudiante.getUsuario().getIdUsuario() : null,
+                        estudiante.getCarnet(),
+                        estudiante.getPersona().getNombres(),
+                        estudiante.getPersona().getApellidos(),
+                        estudiante.getPersona().getNumeroDocumento(),
+                        estudiante.getPersona().getCorreoPersonal(),
+                        estudiante.getUsuario() != null ? estudiante.getUsuario().getCorreoInstitucional() : null,
+                        estudiante.getPersona().getTelefono(),
+                        estudiante.getPersona().getDireccion(),
+                        estudiante.getPersona().getDistrito() != null ? estudiante.getPersona().getDistrito().getIdDistrito() : null,
+                        estudiante.getEstadoEstudiante().getEstadoEstudiante(),
+                        estudiante.getUsuario() != null && estudiante.getUsuario().getEstadoUsuario() != null
+                                ? estudiante.getUsuario().getEstadoUsuario().getEstadoUsuario() : "SIN USUARIO",
+                        estudiante.getFechaIngreso(),
+                        carrerasPorEstudiante.getOrDefault(estudiante.getIdEstudiante(), List.of()),
+                        estudiante.getPersona().getFechaNacimiento(),
+                        estudiante.getPersona().getSexo(),
+                        estudiante.getPersona().getDistrito() != null
+                                ? estudiante.getPersona().getDistrito().getDepartamento().getIdDepartamento() : null,
+
+                        estudiante.getPersona().getDistrito() != null
+                                ? estudiante.getPersona().getDistrito().getDepartamento().getNombre() : null,
+
+                        estudiante.getPersona().getDistrito() != null
+                                ? estudiante.getPersona().getDistrito().getNombre() : null
+                ))
+                .toList();
+    }
+
+    @Transactional
+    public void actualizarEstudiante(Long idEstudiante, PersonaContactoEdicionDTO request) {
+        Estudiante estudiante = buscarEstudianteParaActualizar(idEstudiante);
+        if (personaService.actualizarDatosContacto(estudiante.getPersona().getIdPersona(), request)) {
+            auditoriaService.registrarEvento("ACTUALIZACION_ESTUDIANTE", "estudiantes", idEstudiante,
+                    "Se actualizaron los datos de contacto del estudiante.");
+        }
+    }
+
+    @Transactional
+    public void cambiarEstadoEstudiante(Long idEstudiante, EstudianteEstadoRequestDTO request) {
+        Estudiante estudiante = buscarEstudianteParaActualizar(idEstudiante);
+        EstadoEstudiante nuevoEstado = estadoEstudianteRepository.findById(request.getIdEstadoEstudiante())
+                .filter(estado -> Boolean.TRUE.equals(estado.getActivo()))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "El estado de estudiante no existe o está dado de baja: " + request.getIdEstadoEstudiante()));
+
+        EstadoEstudiante estadoAnterior = estudiante.getEstadoEstudiante();
+        if (estadoAnterior.getIdEstadoEstudiante().equals(nuevoEstado.getIdEstadoEstudiante())) {
+            throw new IllegalArgumentException("El estudiante ya posee el estado '" + nuevoEstado.getEstadoEstudiante() + "'");
+        }
+
+        estudiante.setEstadoEstudiante(nuevoEstado);
+        auditoriaService.registrarEvento("CAMBIO_ESTADO_ESTUDIANTE", "estudiantes", idEstudiante,
+                "Cambio de '%s' a '%s'. Motivo: %s".formatted(estadoAnterior.getEstadoEstudiante(),
+                        nuevoEstado.getEstadoEstudiante(), request.getMotivo().trim()));
+    }
+
+    private Estudiante buscarEstudianteParaActualizar(Long idEstudiante) {
+        if (idEstudiante == null || idEstudiante <= 0) {
+            throw new IllegalArgumentException("El ID del estudiante debe ser positivo");
+        }
+        return estudianteRepository.findForUpdateByIdEstudiante(idEstudiante)
+                .orElseThrow(() -> new ResourceNotFoundException("Estudiante no encontrado con ID: " + idEstudiante));
+    }
+
+    @Transactional(readOnly = true)
+    public EstudianteListaResponseDTO obtenerEstudiantePorId(Long idEstudiante) {
+        if (idEstudiante == null || idEstudiante <= 0) {
+            throw new IllegalArgumentException("El ID del estudiante debe ser positivo");
+        }
+
+        EstudianteListaResponseDTO respuesta = obtenerTodosLosEstudiantes().stream()
+                .filter(estudiante -> estudiante.getIdEstudiante().equals(idEstudiante))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Estudiante no encontrado con ID: " + idEstudiante));
+
+        Map<Long, EstudianteCarrera> trayectorias = estudianteCarreraRepository.findByEstudianteIdConPensum(idEstudiante)
+                .stream().collect(Collectors.toMap(EstudianteCarrera::getIdEstudianteCarrera, ec -> ec));
+        for (EstudianteCarreraListaDTO carrera : respuesta.getCarreras()) {
+            EstudianteCarrera trayectoria = trayectorias.get(carrera.getIdEstudianteCarrera());
+            if (trayectoria != null) completarIndicadoresAcademicos(carrera, trayectoria);
+        }
+        return respuesta;
+    }
+
+    private void completarIndicadoresAcademicos(EstudianteCarreraListaDTO dto, EstudianteCarrera trayectoria) {
+        if (trayectoria.getPensum() == null) return;
+        dto.setVersionPensum(trayectoria.getPensum().getVersion());
+        List<PensumMateria> pensum = pensumMateriaRepository.findByPensumIdOrderByCicloRecomendado(trayectoria.getPensum().getIdPensum());
+        Set<Long> materiasObligatorias = pensum.stream().filter(pm -> Boolean.TRUE.equals(pm.getObligatoria()))
+                .map(pm -> pm.getMateria().getIdMateria()).collect(Collectors.toSet());
+        dto.setTotalMaterias(materiasObligatorias.size());
+        dto.setTotalCiclosPensum(pensum.stream().map(PensumMateria::getCicloRecomendado)
+                .filter(n -> n != null).max(Integer::compareTo).orElse(0));
+
+        List<Matricula> matriculas = matriculaRepository.findByEstudianteCarreraId(trayectoria.getIdEstudianteCarrera()).stream()
+                .filter(m -> "MATRICULADA".equalsIgnoreCase(m.getEstadoMatricula().getEstadoMatricula())).toList();
+        Set<Long> ciclosMatriculados = matriculas.stream().map(m -> m.getCiclo().getIdCiclo()).collect(Collectors.toSet());
+        dto.setCiclosMatriculados(ciclosMatriculados.size());
+
+        List<Inscripcion> inscripciones = inscripcionRepository.findByEstudianteCarreraId(trayectoria.getIdEstudianteCarrera());
+        Set<Long> aprobadas = new HashSet<>();
+        Set<Long> reprobadas = new HashSet<>();
+        Set<Long> cursando = new HashSet<>();
+        Set<Long> ciclosCursados = new HashSet<>();
+        int retiradas = 0;
+        Map<Long, Map<String, BigDecimal>> configuraciones = new HashMap<>();
+        LocalDate hoy = LocalDate.now();
+
+        for (Inscripcion i : inscripciones) {
+            if (!"MATRICULADA".equalsIgnoreCase(i.getMatricula().getEstadoMatricula().getEstadoMatricula())) continue;
+            String estadoInscripcion = i.getEstadoInscripcion() == null ? "" : i.getEstadoInscripcion().getEstadoInscripcion();
+            if ("CANCELADA".equalsIgnoreCase(estadoInscripcion)) continue;
+            String estadoMateria = i.getEstadoMateria() == null ? "" : i.getEstadoMateria().getEstadoMateria();
+            if ("RETIRADA".equalsIgnoreCase(estadoMateria) || "RETIRADA".equalsIgnoreCase(estadoInscripcion)) {
+                retiradas++;
+                continue;
+            }
+
+            Ciclo ciclo = i.getMatricula().getCiclo();
+            Long idMateria = i.getGrupo().getMateria().getIdMateria();
+            boolean finalizado = ciclo.getFechaFin() != null && ciclo.getFechaFin().isBefore(hoy);
+            if (!finalizado) {
+                cursando.add(idMateria);
+                continue;
+            }
+            ciclosCursados.add(ciclo.getIdCiclo());
+            Map<String, BigDecimal> config = configuraciones.computeIfAbsent(ciclo.getIdCiclo(), this::cargarConfiguracionEvaluacion);
+            BigDecimal nota = calcularNotaFinalDinamica(obtenerNotasPorInscripcion(i.getIdInscripcion()), config)
+                    .setScale(1, RoundingMode.HALF_DOWN);
+            if (nota.compareTo(BigDecimal.valueOf(6.0)) >= 0) aprobadas.add(idMateria);
+            else reprobadas.add(idMateria);
+        }
+
+        reprobadas.removeAll(aprobadas);
+        cursando.removeAll(aprobadas);
+        int aprobadasPensum = (int) aprobadas.stream().filter(materiasObligatorias::contains).count();
+        dto.setMateriasAprobadas(aprobadasPensum);
+        dto.setMateriasReprobadas(reprobadas.size());
+        dto.setMateriasCursando(cursando.size());
+        dto.setMateriasRetiradas(retiradas);
+        dto.setCiclosCursados(ciclosCursados.size());
+        dto.setPorcentajeAvance(materiasObligatorias.isEmpty() ? BigDecimal.ZERO :
+                BigDecimal.valueOf(aprobadasPensum * 100L).divide(BigDecimal.valueOf(materiasObligatorias.size()), 2, RoundingMode.HALF_UP));
+
+        // Durante el inicio de la carrera usamos la duración oficial del nivel académico.
+        // Con dos ciclos efectivamente cursados, usamos el ritmo histórico de aprobaciones.
+        Integer anioBase = null;
+        if (trayectoria.getFechaInicio() != null && trayectoria.getCarreraSede() != null
+                && trayectoria.getCarreraSede().getCarrera() != null
+                && trayectoria.getCarreraSede().getCarrera().getNivel() != null) {
+            String nivel = trayectoria.getCarreraSede().getCarrera().getNivel().getNivel();
+            if (nivel != null) {
+                String nombreNivel = java.text.Normalizer.normalize(nivel, java.text.Normalizer.Form.NFD)
+                        .replaceAll("\\p{M}", "").toUpperCase(java.util.Locale.ROOT);
+                int duracion = nombreNivel.contains("LICENCIATURA") ? 5
+                        : (nombreNivel.contains("TECNIC") || nombreNivel.contains("MAESTRIA") ? 2 : 0);
+                if (duracion > 0) anioBase = trayectoria.getFechaInicio().getYear() + duracion;
+            }
+        }
+
+        int pendientes = materiasObligatorias.size() - aprobadasPensum;
+        if (trayectoria.getFechaFin() != null && pendientes == 0) {
+            dto.setAnioFinalizacionEstimado(trayectoria.getFechaFin().getYear());
+        } else if (pendientes == 0 && !materiasObligatorias.isEmpty()) {
+            dto.setAnioFinalizacionEstimado(hoy.getYear());
+        } else if (ciclosCursados.size() >= 2 && aprobadasPensum > 0) {
+            double promedio = (double) aprobadasPensum / ciclosCursados.size();
+            int ciclosRestantes = (int) Math.ceil(pendientes / promedio);
+            dto.setAnioFinalizacionEstimado(hoy.getYear() + (int) Math.ceil(ciclosRestantes / 2.0));
+        } else {
+            dto.setAnioFinalizacionEstimado(anioBase);
+        }
+    }
+
+
+    @Transactional
+    public void bloquearUsuario(Long idEstudiante, EstudianteBloqueoUsuarioDTO request) {
+        Estudiante estudiante = buscarEstudianteParaActualizar(idEstudiante);
+
+        if (estudiante.getUsuario() == null) {
+            throw new IllegalArgumentException("El estudiante no tiene una cuenta institucional asignada.");
+        }
+
+        usuarioService.bloquearUsuarioEstudiante(estudiante.getUsuario().getIdUsuario(), request.getMotivo());
+    }
+
+    @Transactional
+    public void desbloquearUsuario(Long idEstudiante, EstudianteBloqueoUsuarioDTO request) {
+        Estudiante estudiante = buscarEstudianteParaActualizar(idEstudiante);
+
+        if (estudiante.getUsuario() == null) {
+            throw new IllegalArgumentException("El estudiante no tiene una cuenta institucional asignada.");
+        }
+
+        usuarioService.desbloquearUsuarioEstudiante(estudiante.getUsuario().getIdUsuario(), request.getMotivo());
+    }
+
+    @Transactional
+    public void actualizarDatosPersonales(Long idEstudiante, EstudianteDatosPersonalesDTO request) {
+        Estudiante estudiante = buscarEstudianteParaActualizar(idEstudiante);
+
+        personaService.actualizarDatosPersonalesEstudiante(
+                estudiante.getPersona().getIdPersona(),
+                request
+        );
+    }
+
+    @Transactional
+    public void cambiarDocumento(Long idEstudiante, EstudianteCambioDocumentoDTO request) {
+        Estudiante estudiante = buscarEstudianteParaActualizar(idEstudiante);
+
+        personaService.cambiarDocumentoEstudiante(
+                estudiante.getPersona().getIdPersona(),
+                request
+        );
+    }
+
 }
