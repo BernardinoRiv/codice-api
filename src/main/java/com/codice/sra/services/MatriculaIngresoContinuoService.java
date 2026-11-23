@@ -43,6 +43,7 @@ public class MatriculaIngresoContinuoService {
     private final EstadoInscripcionRepository estadoInscripcionRepository;
     private final EstadoMatriculaRepository estadoMatriculaRepository;
     private final CargoEstudianteRepository cargoEstudianteRepository;
+    private final EstudianteBeneficioRepository estudianteBeneficioRepository;
     private final ConceptoCobroRepository conceptoCobroRepository;
     private final EstadoCargoRepository estadoCargoRepository;
     private final PagoRepository pagoRepository;
@@ -194,15 +195,21 @@ public class MatriculaIngresoContinuoService {
                     return matriculaRepository.save(nueva);
                 });
         ConceptoCobro conceptoMatricula = conceptoMatricula(ciclo);
-        asegurarCargosIniciales(matricula, ciclo, conceptoMatricula);
-        CargoEstudiante cargoMatricula = cargoEstudianteRepository
-                .findByMatricula_IdMatriculaAndConceptoCobro_TipoCobro_IdTipoCobro(matricula.getIdMatricula(), 1L)
+        List<CargoEstudiante> cargosCiclo = cargoEstudianteRepository.findByMatricula_IdMatricula(matricula.getIdMatricula());
+        if (!tieneCoberturaCompleta(cargosCiclo)) {
+            asegurarCargosIniciales(matricula, ciclo, conceptoMatricula);
+            cargosCiclo = cargoEstudianteRepository.findByMatricula_IdMatricula(matricula.getIdMatricula());
+        }
+        CargoEstudiante cargoMatricula = cargosCiclo.stream()
+                .filter(c -> nombreTipo(c).contains("matrícul") || nombreTipo(c).contains("matricul"))
+                .findFirst()
                 .orElseThrow(() -> GrupoException.reglaNegocio("No se pudo generar el cargo de matrícula del ciclo."));
-        CargoEstudiante cargoPrimeraCuota = cargoEstudianteRepository
-                .findByMatricula_IdMatriculaAndConceptoCobro_TipoCobro_IdTipoCobroAndNumeroCuota(matricula.getIdMatricula(), 2L, 1)
+        CargoEstudiante cargoPrimeraCuota = cargosCiclo.stream()
+                .filter(c -> c.getNumeroCuota() == 1 && (nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual")))
+                .findFirst()
                 .orElseThrow(() -> GrupoException.reglaNegocio("No se pudo generar el cargo de la primera cuota del ciclo."));
 
-        boolean matriculaYaPagada = esPagado(cargoMatricula) && esPagado(cargoPrimeraCuota);
+        boolean matriculaYaPagada = tieneCoberturaCompleta(cargosCiclo);
         Pago pagoRealizado = null;
         Factura factura = null;
         String referenciaPago = null;
@@ -212,8 +219,8 @@ public class MatriculaIngresoContinuoService {
             if (idempotencyKey == null || idempotencyKey.isBlank())
                 throw new IllegalArgumentException("La cabecera 'Idempotency-Key' es requerida para procesar el pago.");
             List<CargoEstudiante> cargosInicialesPendientes = new ArrayList<>();
-            if (!esPagado(cargoMatricula)) cargosInicialesPendientes.add(cargoMatricula);
-            if (!esPagado(cargoPrimeraCuota)) cargosInicialesPendientes.add(cargoPrimeraCuota);
+            if (!estaCubierto(cargoMatricula)) cargosInicialesPendientes.add(cargoMatricula);
+            if (!estaCubierto(cargoPrimeraCuota)) cargosInicialesPendientes.add(cargoPrimeraCuota);
             if (cargosInicialesPendientes.stream().anyMatch(c -> c.getEstadoCargo() == null
                     || !"PENDIENTE".equalsIgnoreCase(c.getEstadoCargo().getEstadoCargo())))
                 throw GrupoException.reglaNegocio("Los cargos de matrícula y primera cuota deben estar pendientes de pago.");
@@ -302,13 +309,13 @@ public class MatriculaIngresoContinuoService {
                 .orElseThrow(() -> GrupoException.reglaNegocio("No está configurado el arancel de cuota mensual para el ciclo " + ciclo.getCodigoCiclo() + "."));
         Matricula matricula = matriculaRepository.findByEstudianteIdEstudianteAndCicloIdCiclo(
                 estudiante.getIdEstudiante(), ciclo.getIdCiclo()).orElse(null);
-        CargoEstudiante cargoMatricula = matricula == null ? null : cargoEstudianteRepository
-                .findByMatricula_IdMatriculaAndConceptoCobro_TipoCobro_IdTipoCobro(matricula.getIdMatricula(), 1L).orElse(null);
-        CargoEstudiante cargoCuota = matricula == null ? null : cargoEstudianteRepository
-                .findByMatricula_IdMatriculaAndConceptoCobro_TipoCobro_IdTipoCobroAndNumeroCuota(matricula.getIdMatricula(), 2L, 1).orElse(null);
+        List<CargoEstudiante> cargos = matricula == null ? List.of() : cargoEstudianteRepository.findByMatricula_IdMatricula(matricula.getIdMatricula());
+        CargoEstudiante cargoMatricula = cargos.stream().filter(c -> nombreTipo(c).contains("matr")).findFirst().orElse(null);
+        CargoEstudiante cargoCuota = cargos.stream().filter(c -> c.getNumeroCuota() == 1
+                && (nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual"))).findFirst().orElse(null);
         Pago pago = null;
         Factura factura = null;
-        if (cargoMatricula != null && cargoCuota != null && esPagado(cargoMatricula) && esPagado(cargoCuota)) {
+        if (cargoMatricula != null && cargoCuota != null && estaCubierto(cargoMatricula) && estaCubierto(cargoCuota)) {
             List<PagoCargo> aplicados = new ArrayList<>(pagoCargoRepository.findByCargoIdCargoEstudiante(cargoMatricula.getIdCargoEstudiante()));
             aplicados.addAll(pagoCargoRepository.findByCargoIdCargoEstudiante(cargoCuota.getIdCargoEstudiante()));
             PagoCargo aplicado = aplicados.stream().max(Comparator.comparing(pc -> pc.getPago().getFechaPago())).orElse(null);
@@ -319,8 +326,8 @@ public class MatriculaIngresoContinuoService {
         }
         return new OfertaFinanciera(
                 cargoMatricula == null ? conceptoMatricula.getMontoBase() : cargoMatricula.getMontoTotal(),
-                cargoCuota == null ? conceptoCuota.getMontoBase() : cargoCuota.getMontoTotal(),
-                pago, factura, cargoMatricula != null && cargoCuota != null && esPagado(cargoMatricula) && esPagado(cargoCuota));
+                cargoCuota == null ? montoCuotaConBeneficio(estudiante, conceptoCuota.getMontoBase()) : cargoCuota.getMontoTotal(),
+                pago, factura, cargoMatricula != null && cargoCuota != null && estaCubierto(cargoMatricula) && estaCubierto(cargoCuota));
     }
 
     private ConceptoCobro conceptoMatricula(Ciclo ciclo) {
@@ -336,15 +343,16 @@ public class MatriculaIngresoContinuoService {
         EstadoCargo pendiente = estadoCargoRepository.findById(1L)
                 .orElseThrow(() -> GrupoException.reglaNegocio("No está configurado el estado de cargo pendiente."));
         LocalDate hoy = LocalDate.now();
-        if (!cargoEstudianteRepository.existsByMatricula_IdMatriculaAndConceptoCobro_IdConceptoCobro(
-                matricula.getIdMatricula(), conceptoMatricula.getIdConceptoCobro())) {
+        List<CargoEstudiante> cargosExistentes = cargoEstudianteRepository.findByMatricula_IdMatricula(matricula.getIdMatricula());
+        if (cargosExistentes.stream().noneMatch(c -> nombreTipo(c).contains("matr"))) {
             crearCargo(matricula, conceptoMatricula, pendiente, 1, hoy.plusDays(3));
         }
         int mesInicio = ciclo.getNumeroCiclo() != null && ciclo.getNumeroCiclo() == 2 ? 7 : 1;
         int anio = ciclo.getAnio() == null ? hoy.getYear() : ciclo.getAnio();
         for (int cuota = 1; cuota <= 6; cuota++) {
-            if (!cargoEstudianteRepository.existsByMatricula_IdMatriculaAndConceptoCobro_IdConceptoCobroAndNumeroCuota(
-                    matricula.getIdMatricula(), conceptoCuota.getIdConceptoCobro(), cuota)) {
+            int numeroCuota = cuota;
+            if (cargosExistentes.stream().noneMatch(c -> c.getNumeroCuota() == numeroCuota
+                    && (nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual")))) {
                 crearCargo(matricula, conceptoCuota, pendiente, cuota,
                         LocalDate.of(anio, mesInicio + cuota - 1, 15));
             }
@@ -390,8 +398,8 @@ public class MatriculaIngresoContinuoService {
         factura.setCorreoReceptor(persona.getCorreoPersonal());
         factura.setDireccionReceptor(persona.getDireccion() == null || persona.getDireccion().isBlank()
                 ? "Santa Ana, El Salvador" : persona.getDireccion());
-        factura.setSubtotal(total);
-        factura.setDescuento(BigDecimal.ZERO);
+        factura.setSubtotal(cargos.stream().map(CargoEstudiante::getMontoBase).reduce(BigDecimal.ZERO, BigDecimal::add));
+        factura.setDescuento(cargos.stream().map(CargoEstudiante::getMontoDescuento).reduce(BigDecimal.ZERO, BigDecimal::add));
         factura.setRecargo(BigDecimal.ZERO);
         factura.setTotal(total);
         factura.setEstadoFactura(estadoFacturaRepository.findByEstadoFactura("EMITIDA")
@@ -432,9 +440,12 @@ public class MatriculaIngresoContinuoService {
                 .carnetEstudiante(estudiante.getCarnet())
                 .correoEstudiante(correo)
                 .totalCobrado(total)
+                .subtotal(cargos.stream().map(CargoEstudiante::getMontoBase).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .descuento(cargos.stream().map(CargoEstudiante::getMontoDescuento).reduce(BigDecimal.ZERO, BigDecimal::add))
                 .cajeroResponsable("PAGO EN LÍNEA (PORTAL)")
                 .detalles(cargos.stream().map(cargo -> ComprobantePagoDTO.DetalleComprobanteDTO.builder()
                         .concepto(cargo.getConceptoCobro().getTipoCobro().getTipoCobro())
+                        .montoBase(cargo.getMontoBase()).montoDescuento(cargo.getMontoDescuento())
                         .montoTotal(cargo.getMontoTotal()).build()).toList())
                 .build();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -477,7 +488,40 @@ public class MatriculaIngresoContinuoService {
 
     private boolean esPagado(CargoEstudiante cargo) {
         return cargo.getEstadoCargo() != null && (cargo.getEstadoCargo().getIdEstadoCargo() == 2L
-                || "PAGADO".equalsIgnoreCase(cargo.getEstadoCargo().getEstadoCargo()));
+                || "PAGADO".equalsIgnoreCase(cargo.getEstadoCargo().getEstadoCargo())
+                || "CANCELADO".equalsIgnoreCase(cargo.getEstadoCargo().getEstadoCargo()));
+    }
+
+    private boolean estaCubierto(CargoEstudiante cargo) {
+        return esPagado(cargo) || (cargo.getMontoTotal() != null && cargo.getMontoTotal().compareTo(BigDecimal.ZERO) == 0);
+    }
+
+    private boolean tieneCoberturaCompleta(List<CargoEstudiante> cargos) {
+        boolean tieneMatriculaCubierta = cargos.stream().anyMatch(c -> nombreTipo(c).contains("matr") && estaCubierto(c));
+        boolean tienePrimeraCuotaCubierta = cargos.stream().anyMatch(c -> c.getNumeroCuota() == 1
+                && (nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual")) && estaCubierto(c));
+        return tieneMatriculaCubierta && tienePrimeraCuotaCubierta;
+    }
+
+    private BigDecimal montoCuotaConBeneficio(Estudiante estudiante, BigDecimal montoBase) {
+        EstudianteBeneficio asignacion = estudianteBeneficioRepository
+                .findByEstudiante_IdEstudianteAndEstadoBeneficioEstudiante_EstadoBeneficioEstudiante(
+                        estudiante.getIdEstudiante(), "ACTIVO").orElse(null);
+        if (asignacion == null) return montoBase;
+        String nombre = asignacion.getBeneficio().getBeneficio().toLowerCase(Locale.ROOT);
+        return (nombre.contains("tercero") || nombre.contains("externa"))
+                ? montoBase : montoBase.subtract(descuentoBeneficio(asignacion.getBeneficio(), montoBase)).max(BigDecimal.ZERO);
+    }
+
+    private BigDecimal descuentoBeneficio(Beneficio beneficio, BigDecimal montoBase) {
+        BigDecimal descuento = beneficio.getPorcentaje() != null
+                ? montoBase.multiply(beneficio.getPorcentaje()).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP)
+                : beneficio.getMonto() == null ? BigDecimal.ZERO : beneficio.getMonto();
+        return descuento.max(BigDecimal.ZERO).min(montoBase);
+    }
+
+    private String nombreTipo(CargoEstudiante cargo) {
+        return cargo.getConceptoCobro().getTipoCobro().getTipoCobro().toLowerCase(Locale.ROOT);
     }
 
     private record OfertaFinanciera(BigDecimal montoMatricula, BigDecimal montoPrimeraCuota,
@@ -494,9 +538,24 @@ public class MatriculaIngresoContinuoService {
         cargo.setFechaVencimiento(vencimiento);
         cargo.setNumeroCuota(numeroCuota);
         cargo.setMontoBase(monto);
-        cargo.setMontoDescuento(BigDecimal.ZERO);
+        BigDecimal descuento = BigDecimal.ZERO;
+        if (numeroCuota == 1 || numeroCuota > 1) {
+            EstudianteBeneficio beneficio = estudianteBeneficioRepository
+                    .findByEstudiante_IdEstudianteAndEstadoBeneficioEstudiante_EstadoBeneficioEstudiante(
+                            matricula.getEstudiante().getIdEstudiante(), "ACTIVO").orElse(null);
+            if (beneficio != null) {
+                String tipo = nombreTipo(cargo);
+                String nombreBeneficio = beneficio.getBeneficio().getBeneficio().toLowerCase(Locale.ROOT);
+                if ((tipo.contains("cuota") || tipo.contains("mensual"))
+                        && !nombreBeneficio.contains("tercero") && !nombreBeneficio.contains("externa")) {
+                    cargo.setEstudianteBeneficio(beneficio);
+                    descuento = descuentoBeneficio(beneficio.getBeneficio(), monto);
+                }
+            }
+        }
+        cargo.setMontoDescuento(descuento);
         cargo.setMontoRecargo(BigDecimal.ZERO);
-        cargo.setMontoTotal(monto);
+        cargo.setMontoTotal(monto.subtract(descuento).max(BigDecimal.ZERO));
         cargoEstudianteRepository.save(cargo);
     }
 
