@@ -76,6 +76,9 @@ public class MatriculaOnlineRequestDTO {
     @Schema(description = "ID de la relación carrera_sede", example = "4")
     private Long idCarreraSede;
 
+    @Schema(description = "Beneficio activo aprobado para el aspirante, si aplica")
+    private Long idBeneficio;
+
     @NotNull(message = "El pensum es obligatorio.")
     @Schema(description = "ID del pensum académico vigente", example = "7")
     private Long idPensum;

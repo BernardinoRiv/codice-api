@@ -203,6 +203,23 @@ public class EmailService {
         }
     }
 
+    public void enviarCredencialesYComprobanteBeca(String destinatario, String nombre, String carnet,
+                                                    String correoInstitucional, String claveTemporal, byte[] pdf) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setTo(destinatario);
+            helper.setSubject("Adjudicación de beca 100% y credenciales UMA");
+            helper.setText("<p>Hola " + nombre + ",</p><p>Se adjudicó tu beca institucional del 100%. Adjunto encontrarás el comprobante oficial.</p>"
+                    + "<p>Carnet: " + carnet + "<br>Correo institucional: " + correoInstitucional
+                    + "<br>Contraseña temporal: " + claveTemporal + "</p>", true);
+            helper.addAttachment("Comprobante_Adjudicacion_Beca_100.pdf", new ByteArrayResource(pdf));
+            mailSender.send(message);
+        } catch (MessagingException e) {
+            throw new RuntimeException("Error al enviar credenciales y comprobante de beca.", e);
+        }
+    }
+
     // 5. Código de Recuperación
     public void enviarCodigoRecuperacion(String correoDestino, String nombreUsuario, String codigoCrudo) {
         try {

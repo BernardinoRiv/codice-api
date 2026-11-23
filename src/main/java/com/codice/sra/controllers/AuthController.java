@@ -35,6 +35,13 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/refresh")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Renovar el token vigente de estudiantes y docentes")
+    public ResponseEntity<TokenRefreshResponseDTO> refresh(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        return ResponseEntity.ok(authService.refresh(authorization));
+    }
+
     @PostMapping("/cambiar-contrasena")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Cambiar contraseña del usuario autenticado")

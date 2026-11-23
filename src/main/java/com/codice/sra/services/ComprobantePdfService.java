@@ -22,6 +22,43 @@ import java.util.Locale;
 @Service
 public class ComprobantePdfService {
 
+    public byte[] generarComprobanteBecaCompleta(String estudiante, String carnet, String carrera, String ciclo,
+                                                  java.util.List<ComprobantePagoDTO.DetalleComprobanteDTO> cargos) {
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Document document = new Document(PageSize.A4, 40, 40, 40, 40);
+            PdfWriter.getInstance(document, out);
+            document.open();
+            Font title = font(FontFactory.HELVETICA_BOLD, 16, UMA_RED);
+            Font normal = font(FontFactory.HELVETICA, 11, DARK);
+            document.add(new Paragraph("COMPROBANTE OFICIAL DE ADJUDICACIÓN DE BECA 100%", title));
+            document.add(new Paragraph("Universidad Modular Abierta", normal));
+            document.add(new Paragraph("Estudiante: " + estudiante, normal));
+            document.add(new Paragraph("Carnet: " + carnet, normal));
+            document.add(new Paragraph("Carrera: " + carrera, normal));
+            document.add(new Paragraph("Ciclo: " + ciclo, normal));
+            PdfPTable table = new PdfPTable(3);
+            table.setWidthPercentage(100);
+            for (String label : new String[]{"Concepto", "Monto Base", "Descuento Beca"}) table.addCell(label);
+            BigDecimal subtotal = BigDecimal.ZERO;
+            BigDecimal descuento = BigDecimal.ZERO;
+            for (ComprobantePagoDTO.DetalleComprobanteDTO item : cargos) {
+                table.addCell(item.getConcepto());
+                table.addCell("$ " + formatoMonto(item.getMontoBase()));
+                table.addCell("$ " + formatoMonto(item.getMontoDescuento()));
+                subtotal = subtotal.add(item.getMontoBase());
+                descuento = descuento.add(item.getMontoDescuento());
+            }
+            document.add(table);
+            document.add(new Paragraph("Subtotal: $ " + formatoMonto(subtotal), normal));
+            document.add(new Paragraph("Descuento Beca 100%: $ " + formatoMonto(descuento), normal));
+            document.add(new Paragraph("Total a pagar: $ 0.00", title));
+            document.close();
+            return out.toByteArray();
+        } catch (Exception e) {
+            throw new IllegalStateException("No se pudo generar el comprobante de adjudicación de beca.", e);
+        }
+    }
+
     @Value("${app.pdf.logo-path:uploads/pdf/uma-logo.jpeg}")
     private String logoPath;
 
@@ -290,27 +327,22 @@ public class ComprobantePdfService {
                     boldFont
             );
 
-            PdfPTable detailTable = new PdfPTable(3);
+            PdfPTable detailTable = new PdfPTable(4);
             detailTable.setWidthPercentage(100);
-            detailTable.setWidths(new float[]{0.45f, 3.8f, 1.1f});
+            detailTable.setWidths(new float[]{2.5f, 1.1f, 1.1f, 1.1f});
             detailTable.setHeaderRows(1);
             detailTable.setSpacingAfter(12f);
-
-            agregarEncabezadoTabla(
-                    detailTable,
-                    "N.º",
-                    tableHeaderFont
-            );
 
             agregarEncabezadoTabla(
                     detailTable,
                     "DESCRIPCIÓN",
                     tableHeaderFont
             );
-
+            agregarEncabezadoTabla(detailTable, "MONTO BASE", tableHeaderFont);
+            agregarEncabezadoTabla(detailTable, "DESCUENTO BECA", tableHeaderFont);
             agregarEncabezadoTabla(
                     detailTable,
-                    "VALOR (USD)",
+                    "NETO PAGADO",
                     tableHeaderFont
             );
 
@@ -326,21 +358,14 @@ public class ComprobantePdfService {
                             ? LIGHT_GRAY
                             : WHITE;
 
-                    PdfPCell numberCell = crearCelda(
-                            String.valueOf(index),
-                            normalFont,
-                            rowColor
-                    );
-                    numberCell.setHorizontalAlignment(
-                            Element.ALIGN_CENTER
-                    );
-
                     PdfPCell conceptCell = crearCelda(
                             valorSeguro(detalle.getConcepto()),
                             normalFont,
                             rowColor
                     );
 
+                    PdfPCell baseCell = crearCelda("$ " + formatoMonto(detalle.getMontoBase() == null ? detalle.getMontoTotal() : detalle.getMontoBase()), normalFont, rowColor);
+                    PdfPCell discountCell = crearCelda("$ " + formatoMonto(detalle.getMontoDescuento()), normalFont, rowColor);
                     PdfPCell amountCell = crearCelda(
                             "$ " + formatoMonto(detalle.getMontoTotal()),
                             boldFont,
@@ -350,8 +375,9 @@ public class ComprobantePdfService {
                             Element.ALIGN_RIGHT
                     );
 
-                    detailTable.addCell(numberCell);
                     detailTable.addCell(conceptCell);
+                    detailTable.addCell(baseCell);
+                    detailTable.addCell(discountCell);
                     detailTable.addCell(amountCell);
 
                     index++;
@@ -365,7 +391,7 @@ public class ComprobantePdfService {
                         LIGHT_GRAY
                 );
 
-                emptyCell.setColspan(3);
+                emptyCell.setColspan(4);
                 detailTable.addCell(emptyCell);
             }
 
@@ -398,6 +424,10 @@ public class ComprobantePdfService {
             summaryText.setSpacingBefore(5f);
 
             summaryDescription.addElement(summaryText);
+            BigDecimal subtotalDoc = comprobante.getSubtotal() == null ? comprobante.getTotalCobrado() : comprobante.getSubtotal();
+            BigDecimal descuentoDoc = comprobante.getDescuento() == null ? BigDecimal.ZERO : comprobante.getDescuento();
+            summaryDescription.addElement(new Paragraph("Subtotal: $ " + formatoMonto(subtotalDoc), normalFont));
+            summaryDescription.addElement(new Paragraph("Descuento aplicado por Beca: $ " + formatoMonto(descuentoDoc), normalFont));
 
             PdfPCell totalLabel = new PdfPCell(
                     new Phrase("TOTAL PAGADO", tableHeaderFont)

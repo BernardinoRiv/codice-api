@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -78,10 +79,8 @@ public class EstudianteService {
 
     @Transactional(readOnly = true)
     public NotasEstudianteResponseDTO obtenerNotasCicloActual(Long idEstudiante) {
-        Ciclo cicloActivo = cicloRepository.findCicloActivo()
+        Ciclo cicloActivo = cicloRepository.findCicloPorEstadoActivo()
                 .orElseThrow(() -> new RuntimeException("No hay ciclo activo"));
-
-        boolean esCicloActivo = esCicloActivo(cicloActivo);
 
         Map<String, BigDecimal> config = cargarConfiguracionEvaluacion(cicloActivo.getIdCiclo());
 
@@ -107,7 +106,7 @@ public class EstudianteService {
                     BigDecimal promedioOficial = promedioSinRedondear.setScale(1, RoundingMode.HALF_DOWN);
                     materiaDTO.setPromedioOficial(promedioOficial);
 
-                    String estado = determinarEstado(promedioOficial, esCicloActivo);
+                    String estado = determinarEstado(promedioOficial, inscripcion, cicloActivo);
                     materiaDTO.setEstado(estado);
 
                     // =====================================================================
@@ -134,12 +133,6 @@ public class EstudianteService {
                 .collect(Collectors.toList());
 
         return new NotasEstudianteResponseDTO(cicloActivo.getCodigoCiclo(), materiasDTO);
-    }
-
-    private boolean esCicloActivo(Ciclo ciclo) {
-        LocalDate hoy = LocalDate.now();
-        LocalDate fechaFin = ciclo.getFechaFin();
-        return hoy.isBefore(fechaFin) || hoy.isEqual(fechaFin);
     }
 
     private Map<String, BigDecimal> cargarConfiguracionEvaluacion(Long idCiclo) {
@@ -231,16 +224,17 @@ public class EstudianteService {
         return notaLab.multiply(pctLab).add(notaPar.multiply(pctPar));
     }
 
-    private String determinarEstado(BigDecimal promedioOficial, boolean esCicloActivo) {
-        if (promedioOficial.compareTo(BigDecimal.ZERO) == 0) {
-            return "En curso";
+    private String determinarEstado(BigDecimal promedioOficial, Inscripcion inscripcion, Ciclo ciclo) {
+        Long estadoMateriaId = inscripcion.getEstadoMateria() == null ? null : inscripcion.getEstadoMateria().getIdEstadoMateria();
+        if (estadoMateriaId != null && estadoMateriaId == 5L) return "Retirada";
+        if (estadoMateriaId != null && estadoMateriaId == 6L) return "Retiro pendiente";
+        if (estadoMateriaId != null && estadoMateriaId == 2L) return "Aprobada";
+        if (estadoMateriaId != null && estadoMateriaId == 3L) return "Reprobada";
+        Long estadoCicloId = ciclo.getEstadoCiclo() == null ? null : ciclo.getEstadoCiclo().getIdEstadoCiclo();
+        if (!Objects.equals(estadoCicloId, 3L)) {
+            return Objects.equals(estadoCicloId, 1L) || Objects.equals(estadoCicloId, 4L) ? "Inscrita" : "Cursando";
         }
-
-        if (!esCicloActivo) {
-            return promedioOficial.compareTo(BigDecimal.valueOf(6.0)) >= 0 ? "Aprobada" : "Reprobada";
-        }
-
-        return promedioOficial.compareTo(BigDecimal.valueOf(6.0)) >= 0 ? "Aprobada (Parcial)" : "Reprobada (Parcial)";
+        return promedioOficial.compareTo(BigDecimal.valueOf(6.0)) >= 0 ? "Aprobada" : "Reprobada";
     }
 
     @Transactional(readOnly = true)
@@ -265,7 +259,8 @@ public class EstudianteService {
             Ciclo ciclo = entry.getKey();
             List<Inscripcion> inscripcionesCiclo = entry.getValue();
             Map<String, BigDecimal> config = cargarConfiguracionEvaluacion(ciclo.getIdCiclo());
-            boolean esCicloActivo = "ACTIVO".equalsIgnoreCase(ciclo.getEstadoCiclo().getEstadoCiclo());
+            Long estadoCicloId = ciclo.getEstadoCiclo() == null ? null : ciclo.getEstadoCiclo().getIdEstadoCiclo();
+            boolean cicloFinalizado = Objects.equals(estadoCicloId, 3L);
 
             List<MateriaHistorialDTO> materiasDTO = new ArrayList<>();
 
@@ -274,24 +269,31 @@ public class EstudianteService {
                 BigDecimal notaFinal = calcularNotaFinalDinamica(notas, config).setScale(1, RoundingMode.HALF_DOWN);
 
                 String estado;
-                if (inscripcion.getEstadoMateria() != null && inscripcion.getEstadoMateria().getEstadoMateria().equalsIgnoreCase("RETIRADA")) {
+                Long estadoMateriaId = inscripcion.getEstadoMateria() == null ? null : inscripcion.getEstadoMateria().getIdEstadoMateria();
+                if (Objects.equals(estadoMateriaId, 5L)) {
                     estado = "Retirada";
-                } else if (esCicloActivo) {
-                    estado = "Cursando";
+                } else if (Objects.equals(estadoMateriaId, 6L)) {
+                    estado = "Retiro pendiente";
+                } else if (Objects.equals(estadoMateriaId, 2L)) {
+                    estado = "Aprobada";
+                } else if (Objects.equals(estadoMateriaId, 3L)) {
+                    estado = "Reprobada";
+                } else if (!cicloFinalizado) {
+                    estado = Objects.equals(estadoCicloId, 1L) || Objects.equals(estadoCicloId, 4L) ? "Inscrita" : "Cursando";
                 } else {
                     estado = notaFinal.compareTo(BigDecimal.valueOf(6.0)) >= 0 ? "Aprobada" : "Reprobada";
                 }
 
-                if (!estado.equals("Retirada")) {
+                if (!estado.equals("Retirada") && !estado.equals("Retiro pendiente")) {
                     if (notaFinal.compareTo(BigDecimal.valueOf(6.0)) >= 0) {
                         int uv = inscripcion.getGrupo().getMateria().getUnidadesValorativas().intValue();
                         sumaNotasPonderadas = sumaNotasPonderadas.add(notaFinal.multiply(BigDecimal.valueOf(uv)));
                         totalUV += uv;
 
-                        if (!esCicloActivo) {
+                        if (cicloFinalizado) {
                             totalAprobadas++;
                         }
-                    } else if (!esCicloActivo) {
+                    } else if (cicloFinalizado) {
                         totalReprobadas++;
                     }
                 }

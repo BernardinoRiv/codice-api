@@ -8,6 +8,7 @@ import com.codice.sra.utils.UserUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,7 @@ public class AuthService {
     private final EmpleadoRepository empleadoRepository;
     private final CicloRepository cicloRepository;
     private final AuditoriaRepository auditoriaRepository;
+    private final SesionUsuarioRepository sesionUsuarioRepository;
 
     @Autowired
     public AuthService(UsuarioRepository usuarioRepository,
@@ -41,7 +43,8 @@ public class AuthService {
                        EmailService emailService,
                        EmpleadoRepository empleadoRepository,
                        CicloRepository cicloRepository,
-                       AuditoriaRepository auditoriaRepository) {
+                       AuditoriaRepository auditoriaRepository,
+                       SesionUsuarioRepository sesionUsuarioRepository) {
         this.usuarioRepository = usuarioRepository;
         this.recuperacionClaveRepository = recuperacionClaveRepository;
         this.passwordEncoder = passwordEncoder;
@@ -51,6 +54,35 @@ public class AuthService {
         this.empleadoRepository = empleadoRepository;
         this.cicloRepository = cicloRepository;
         this.auditoriaRepository = auditoriaRepository;
+        this.sesionUsuarioRepository = sesionUsuarioRepository;
+    }
+
+    @Transactional(readOnly = true)
+    public TokenRefreshResponseDTO refresh(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer "))
+            throw new BadCredentialsException("Se requiere un token Bearer válido.");
+        String token = authorization.substring(7);
+        try {
+            String username = jwtService.extractUsername(token);
+            Long idUsuario = jwtService.extractIdUsuario(token);
+            Long idSesion = jwtService.extractIdSesion(token);
+            if (!jwtService.isTokenValid(token, username) || idUsuario == null || idSesion == null)
+                throw new BadCredentialsException("El token expiró o no es válido.");
+            SesionUsuario sesion = sesionUsuarioRepository.findById(idSesion)
+                    .filter(s -> s.getFechaFin() == null && s.getUsuario().getIdUsuario().equals(idUsuario))
+                    .orElseThrow(() -> new BadCredentialsException("La sesión no existe, fue cerrada o no corresponde al usuario."));
+            Usuario usuario = usuarioRepository.findById(idUsuario)
+                    .orElseThrow(() -> new BadCredentialsException("El usuario de la sesión ya no existe."));
+            String rol = usuario.getRol().getRol();
+            if (!("ESTUDIANTE".equalsIgnoreCase(rol) || "DOCENTE".equalsIgnoreCase(rol)))
+                throw new AccessDeniedException("La renovación está habilitada únicamente para estudiantes y docentes.");
+            long expiresIn = jwtService.getExpirationForRole(rol);
+            return new TokenRefreshResponseDTO(jwtService.generateToken(usuario, sesion.getIdSesion()), expiresIn);
+        } catch (BadCredentialsException | AccessDeniedException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BadCredentialsException("El token expiró o no es válido.");
+        }
     }
 
     public AuthLoginResponseDTO login(AuthLoginRequestDTO request, HttpServletRequest httpRequest) {

@@ -28,6 +28,9 @@ public class JwtService {
     @Value("${security.jwt.expiration-time}")
     private long jwtExpiration;
 
+    @Value("${security.jwt.operativo-expiration-time:28800000}")
+    private long operativoJwtExpiration;
+
     private final EmpleadoRepository empleadoRepository;
     private final DocenteRepository docenteRepository;
     private final EstudianteRepository estudianteRepository; // <-- AÑADIDO
@@ -91,13 +94,23 @@ public class JwtService {
     }
 
     public String generateToken(Map<String, Object> extraClaims, String username) {
+        String rol = (String) extraClaims.get("rol");
+        long expiration = getExpirationForRole(rol);
         return Jwts.builder()
                 .setClaims(extraClaims)
                 .setSubject(username)
                 .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + jwtExpiration))
+                .setExpiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(getSignInKey(), SignatureAlgorithm.HS256)
                 .compact();
+    }
+
+    public long getExpirationForRole(String rol) {
+        if (rol != null && ("ADMINISTRADOR".equalsIgnoreCase(rol)
+                || "EMPLEADO".equalsIgnoreCase(rol) || "FINANZAS".equalsIgnoreCase(rol))) {
+            return operativoJwtExpiration;
+        }
+        return jwtExpiration;
     }
 
     public String extractUsername(String token) {

@@ -75,10 +75,10 @@ public class AdmisionOnlineController {
             )
     })
     @GetMapping("/plan-financiero")
-    public ResponseEntity<Map<String, Object>> consultarPlanFinanciero() {
+    public ResponseEntity<Map<String, Object>> consultarPlanFinanciero(@RequestParam Long idCarreraSede) {
 
         Map<String, Object> resultado =
-                admisionOnlineService.consultarPlanFinanciero();
+                admisionOnlineService.consultarPlanFinanciero(idCarreraSede);
 
         return ResponseEntity.ok(resultado);
     }
