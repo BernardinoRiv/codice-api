@@ -224,7 +224,16 @@ public class UsuarioService {
         cambiarEstadoUsuarioEmpleado(idUsuario, "ACTIVO", motivo);
     }
 
+    @Transactional
+    public void cambiarEstadoCuentaDocente(Long idUsuario, boolean bloquear, String motivo) {
+        cambiarEstadoCuenta(idUsuario, bloquear ? "BLOQUEADO" : "ACTIVO", motivo, "DOCENTE");
+    }
+
     private void cambiarEstadoUsuarioEmpleado(Long idUsuario, String nuevoEstadoNombre, String motivo) {
+        cambiarEstadoCuenta(idUsuario, nuevoEstadoNombre, motivo, "EMPLEADO");
+    }
+
+    private void cambiarEstadoCuenta(Long idUsuario, String nuevoEstadoNombre, String motivo, String rol) {
         if (motivo == null || motivo.isBlank() || motivo.trim().length() < 5 || motivo.trim().length() > 500) {
             throw new IllegalArgumentException("Debe indicar un motivo de 5 a 500 caracteres.");
         }
@@ -232,8 +241,8 @@ public class UsuarioService {
         Usuario usuario = usuarioRepository.findById(idUsuario)
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado: " + idUsuario));
 
-        if (usuario.getRol() == null || !"EMPLEADO".equalsIgnoreCase(usuario.getRol().getRol())) {
-            throw new IllegalArgumentException("La cuenta no pertenece a un usuario con rol EMPLEADO.");
+        if (usuario.getRol() == null || !rol.equalsIgnoreCase(usuario.getRol().getRol())) {
+            throw new IllegalArgumentException("La cuenta no pertenece a un usuario con rol " + rol);
         }
 
         EstadoUsuario estadoActual = usuario.getEstadoUsuario();
@@ -264,7 +273,7 @@ public class UsuarioService {
         usuarioRepository.save(usuario);
 
         auditoriaService.registrarEvento(
-                "BLOQUEADO".equalsIgnoreCase(nuevoEstadoNombre) ? "BLOQUEO_USUARIO_EMPLEADO" : "DESBLOQUEO_USUARIO_EMPLEADO",
+                "BLOQUEADO".equalsIgnoreCase(nuevoEstadoNombre) ? "BLOQUEO_USUARIO_" + rol : "DESBLOQUEO_USUARIO_" + rol,
                 "usuarios", idUsuario,
                 "Cambio de estado de '" + estadoAnterior + "' a '" + nuevoEstadoNombre + "'. Motivo: " + motivo.trim()
         );

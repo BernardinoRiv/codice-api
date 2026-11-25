@@ -458,10 +458,22 @@ public class PersonaService {
 
     @Transactional
     public boolean actualizarDatosPersonalesEmpleado(Long idPersona, EmpleadoDatosPersonalesDTO dto) {
+        return actualizarDatosPersonales(idPersona, dto, "EDICION_DATOS_PERSONALES_EMPLEADO");
+    }
+
+    @Transactional
+    public boolean actualizarDatosPersonalesDocente(Long idPersona, EmpleadoDatosPersonalesDTO dto) {
+        return actualizarDatosPersonales(idPersona, dto, "EDICION_DATOS_PERSONALES_DOCENTE");
+    }
+
+    private boolean actualizarDatosPersonales(Long idPersona, EmpleadoDatosPersonalesDTO dto, String eventoAuditoria) {
         Persona persona = personaRepository.findByIdForUpdate(idPersona)
                 .orElseThrow(() -> new ResourceNotFoundException("Persona no encontrada: " + idPersona));
 
         if (dto == null) throw new IllegalArgumentException("Los datos personales son obligatorios.");
+
+        if ("EDICION_DATOS_PERSONALES_DOCENTE".equals(eventoAuditoria))
+            validarEdadPorDocumento(dto.getFechaNacimiento(), persona.getTipoDocumento().getIdTipoDocumento());
 
         String nombres = normalizarNombre(dto.getNombres());
         String apellidos = normalizarNombre(dto.getApellidos());
@@ -544,7 +556,7 @@ public class PersonaService {
         if (cambios.isEmpty()) return false;
 
         personaRepository.save(persona);
-        auditoriaService.registrarEvento("EDICION_DATOS_PERSONALES_EMPLEADO", "personas", idPersona,
+        auditoriaService.registrarEvento(eventoAuditoria, "personas", idPersona,
                 "Se modificaron los campos: " + String.join(", ", cambios));
 
         return true;
@@ -553,6 +565,15 @@ public class PersonaService {
 
     @Transactional
     public void cambiarDocumentoEmpleado(Long idPersona, EmpleadoCambioDocumentoDTO dto) {
+        cambiarDocumento(idPersona, dto, "CAMBIO_DOCUMENTO_EMPLEADO");
+    }
+
+    @Transactional
+    public void cambiarDocumentoDocente(Long idPersona, EmpleadoCambioDocumentoDTO dto) {
+        cambiarDocumento(idPersona, dto, "CAMBIO_DOCUMENTO_DOCENTE");
+    }
+
+    private void cambiarDocumento(Long idPersona, EmpleadoCambioDocumentoDTO dto, String eventoAuditoria) {
         Persona persona = personaRepository.findByIdForUpdate(idPersona)
                 .orElseThrow(() -> new ResourceNotFoundException("Persona no encontrada: " + idPersona));
 
@@ -569,6 +590,9 @@ public class PersonaService {
         if (!Objects.equals(persona.getNumeroDocumento(), documentoActual)) {
             throw new IllegalArgumentException("El documento actual no coincide con el registrado.");
         }
+
+        if ("CAMBIO_DOCUMENTO_DOCENTE".equals(eventoAuditoria))
+            validarEdadPorDocumento(persona.getFechaNacimiento(), dto.getIdTipoDocumento());
 
         ValidadorDocumentoUtil.validar(dto.getIdTipoDocumento(), documentoNuevo);
 
@@ -590,7 +614,7 @@ public class PersonaService {
         persona.setNumeroDocumento(documentoNuevo);
         personaRepository.saveAndFlush(persona);
 
-        auditoriaService.registrarEvento("CAMBIO_DOCUMENTO_EMPLEADO", "personas", idPersona,
+        auditoriaService.registrarEvento(eventoAuditoria, "personas", idPersona,
                 "Cambio de documento. Tipo anterior: " + tipoAnterior
                         + ", tipo nuevo: " + dto.getIdTipoDocumento()
                         + ". Documento anterior: " + enmascararDocumento(numeroAnterior)
