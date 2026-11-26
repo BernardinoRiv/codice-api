@@ -407,12 +407,17 @@ public class PersonaService {
     }
 
     private String normalizarTelefonoEstudiante(String telefono) {
+        return normalizarTelefono(telefono, false);
+    }
+
+    private String normalizarTelefono(String telefono, boolean admiteFijo) {
         if (telefono == null || telefono.isBlank()) return null;
 
         String digitos = telefono.trim().replaceAll("[\\s-]", "");
 
-        if (!digitos.matches("^[67][0-9]{7}$")) {
-            throw new IllegalArgumentException("El teléfono debe tener 8 dígitos e iniciar con 6 o 7.");
+        if (!digitos.matches(admiteFijo ? "^[267][0-9]{7}$" : "^[67][0-9]{7}$")) {
+            throw new IllegalArgumentException("El teléfono debe tener 8 dígitos e iniciar con "
+                    + (admiteFijo ? "2, 6 o 7." : "6 o 7."));
         }
 
         return digitos.substring(0, 4) + "-" + digitos.substring(4);
@@ -478,7 +483,7 @@ public class PersonaService {
         String nombres = normalizarNombre(dto.getNombres());
         String apellidos = normalizarNombre(dto.getApellidos());
         String sexo = dto.getSexo() == null ? "" : dto.getSexo().trim().toUpperCase(Locale.ROOT);
-        String telefono = normalizarTelefonoEstudiante(dto.getTelefono());
+        String telefono = normalizarTelefono(dto.getTelefono(), true);
         String correo = dto.getCorreoPersonal() == null || dto.getCorreoPersonal().isBlank()
                 ? null : dto.getCorreoPersonal().trim().toLowerCase(Locale.ROOT);
         String direccion = dto.getDireccion() == null ? "" : dto.getDireccion().trim().replaceAll("\\s+", " ");

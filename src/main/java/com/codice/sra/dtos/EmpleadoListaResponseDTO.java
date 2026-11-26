@@ -15,6 +15,7 @@ public class EmpleadoListaResponseDTO {
     private String nombres;
     private String apellidos;
     private String numeroDocumento;
+    private Long idTipoDocumento;
     private String correoPersonal;
     private String correoInstitucional;
     private String telefono;

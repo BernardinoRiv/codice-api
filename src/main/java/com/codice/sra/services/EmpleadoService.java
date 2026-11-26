@@ -120,6 +120,7 @@ public class EmpleadoService {
                 persona.getNombres(),
                 persona.getApellidos(),
                 persona.getNumeroDocumento(),
+                persona.getTipoDocumento() != null ? persona.getTipoDocumento().getIdTipoDocumento() : null,
                 persona.getCorreoPersonal(),
                 usuario != null ? usuario.getCorreoInstitucional() : null,
                 persona.getTelefono(),
@@ -213,6 +214,9 @@ public class EmpleadoService {
 
     @Transactional
     public void cambiarEstadoEmpleado(Long idEmpleado, EmpleadoEstadoRequestDTO request) {
+        if (request.getMotivo() == null || request.getMotivo().trim().length() < 5) {
+            throw new IllegalArgumentException("Escribe un motivo de al menos 5 caracteres.");
+        }
         Empleado empleado = buscarEmpleadoParaActualizar(idEmpleado);
 
         EstadoEmpleado nuevoEstado = estadoEmpleadoRepository.findById(request.getIdEstadoEmpleado())

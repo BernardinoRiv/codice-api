@@ -89,7 +89,7 @@ public class AuthService {
         Optional<Usuario> usuarioOpt = usuarioRepository.findByCorreoInstitucional(request.getCorreoInstitucional());
 
         if (usuarioOpt.isEmpty()) {
-            return new AuthLoginResponseDTO(null, null, null, null, 0, null, "Credenciales inválidas", false, null, null, null, null);
+            return new AuthLoginResponseDTO(null, null, null, null, 0, null, "Credenciales inválidas", false, null, null, null, null, null, null);
         }
 
         Usuario usuario = usuarioOpt.get();
@@ -104,7 +104,7 @@ public class AuthService {
                     0, null,
                     "Acceso denegado. El usuario se encuentra " + estadoReal + ". Contacte a soporte.",
                     false,
-                    null, null, null, null // <-- CORRECCIÓN: 4 campos agregados
+                    null, null, null, null, null, null
             );
         }
 
@@ -117,7 +117,7 @@ public class AuthService {
                     usuario.getBloqueadoHasta(),
                     "Usuario bloqueado temporalmente por múltiples intentos fallidos. Intente más tarde.",
                     false,
-                    null, null, null, null // <-- CORRECCIÓN: 4 campos agregados
+                    null, null, null, null, null, null
             );
         }
 
@@ -133,10 +133,7 @@ public class AuthService {
                     nuevoBloqueo,
                     "Credenciales inválidas",
                     false,
-                    null,
-                    null,
-                    null,
-                    null
+                    null, null, null, null, null, null
             );
         }
 
@@ -155,15 +152,20 @@ public class AuthService {
         String rol = usuario.getRol().getRol();
 
         String nombreCargo = null;
+        Long idArea = null;
+        String nombreArea = null;
 
         if ("EMPLEADO".equalsIgnoreCase(rol) || "FINANZAS".equalsIgnoreCase(rol) || "ADMINISTRADOR".equalsIgnoreCase(rol)) {
-            Cargo cargo = empleadoRepository.findByUsuarioIdUsuario(usuario.getIdUsuario())
-                    .map(Empleado::getCargo)
-                    .orElse(null);
-
-            if (cargo != null) {
-                idCargo = cargo.getIdCargo();
-                nombreCargo = cargo.getCargo();
+            Empleado empleado = empleadoRepository.findByUsuarioIdUsuario(usuario.getIdUsuario()).orElse(null);
+            if (empleado != null) {
+                if (empleado.getCargo() != null) {
+                    idCargo = empleado.getCargo().getIdCargo();
+                    nombreCargo = empleado.getCargo().getCargo();
+                }
+                if (empleado.getArea() != null) {
+                    idArea = empleado.getArea().getIdArea();
+                    nombreArea = empleado.getArea().getArea();
+                }
             }
         }
 
@@ -188,7 +190,9 @@ public class AuthService {
                 idCargo,
                 nombreCargo,
                 idCiclo,
-                codigoCiclo
+                codigoCiclo,
+                idArea,
+                nombreArea
         );
     }
 
@@ -343,6 +347,11 @@ public class AuthService {
 
         if ("ADMINISTRADOR".equalsIgnoreCase(rol)) {
             throw new AccessDeniedException("No se permite restablecer contraseñas de administradores");
+        }
+
+        if (usuario.getEstadoUsuario() == null
+                || !"ACTIVO".equalsIgnoreCase(usuario.getEstadoUsuario().getEstadoUsuario())) {
+            throw new IllegalStateException("La cuenta debe estar activa para restablecer la contraseña.");
         }
 
         // 4. Generar contraseña temporal

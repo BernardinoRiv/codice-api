@@ -73,7 +73,6 @@ public class AuthController {
         }
     }
 
-    // Restablecer contraseña desde Administración
     @PostMapping("/admin/usuarios/{idUsuario}/reset-password")
     @PreAuthorize("hasRole('ADMINISTRADOR')")
     @Operation(summary = "Restablecer contraseña de un usuario desde Administración")
@@ -84,6 +83,6 @@ public class AuthController {
 
         authService.resetPassAdmin(idAdministrador, idUsuario, request);
 
-        return ResponseEntity.ok(Map.of("mensaje", "Contraseña restablecida correctamente. Se ha enviado una contraseña temporal al correo institucional del usuario."));
+        return ResponseEntity.ok(Map.of("mensaje", "Contraseña restablecida correctamente. Se ha enviado una contraseña temporal al correo personal registrado."));
     }
 }
