@@ -1,6 +1,7 @@
 package com.codice.sra.services;
 
 import com.codice.sra.dtos.*;
+import com.codice.sra.exceptions.ResourceNotFoundException;
 import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
 import lombok.RequiredArgsConstructor;
@@ -938,9 +939,11 @@ public class FinanzasService {
     }
 
     @Transactional(readOnly = true)
-    public byte[] descargarComprobanteHistorico(Long idPago) {
-        Pago pago = pagoRepository.findById(idPago)
-                .orElseThrow(() -> new RuntimeException("Pago no encontrado."));
+    public byte[] descargarComprobanteHistorico(Long idPago, Long idUsuarioEstudiante) {
+        Optional<Pago> pagoVisible = idUsuarioEstudiante == null
+                ? pagoRepository.findById(idPago)
+                : pagoRepository.findByIdPagoAndEstudiante_Usuario_IdUsuario(idPago, idUsuarioEstudiante);
+        Pago pago = pagoVisible.orElseThrow(() -> new ResourceNotFoundException("Pago no encontrado."));
 
         Estudiante estudiante = pago.getEstudiante();
         Persona persona = estudiante.getPersona();

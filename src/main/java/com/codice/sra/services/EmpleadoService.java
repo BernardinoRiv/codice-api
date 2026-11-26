@@ -5,7 +5,9 @@ import com.codice.sra.dtos.*;
 import com.codice.sra.exceptions.ResourceNotFoundException;
 import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
+import com.codice.sra.security.PermisosEmpleado;
 import com.codice.sra.utils.UserUtils;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,19 +48,22 @@ public class EmpleadoService {
     }
 
     @Transactional
-    public EmpleadoRegistroResponseDTO registrarEmpleado(EmpleadoRegistroRequestDTO request) {
-        Persona persona = personaService.obtenerOCrearPersona(request);
-
+    public EmpleadoRegistroResponseDTO registrarEmpleado(EmpleadoRegistroRequestDTO request, boolean altaDelegada) {
         Sede sede = sedeRepository.findById(request.getIdSede())
                 .orElseThrow(() -> new IllegalArgumentException("No existe ninguna sede registrada con el ID: " + request.getIdSede()));
-
-        Usuario usuario = usuarioService.aprovisionarUsuario(persona, ROL_EMPLEADO, LONGITUD_PASSWORD);
 
         Area area = areaRepository.findById(request.getIdArea())
                 .orElseThrow(() -> new IllegalArgumentException("Área no encontrada con ID: " + request.getIdArea()));
 
         Cargo cargo = cargoRepository.findById(request.getIdCargo())
                 .orElseThrow(() -> new IllegalArgumentException("Cargo no encontrado con ID: " + request.getIdCargo()));
+
+        if (altaDelegada && PermisosEmpleado.esAsignacionRegistrador(area.getArea(), cargo.getCargo())) {
+            throw new AccessDeniedException("Solo un administrador puede asignar el acceso de registrador académico.");
+        }
+
+        Persona persona = personaService.obtenerOCrearPersona(request);
+        Usuario usuario = usuarioService.aprovisionarUsuario(persona, ROL_EMPLEADO, LONGITUD_PASSWORD);
 
         EstadoEmpleado estadoEmpleado = estadoEmpleadoRepository.findByEstadoEmpleado(ESTADO_ACTIVO)
                 .orElseThrow(() -> new IllegalStateException("Estado '" + ESTADO_ACTIVO + "' para Empleado no encontrado en la base de datos"));

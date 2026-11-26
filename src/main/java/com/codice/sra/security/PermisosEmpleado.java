@@ -9,6 +9,8 @@ import java.text.Normalizer;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
 
 @Component
 public class PermisosEmpleado {
@@ -20,15 +22,31 @@ public class PermisosEmpleado {
     }
 
     public boolean puede(Authentication authentication, String... vistasRequeridas) {
+        return empleadoAutenticado(authentication)
+                .map(empleado -> !Collections.disjoint(vistas(empleado), List.of(vistasRequeridas)))
+                .orElse(false);
+    }
+
+    public boolean puedeRegistrarEnSede(Authentication authentication, Long idSede, String vista) {
+        return idSede != null && empleadoAutenticado(authentication)
+                .filter(empleado -> empleado.getSede() != null)
+                .filter(empleado -> Objects.equals(empleado.getSede().getIdSede(), idSede))
+                .map(empleado -> vistas(empleado).contains(vista))
+                .orElse(false);
+    }
+
+    private Optional<Empleado> empleadoAutenticado(Authentication authentication) {
         if (authentication == null || !(authentication.getPrincipal() instanceof Long idUsuario)
                 || authentication.getAuthorities().stream()
                     .noneMatch(autoridad -> "ROLE_EMPLEADO".equals(autoridad.getAuthority()))) {
-            return false;
+            return Optional.empty();
         }
+        return empleadoRepository.findByUsuarioIdUsuario(idUsuario);
+    }
 
-        return empleadoRepository.findByUsuarioIdUsuario(idUsuario)
-                .map(empleado -> !Collections.disjoint(vistas(empleado), List.of(vistasRequeridas)))
-                .orElse(false);
+    public static boolean esAsignacionRegistrador(String area, String cargo) {
+        return "ADMINISTRACION ACADEMICA".equals(normalizar(area))
+                && "REGISTRADOR ACADEMICO".equals(normalizar(cargo));
     }
 
     static List<String> vistas(Empleado empleado) {
@@ -38,6 +56,11 @@ public class PermisosEmpleado {
 
         String area = normalizar(empleado.getArea().getArea());
         String cargo = normalizar(empleado.getCargo().getCargo());
+
+        if (esAsignacionRegistrador(area, cargo)) {
+            return empleado.getSede() == null ? List.of()
+                    : List.of("registro-empleados", "registro-docente", "nuevo-ingreso");
+        }
 
         return switch (area + "/" + cargo) {
             case "FINANZAS/CAJERO", "COLECTURIA/CAJERO" -> List.of("pagos", "facturas");

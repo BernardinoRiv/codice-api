@@ -13,5 +13,8 @@ public interface PagoRepository extends JpaRepository<Pago, Long> {
     boolean existsByReferencia(String referencia);
 
     Optional<Pago> findByReferencia(String referencia);
+
+    Optional<Pago> findByIdPagoAndEstudiante_Usuario_IdUsuario(Long idPago, Long idUsuario);
+
     List<Pago> findByFechaPagoBetweenOrderByFechaPagoDesc(LocalDateTime inicio, LocalDateTime fin);
 }
