@@ -25,7 +25,7 @@ public class DocenteController {
     private DocenteService docenteService;
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR') or @permisosEmpleado.puedeRegistrarEnSede(authentication, #request.idSede, 'registro-docente')")
     @Operation(summary = "Registrar nuevo docente")
     public ResponseEntity<DocenteRegistroResponseDTO> crearDocente(@Valid @RequestBody DocenteRegistroRequestDTO request) {
         return ResponseEntity.ok(docenteService.registrarDocente(request));

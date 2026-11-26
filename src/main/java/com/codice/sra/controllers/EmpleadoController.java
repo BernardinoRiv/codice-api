@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,9 +24,13 @@ public class EmpleadoController {
     private final EmpleadoService empleadoService;
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR') or @permisosEmpleado.puedeRegistrarEnSede(authentication, #request.idSede, 'registro-empleados')")
     @Operation(summary = "Registrar nuevo empleado")
-    public ResponseEntity<EmpleadoRegistroResponseDTO> crearEmpleado(@Valid @RequestBody EmpleadoRegistroRequestDTO request) {
-        return ResponseEntity.ok(empleadoService.registrarEmpleado(request));
+    public ResponseEntity<EmpleadoRegistroResponseDTO> crearEmpleado(@Valid @RequestBody EmpleadoRegistroRequestDTO request,
+                                                                    Authentication authentication) {
+        boolean altaDelegada = authentication.getAuthorities().stream()
+                .anyMatch(autoridad -> "ROLE_EMPLEADO".equals(autoridad.getAuthority()));
+        return ResponseEntity.ok(empleadoService.registrarEmpleado(request, altaDelegada));
     }
 
     @GetMapping

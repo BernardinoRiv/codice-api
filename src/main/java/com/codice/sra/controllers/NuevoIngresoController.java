@@ -19,11 +19,9 @@ public class NuevoIngresoController {
     private final NuevoIngresoService nuevoIngresoService;
 
     @PostMapping("/pre-matricula")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'REGISTRO_ACADEMICO', 'EMPLEADO')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'REGISTRO_ACADEMICO') or @permisosEmpleado.puedeRegistrarEnSede(authentication, #request.idSede, 'nuevo-ingreso')")
     public ResponseEntity<?> registrarPreMatricula(@RequestBody NuevoIngresoRequestDTO request) {
         Map<String, Object> respuesta = nuevoIngresoService.procesarPreMatricula(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(respuesta);
     }
-
-
 }

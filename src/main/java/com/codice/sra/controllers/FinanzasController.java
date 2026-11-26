@@ -13,7 +13,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -31,9 +33,9 @@ public class FinanzasController {
     private final JwtService jwtService;
     private final BeneficioRepository beneficioRepository;
 
-    // ====================================================================
-    // NUEVO: CLONAR ARANCELES DEL CICLO PASADO AL NUEVO
-    // ====================================================================
+    private static final String PUEDE_GESTIONAR_COMPROBANTES =
+            "hasAnyRole('ADMINISTRADOR', 'FINANZAS') or @permisosEmpleado.puede(authentication, 'facturas', 'pagos')";
+
     @PostMapping("/clonar-aranceles")
     @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('FINANZAS')")
     public ResponseEntity<Map<String, Object>> clonarAranceles(
@@ -49,9 +51,6 @@ public class FinanzasController {
         return ResponseEntity.ok(response);
     }
 
-    // ====================================================================
-    // ACTUALIZADO: GENERACIÓN MASIVA CON EL DTO
-    // ====================================================================
     @PostMapping("/generar-cargos-apertura")
     @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('FINANZAS')")
     public ResponseEntity<Map<String, Object>> generarCobrosMasivos(
@@ -70,7 +69,6 @@ public class FinanzasController {
     @PreAuthorize("hasRole('FINANZAS') or @permisosEmpleado.puede(authentication, 'pagos')")
     public ResponseEntity<?> obtenerEstadoCuentaVentanilla(@PathVariable String identificador) {
         try {
-            // Llamamos al nuevo método que busca por Carnet o por DUI/NIT
             EstadoCuentaResponseDTO estadoCuenta = finanzasService.consultarEstadoCuentaPorCarnetODocumento(identificador);
             return ResponseEntity.ok(estadoCuenta);
         } catch (RuntimeException e) {
@@ -91,7 +89,6 @@ public class FinanzasController {
             Number idSedeNumber = jwtService.extractClaim(token, claims -> claims.get("idSede", Number.class));
             Long idSedeCajero = idSedeNumber != null ? idSedeNumber.longValue() : 1L;
 
-            // EL 1L AL FINAL INDICA CANAL "VENTANILLA"
             Map<String, Object> resultado = finanzasService.procesarPagoGral(request, correoCajero, idSedeCajero, 1L);
 
             return ResponseEntity.ok(resultado);
@@ -116,10 +113,6 @@ public class FinanzasController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
-
-    // ====================================================================
-    // ENDPOINTS DE GESTIÓN DE ARANCELES (CRUD)
-    // ====================================================================
 
     @GetMapping("/ciclos/{idCiclo}/aranceles")
     @PreAuthorize("hasRole('ADMINISTRADOR') or hasRole('FINANZAS')")
@@ -239,9 +232,18 @@ public class FinanzasController {
     }
 
     @GetMapping("/pagos/{idPago}/comprobante")
-    @PreAuthorize("hasRole('ESTUDIANTE') or hasRole('FINANZAS') or @permisosEmpleado.puede(authentication, 'facturas', 'pagos')")
-    public ResponseEntity<byte[]> descargarComprobante(@PathVariable Long idPago) {
-        byte[] pdfBytes = finanzasService.descargarComprobanteHistorico(idPago);
+    @PreAuthorize("hasRole('ESTUDIANTE') or (" + PUEDE_GESTIONAR_COMPROBANTES + ")")
+    public ResponseEntity<byte[]> descargarComprobante(@PathVariable Long idPago, Authentication authentication) {
+        Long idUsuarioEstudiante = null;
+        if (authentication.getAuthorities().stream()
+                .anyMatch(autoridad -> "ROLE_ESTUDIANTE".equals(autoridad.getAuthority()))) {
+            if (!(authentication.getPrincipal() instanceof Long idUsuario)) {
+                throw new AccessDeniedException("No se pudo identificar al estudiante.");
+            }
+            idUsuarioEstudiante = idUsuario;
+        }
+
+        byte[] pdfBytes = finanzasService.descargarComprobanteHistorico(idPago, idUsuarioEstudiante);
         org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_PDF);
         headers.setContentDispositionFormData("attachment", "Factura_" + idPago + ".pdf");
@@ -249,14 +251,14 @@ public class FinanzasController {
     }
 
     @GetMapping("/pagos/historial")
-    @PreAuthorize("isAuthenticated() and (!hasRole('EMPLEADO') or @permisosEmpleado.puede(authentication, 'facturas', 'pagos'))")
+    @PreAuthorize(PUEDE_GESTIONAR_COMPROBANTES)
     public ResponseEntity<?> obtenerHistorialPagos(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha) {
         if(fecha == null) fecha = LocalDate.now();
         return ResponseEntity.ok(finanzasService.obtenerPagosPorFecha(fecha));
     }
 
     @PostMapping("/pagos/{idPago}/reenviar-comprobante")
-    @PreAuthorize("isAuthenticated() and (!hasRole('EMPLEADO') or @permisosEmpleado.puede(authentication, 'facturas', 'pagos'))")
+    @PreAuthorize(PUEDE_GESTIONAR_COMPROBANTES)
     public ResponseEntity<?> reenviarComprobante(@PathVariable Long idPago) {
         return ResponseEntity.ok(finanzasService.reenviarComprobantePorCorreo(idPago));
     }

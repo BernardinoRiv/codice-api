@@ -66,6 +66,20 @@ public class NuevoIngresoService {
         }
         if (dto.getIdSede() == null) throw new IllegalArgumentException("Debe indicar la sede para validar los grupos seleccionados.");
 
+        if (dto.getIdCarreraSede() == null || dto.getIdPensum() == null) {
+            throw new IllegalArgumentException("Debes seleccionar una carrera y un pensum.");
+        }
+        CarreraSede carreraSede = carreraSedeRepository.findById(dto.getIdCarreraSede())
+                .orElseThrow(() -> new IllegalArgumentException("La carrera seleccionada no está disponible."));
+        if (!java.util.Objects.equals(carreraSede.getSede().getIdSede(), dto.getIdSede())) {
+            throw new IllegalArgumentException("La carrera seleccionada no pertenece a la sede del registro.");
+        }
+        Pensum pensum = pensumRepository.findById(dto.getIdPensum().intValue())
+                .orElseThrow(() -> new IllegalArgumentException("El pensum seleccionado no está disponible."));
+        if (!java.util.Objects.equals(pensum.getCarrera().getIdCarrera(), carreraSede.getCarrera().getIdCarrera())) {
+            throw new IllegalArgumentException("El pensum seleccionado no pertenece a la carrera.");
+        }
+
         Ciclo cicloActivo = cicloMatriculaValidatorService.resolverCicloHabilParaMatricula().ciclo();
         List<Grupo> gruposValidados = validarGruposNuevoIngreso(dto, cicloActivo);
 
@@ -101,8 +115,8 @@ public class NuevoIngresoService {
 
         EstudianteCarrera trayectoria = new EstudianteCarrera();
         trayectoria.setEstudiante(estudiante);
-        trayectoria.setCarreraSede(carreraSedeRepository.findById(dto.getIdCarreraSede()).orElseThrow());
-        trayectoria.setPensum(pensumRepository.findById(dto.getIdPensum().intValue()).orElseThrow());
+        trayectoria.setCarreraSede(carreraSede);
+        trayectoria.setPensum(pensum);
         trayectoria.setFechaInicio(LocalDate.now());
         trayectoria.setEstadoTrayectoria(estadoTrayectoriaRepository.findById(1L).orElseThrow());
         trayectoria = estudianteCarreraRepository.save(trayectoria);
