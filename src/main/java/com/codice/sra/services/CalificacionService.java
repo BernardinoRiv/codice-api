@@ -26,18 +26,27 @@ public class CalificacionService {
     private final InscripcionRepository inscripcionRepository;
     private final EstadoCalificacionRepository estadoCalificacionRepository;
     private final GrupoRepository grupoRepository;
+    private final SolicitudCalificacionRepository solicitudCalificacionRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final AuditoriaService auditoriaService;
 
     public CalificacionService(
             CalificacionRepository calificacionRepository,
             EvaluacionRepository evaluacionRepository,
             InscripcionRepository inscripcionRepository,
             EstadoCalificacionRepository estadoCalificacionRepository,
-            GrupoRepository grupoRepository) {
+            GrupoRepository grupoRepository,
+            SolicitudCalificacionRepository solicitudCalificacionRepository,
+            UsuarioRepository usuarioRepository,
+            AuditoriaService auditoriaService) {
         this.calificacionRepository = calificacionRepository;
         this.evaluacionRepository = evaluacionRepository;
         this.inscripcionRepository = inscripcionRepository;
         this.estadoCalificacionRepository = estadoCalificacionRepository;
         this.grupoRepository = grupoRepository;
+        this.solicitudCalificacionRepository = solicitudCalificacionRepository;
+        this.usuarioRepository = usuarioRepository;
+        this.auditoriaService = auditoriaService;
     }
 
     @Transactional
@@ -51,30 +60,44 @@ public class CalificacionService {
                 .orElseThrow(() -> new RuntimeException("La inscripción no existe."));
 
         validarPropiedadGrupo(evaluacion, idUsuarioDocente);
-        validarVentanaTiempo(evaluacion);
+        if (!Objects.equals(inscripcion.getGrupo().getIdGrupo(), evaluacion.getGrupo().getIdGrupo()))
+            throw new IllegalArgumentException("La inscripción no pertenece al grupo de la evaluación.");
+
+        Optional<Calificacion> calificacionExistente = calificacionRepository
+                .findByInscripcionIdInscripcionAndEvaluacionIdEvaluacion(request.getIdInscripcion(), request.getIdEvaluacion());
+        if (calificacionExistente.isPresent() && calificacionExistente.get().getNota() != null
+                && calificacionExistente.get().getNota().compareTo(request.getNota()) == 0) {
+            return mapearAResponse(calificacionExistente.get());
+        }
 
         EstadoCalificacion estadoBorrador = estadoCalificacionRepository.findByEstadoCalificacion("BORRADOR")
                 .orElseThrow(() -> new RuntimeException("El estado BORRADOR no está configurado."));
 
         LocalDateTime ahora = LocalDateTime.now();
-        Optional<Calificacion> calificacionExistente = calificacionRepository
-                .findByInscripcionIdInscripcionAndEvaluacionIdEvaluacion(request.getIdInscripcion(), request.getIdEvaluacion());
+        Calificacion existenteParaSolicitud = calificacionExistente.orElse(null);
+        boolean habilitadaSolicitud = existenteParaSolicitud != null && solicitudAprobadaVigente(existenteParaSolicitud, ahora);
+        boolean enVentana = enVentana(evaluacion, ahora);
+        if (!enVentana && !habilitadaSolicitud)
+            throw new RuntimeException("La evaluación está fuera de su período y no tiene una solicitud aprobada vigente.");
 
         Calificacion calificacion;
+        BigDecimal notaAnterior = null;
         if (calificacionExistente.isPresent()) {
             calificacion = calificacionExistente.get();
+            notaAnterior = calificacion.getNota();
 
             if ("PUBLICADA".equalsIgnoreCase(calificacion.getEstadoCalificacion().getEstadoCalificacion())) {
                 if (calificacion.getNota().compareTo(request.getNota()) == 0) {
                     return mapearAResponse(calificacion);
                 } else {
-                    throw new RuntimeException("La calificación del estudiante ya está publicada y no puede ser modificada. Solicite permisos al administrador.");
+                    if (!habilitadaSolicitud) throw new RuntimeException("La calificación publicada requiere una solicitud aprobada vigente para modificarse.");
                 }
             }
 
             calificacion.setNota(request.getNota());
             calificacion.setFechaModificacion(ahora);
             calificacion.setEstadoCalificacion(estadoBorrador);
+            calificacion.setFechaPublicacion(null);
         } else {
             calificacion = new Calificacion();
             calificacion.setInscripcion(inscripcion);
@@ -84,8 +107,13 @@ public class CalificacionService {
             calificacion.setFechaRegistro(ahora);
         }
 
-        calificacion.setUsuario(evaluacion.getGrupo().getDocente().getUsuario());
-        return mapearAResponse(calificacionRepository.save(calificacion));
+        calificacion.setUsuario(usuarioRepository.getReferenceById(idUsuarioDocente));
+        Calificacion guardada = calificacionRepository.save(calificacion);
+        if (habilitadaSolicitud && (notaAnterior == null || notaAnterior.compareTo(request.getNota()) != 0)) {
+            auditoriaService.registrarEvento("MODIFICACION_NOTA_APROBADA", "calificaciones", guardada.getIdCalificacion(),
+                    "Nota modificada por solicitud aprobada: " + notaAnterior + " -> " + request.getNota());
+        }
+        return mapearAResponse(guardada);
     }
 
     @Transactional(readOnly = true)
@@ -206,15 +234,7 @@ public class CalificacionService {
 
         List<CalificacionResponseDTO> respuestas = new ArrayList<>();
         List<Evaluacion> todasEvaluaciones = evaluacionRepository.findByIdGrupoOrderByPeriodo(idGrupo);
-        LocalDateTime ahora = LocalDateTime.now();
-
-        List<Evaluacion> evaluacionesActivas = todasEvaluaciones.stream()
-                .filter(ev -> {
-                    LocalDateTime inicio = ev.getFechaInicio();
-                    LocalDateTime fin = ev.getFechaFin();
-                    return !ahora.isBefore(inicio) && !ahora.isAfter(fin);
-                })
-                .collect(Collectors.toList());
+        List<Evaluacion> evaluacionesActivas = todasEvaluaciones;
 
         if (evaluacionesActivas.isEmpty()) {
             throw new RuntimeException("No hay evaluaciones activas en este momento para cargar notas.");
@@ -328,16 +348,6 @@ public class CalificacionService {
 
                     BigDecimal notaNormalizada = notaReal.setScale(1);
 
-                    Optional<Calificacion> califExistente = calificacionRepository
-                            .findByInscripcionIdInscripcionAndEvaluacionIdEvaluacion(
-                                    inscripcion.getIdInscripcion(),
-                                    evaluacion.getIdEvaluacion());
-
-                    if (califExistente.isPresent() &&
-                            "PUBLICADA".equalsIgnoreCase(califExistente.get().getEstadoCalificacion().getEstadoCalificacion())) {
-                        continue;
-                    }
-
                     CalificacionRegistroRequestDTO request = new CalificacionRegistroRequestDTO();
                     request.setIdInscripcion(inscripcion.getIdInscripcion());
                     request.setIdEvaluacion(evaluacion.getIdEvaluacion());
@@ -381,10 +391,20 @@ public class CalificacionService {
         }
     }
 
-    private void validarVentanaTiempo(Evaluacion evaluacion) {
-        LocalDateTime ahora = LocalDateTime.now();
-        if (ahora.isBefore(evaluacion.getFechaInicio())) throw new RuntimeException("El período de calificación aún no ha iniciado.");
-        if (ahora.isAfter(evaluacion.getFechaFin())) throw new RuntimeException("El período de calificación ha finalizado.");
+    private boolean enVentana(Evaluacion evaluacion, LocalDateTime ahora) {
+        return evaluacion.getFechaInicio() != null && evaluacion.getFechaFin() != null
+                && !ahora.isBefore(evaluacion.getFechaInicio()) && !ahora.isAfter(evaluacion.getFechaFin());
+    }
+
+    private boolean solicitudAprobadaVigente(Calificacion calificacion, LocalDateTime ahora) {
+        return solicitudCalificacionRepository
+                .findByCalificacion_IdCalificacionAndEstadoSolicitud_EstadoSolicitudIgnoreCaseOrderByFechaRespuestaDesc(
+                        calificacion.getIdCalificacion(), "APROBADA")
+                .stream().anyMatch(s -> s.getFechaRespuesta() != null
+                        && s.getFechaRespuesta().plusHours(48).isAfter(ahora)
+                        && !("PUBLICADA".equalsIgnoreCase(calificacion.getEstadoCalificacion().getEstadoCalificacion())
+                        && calificacion.getFechaPublicacion() != null
+                        && !calificacion.getFechaPublicacion().isBefore(s.getFechaRespuesta())));
     }
 
     private CalificacionResponseDTO mapearAResponse(Calificacion calificacion) {

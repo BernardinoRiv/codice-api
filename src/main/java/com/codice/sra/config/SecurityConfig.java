@@ -87,6 +87,8 @@ public class SecurityConfig {
                                 "/api/v1/ciclos/operativo-oferta"
                         ).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/admin/usuarios/*/reset-password").hasRole("ADMINISTRADOR")
+                        .requestMatchers("/api/v1/gestion-evaluaciones/**").hasAnyRole("ADMINISTRADOR", "REGISTRO_ACADEMICO")
+                        .requestMatchers("/api/v1/docente/notas/solicitudes-modificacion").hasRole("DOCENTE")
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/refresh").authenticated()
                         .requestMatchers(
                                 "/",

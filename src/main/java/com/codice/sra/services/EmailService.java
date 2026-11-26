@@ -204,18 +204,29 @@ public class EmailService {
     }
 
     public void enviarCredencialesYComprobanteBeca(String destinatario, String nombre, String carnet,
-                                                    String correoInstitucional, String claveTemporal, byte[] pdf) {
+                                                    String correoInstitucional, String claveTemporal,
+                                                    String numeroFactura, byte[] pdf) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setTo(destinatario);
             helper.setSubject("Adjudicación de beca 100% y credenciales UMA");
-            helper.setText("<p>Hola " + nombre + ",</p><p>Se adjudicó tu beca institucional del 100%. Adjunto encontrarás el comprobante oficial.</p>"
-                    + "<p>Carnet: " + carnet + "<br>Correo institucional: " + correoInstitucional
-                    + "<br>Contraseña temporal: " + claveTemporal + "</p>", true);
+            String html = String.format("""
+                    <!DOCTYPE html><html><head><meta charset="UTF-8"><style>%s</style></head><body>
+                    <div class="email-container"><div class="email-header"><img src="https://www.uma.edu.sv/regionales/san-miguel/assets/logo25.png" alt="Escudo UMA"></div>
+                    <div class="email-body"><h2>Adjudicación de beca institucional 100%%</h2>
+                    <p>Hola <strong>%s</strong>, tu beca institucional del 100%% fue adjudicada. Se adjunta tu comprobante oficial <strong>%s</strong>.</p>
+                    <div class="highlight-box"><p><strong>Carnet:</strong> %s</p><p><strong>Correo institucional:</strong> %s</p>
+                    <p><strong>Contraseña temporal:</strong> %s</p></div>
+                    <p>Por seguridad, cambia tu contraseña al ingresar al sistema.</p></div>
+                    <div class="email-footer">&copy; 2026 Universidad Modular Abierta (UMA). Todos los derechos reservados.</div></div></body></html>
+                    """, CSS_BASE, nombre, numeroFactura, carnet, correoInstitucional, claveTemporal);
+            helper.setText(html, true);
             helper.addAttachment("Comprobante_Adjudicacion_Beca_100.pdf", new ByteArrayResource(pdf));
             mailSender.send(message);
+            log.info("Comprobante de beca 100% {} enviado a {}", numeroFactura, destinatario);
         } catch (MessagingException e) {
+            log.error("No se pudo enviar comprobante de beca 100% {} a {}: {}", numeroFactura, destinatario, e.getMessage(), e);
             throw new RuntimeException("Error al enviar credenciales y comprobante de beca.", e);
         }
     }
@@ -339,6 +350,26 @@ public class EmailService {
             log.info("Notificación de nota enviada a {}", correoDestino);
         } catch (Exception e) {
             log.error("Error al enviar notificación de nota a {}: {}", correoDestino, e.getMessage());
+        }
+    }
+
+    @Async
+    public void enviarResultadoSolicitudNota(String correoDestino, String nombreDocente, String estado,
+                                              String respuesta, boolean aprobada) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setTo(correoDestino);
+            helper.setSubject("Códice SRA - Solicitud de modificación de nota " + estado);
+            String instruccion = aprobada
+                    ? "La solicitud fue aprobada. Tienes 48 horas desde esta notificación para registrar o corregir las notas y publicarlas."
+                    : "La solicitud fue rechazada.";
+            String body = "<p>Hola <strong>" + nombreDocente + "</strong>,</p><p>" + instruccion + "</p>"
+                    + "<p><strong>Observación:</strong> " + (respuesta == null || respuesta.isBlank() ? "Sin observación." : respuesta) + "</p>";
+            helper.setText(body, true);
+            mailSender.send(message);
+        } catch (Exception e) {
+            log.error("No se pudo notificar resolución de solicitud a {}: {}", correoDestino, e.getMessage());
         }
     }
 

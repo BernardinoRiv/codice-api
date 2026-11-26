@@ -27,6 +27,7 @@ public class GrupoService {
     private final InscripcionRepository inscripcionRepository;
     private final EvaluacionRepository evaluacionRepository;
     private final CalificacionRepository calificacionRepository;
+    private final SolicitudCalificacionRepository solicitudCalificacionRepository;
     private final GrupoRepository grupoRepository;
     private final HorarioRepository horarioRepository;
     private final PlantillaHorarioRepository plantillaHorarioRepository;
@@ -136,32 +137,53 @@ public class GrupoService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<EvaluacionResponseDTO> obtenerEvaluacionesPorGrupo(Long idGrupo) {
+        java.time.LocalDateTime ahora = java.time.LocalDateTime.now();
         return evaluacionRepository.findByGrupoIdGrupo(idGrupo).stream().map(ev -> {
             Integer periodo = (ev.getPeriodoEvaluacion() != null) ? ev.getPeriodoEvaluacion().getPeriodo() : null;
-            return new EvaluacionResponseDTO(
-                    ev.getIdEvaluacion(),
-                    ev.getTipoEvaluacion().getTipoEvaluacion(),
-                    ev.getNumeroEvaluacion(),
-                    ev.getFechaInicio(),
-                    ev.getFechaFin(),
-                    periodo
-            );
+            EvaluacionResponseDTO dto = new EvaluacionResponseDTO();
+            dto.setIdEvaluacion(ev.getIdEvaluacion());
+            dto.setTipoEvaluacion(ev.getTipoEvaluacion().getTipoEvaluacion());
+            dto.setNumeroEvaluacion(ev.getNumeroEvaluacion());
+            dto.setFechaInicio(ev.getFechaInicio());
+            dto.setFechaFin(ev.getFechaFin());
+            dto.setPeriodo(periodo);
+            dto.setVencida(ev.getFechaFin() != null && ahora.isAfter(ev.getFechaFin()));
+            dto.setActiva(ev.getFechaInicio() != null && ev.getFechaFin() != null
+                    && !ahora.isBefore(ev.getFechaInicio()) && !ahora.isAfter(ev.getFechaFin()));
+            dto.setPuedeSolicitarModificacion(ev.getFechaFin() != null && ahora.isAfter(ev.getFechaFin())
+                    && !ahora.isAfter(ev.getFechaFin().plusDays(7)));
+            return dto;
         }).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<CalificacionResponseDTO> obtenerCalificacionesPorGrupo(Long idGrupo) {
+        java.time.LocalDateTime ahora = java.time.LocalDateTime.now();
         return calificacionRepository.findByEvaluacionGrupoIdGrupo(idGrupo).stream().map(calif -> {
-            return new CalificacionResponseDTO(
-                    calif.getIdCalificacion(),
-                    calif.getInscripcion().getIdInscripcion(),
-                    calif.getEvaluacion().getIdEvaluacion(),
-                    calif.getNota(),
-                    calif.getEstadoCalificacion().getEstadoCalificacion(),
-                    calif.getFechaRegistro(),
-                    calif.getFechaPublicacion(),
-                    calif.getFechaModificacion()
-            );
+            CalificacionResponseDTO dto = new CalificacionResponseDTO();
+            dto.setIdCalificacion(calif.getIdCalificacion());
+            dto.setIdInscripcion(calif.getInscripcion().getIdInscripcion());
+            dto.setIdEvaluacion(calif.getEvaluacion().getIdEvaluacion());
+            dto.setNota(calif.getNota());
+            dto.setEstadoCalificacion(calif.getEstadoCalificacion().getEstadoCalificacion());
+            dto.setFechaRegistro(calif.getFechaRegistro());
+            dto.setFechaPublicacion(calif.getFechaPublicacion());
+            dto.setFechaModificacion(calif.getFechaModificacion());
+            List<SolicitudCalificacion> solicitudes = solicitudCalificacionRepository
+                    .findByCalificacion_IdCalificacionOrderByFechaSolicitudDesc(calif.getIdCalificacion());
+            if (!solicitudes.isEmpty()) dto.setEstadoSolicitudActual(solicitudes.get(0).getEstadoSolicitud().getEstadoSolicitud());
+            dto.setHabilitadaPorSolicitudHasta(solicitudes.stream()
+                    .filter(s -> "APROBADA".equalsIgnoreCase(s.getEstadoSolicitud().getEstadoSolicitud()) && s.getFechaRespuesta() != null)
+                    .filter(s -> s.getFechaRespuesta().plusHours(48).isAfter(ahora))
+                    .filter(s -> !(calif.getEstadoCalificacion() != null
+                            && "PUBLICADA".equalsIgnoreCase(calif.getEstadoCalificacion().getEstadoCalificacion())
+                            && calif.getFechaPublicacion() != null
+                            && !calif.getFechaPublicacion().isBefore(s.getFechaRespuesta())))
+                    .map(s -> s.getFechaRespuesta().plusHours(48))
+                    .max(java.util.Comparator.naturalOrder()).orElse(null));
+            return dto;
         }).collect(Collectors.toList());
     }
 
