@@ -475,11 +475,19 @@ public class AdmisionOnlineService {
                 .filter(c -> correspondeNivel(c, posgrado))
                 .filter(c -> !nombreTipo(c).contains("tesis"))
                 .findFirst().orElseThrow(() -> new IllegalStateException("No hay arancel de matrícula configurado para el nivel " + carreraSede.getCarrera().getNivel().getNivel()));
+
         ConceptoCobro arancelCuota = arancelesNivel.stream()
-                .filter(c -> nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual"))
+                .filter(c -> posgrado
+                        ? nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual")
+                        : nombreTipo(c).equals("cuota mensual de pregrado"))
                 .filter(c -> correspondeNivel(c, posgrado))
-                .filter(c -> !nombreTipo(c).contains("tesis"))
-                .findFirst().orElseThrow(() -> new IllegalStateException("No hay arancel de cuota configurado para el nivel " + carreraSede.getCarrera().getNivel().getNivel()));
+                .findFirst().orElseThrow(() -> new IllegalStateException(
+                        "No hay arancel de cuota configurado para el nivel "
+                                + carreraSede.getCarrera().getNivel().getNivel()));
+//        ConceptoCobro arancelCuota = arancelesNivel.stream()
+//                .filter(c -> nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual"))
+//                .filter(c -> correspondeNivel(c, posgrado))
+//                .findFirst().orElseThrow(() -> new IllegalStateException("No hay arancel de cuota configurado para el nivel " + carreraSede.getCarrera().getNivel().getNivel()));
 
         EstudianteBeneficio beneficioAsignado = asignarBeneficio(dto.getIdBeneficio(), estudiante);
         String nombreBeneficio = beneficioAsignado == null ? "" : beneficioAsignado.getBeneficio().getBeneficio().toLowerCase(Locale.ROOT);
@@ -641,9 +649,18 @@ public class AdmisionOnlineService {
                 .orElseThrow(() -> new IllegalStateException("No existe arancel de matrícula para el nivel seleccionado."));
 
         // Cuota mensual.
-        ConceptoCobro conceptoCuota = conceptos.stream().filter(c -> nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual"))
-                .filter(c -> correspondeNivel(c, posgrado)).findFirst()
-                .orElseThrow(() -> new IllegalStateException("No existe arancel de cuota mensual para el nivel seleccionado."));
+        ConceptoCobro conceptoCuota = conceptos.stream()
+                .filter(c -> posgrado
+                        ? nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual")
+                        : nombreTipo(c).equals("cuota mensual de pregrado"))
+                .filter(c -> correspondeNivel(c, posgrado))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "No existe arancel de cuota mensual para el nivel seleccionado."));
+//        // Cuota mensual.
+//        ConceptoCobro conceptoCuota = conceptos.stream().filter(c -> nombreTipo(c).contains("cuota") || nombreTipo(c).contains("mensual"))
+//                .filter(c -> correspondeNivel(c, posgrado)).findFirst()
+//                .orElseThrow(() -> new IllegalStateException("No existe arancel de cuota mensual para el nivel seleccionado."));
 
         BigDecimal montoMatricula = conceptoMatricula.getMontoBase();
         BigDecimal montoCuota = conceptoCuota.getMontoBase();
@@ -664,7 +681,7 @@ public class AdmisionOnlineService {
             montoExtraordinaria = conceptoExtra.getMontoBase();
         }
 
-        int numeroCuotas = 5;
+        int numeroCuotas = 6;
 
         BigDecimal totalCuotas = montoCuota.multiply(
                 BigDecimal.valueOf(numeroCuotas)
@@ -699,7 +716,9 @@ public class AdmisionOnlineService {
     }
 
     private String nombreTipo(ConceptoCobro concepto) {
-        return concepto.getTipoCobro().getTipoCobro().toLowerCase(Locale.ROOT);
+        String tipo = concepto.getTipoCobro().getTipoCobro().toLowerCase(Locale.ROOT);
+        return java.text.Normalizer.normalize(tipo, java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "");
     }
 
     private boolean esPosgrado(Carrera carrera) {
