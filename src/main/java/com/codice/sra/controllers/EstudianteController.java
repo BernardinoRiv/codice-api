@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/estudiantes")
+@RequestMapping({"/api/v1/estudiantes", "/api/v1/estudiante"})
 @Tag(name = "Estudiantes - Notas")
 public class EstudianteController {
 
@@ -47,6 +47,14 @@ public class EstudianteController {
     public ResponseEntity<NotasEstudianteResponseDTO> obtenerNotas() {
         Long idEstudianteReal = obtenerIdEstudianteAutenticado();
         return ResponseEntity.ok(estudianteService.obtenerNotasCicloActual(idEstudianteReal));
+    }
+
+    @GetMapping("/dashboard")
+    @PreAuthorize("hasRole('ESTUDIANTE')")
+    @Operation(summary = "Obtener el dashboard consolidado del estudiante autenticado")
+    public ResponseEntity<EstudianteDashboardDTO> obtenerDashboard() {
+        Long idEstudiante = obtenerIdEstudianteAutenticado();
+        return ResponseEntity.ok(estudianteService.obtenerDashboard(idEstudiante));
     }
 
     @GetMapping("/historial")

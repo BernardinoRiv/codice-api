@@ -8,6 +8,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/v1/evaluaciones")
 @Tag(name = "Gestión de Evaluaciones")
@@ -19,8 +21,13 @@ public class EvaluacionController {
     @PostMapping("/{idEvaluacion}/publicar")
     @PreAuthorize("hasRole('DOCENTE')")
     @Operation(summary = "Publicar calificaciones de una evaluación")
-    public ResponseEntity<Void> publicarEvaluacion(@PathVariable Long idEvaluacion) {
-        evaluacionService.publicarEvaluacion(idEvaluacion);
-        return ResponseEntity.ok().build();
+    public ResponseEntity<?> publicarEvaluacion(@PathVariable Long idEvaluacion) {
+        try {
+            evaluacionService.publicarEvaluacion(idEvaluacion);
+            return ResponseEntity.ok().build();
+        } catch (RuntimeException e) {
+            String mensaje = e.getMessage() == null ? "No se pudo publicar la evaluación." : e.getMessage();
+            return ResponseEntity.badRequest().body(Map.of("exito", false, "mensaje", mensaje));
+        }
     }
 }

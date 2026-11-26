@@ -8,4 +8,5 @@ import java.util.List;
 @Repository
 public interface PeriodoEvaluacionRepository extends JpaRepository<PeriodoEvaluacion, Long> {
     List<PeriodoEvaluacion> findByCicloIdCiclo(Long idCiclo);
+    java.util.Optional<PeriodoEvaluacion> findByCiclo_IdCicloAndPeriodo(Long idCiclo, Integer periodo);
 }
