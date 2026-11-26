@@ -82,6 +82,8 @@ public class PensumService {
         if (idOrigen == null || idOrigen <= 0 || dto == null || dto.version() == null || dto.anioInicio() == null || dto.anioFin() == null)
             throw new IllegalArgumentException("Debe indicar el pensum de origen y los años de la nueva versión");
 
+        bloquearCambiosDelCatalogo();
+
         Pensum origen = pensumRepository.findDetalleCabecera(idOrigen)
                 .orElseThrow(() -> new IllegalArgumentException("No existe el pensum de origen"));
         String estadoOrigen = origen.getEstadoPensum().getEstadoPensum();
@@ -166,6 +168,11 @@ public class PensumService {
     }
 
 
+    private void bloquearCambiosDelCatalogo() {
+        entityManager.createNativeQuery("LOCK TABLE public.materias IN SHARE MODE")
+                .executeUpdate();
+    }
+
     @Transactional
     public PensumDetalleDTO guardarBorrador(Long idPensum, PensumBorradorDTO dto) {
         if (idPensum == null || idPensum <= 0)
@@ -173,6 +180,8 @@ public class PensumService {
 
         if (dto == null || dto.materias() == null)
             throw new IllegalArgumentException("Debe proporcionar la lista de materias");
+
+        bloquearCambiosDelCatalogo();
 
         Pensum pensum = pensumRepository.findDetalleCabecera(idPensum)
                 .orElseThrow(() -> new IllegalArgumentException("No existe el pensum solicitado"));
@@ -213,6 +222,12 @@ public class PensumService {
 
             Materia materia = materiaRepository.findByIdConPrerrequisitos(idMateria)
                     .orElseThrow(() -> new IllegalArgumentException("No existe la materia: " + idMateria));
+
+            if (!Boolean.TRUE.equals(materia.getEstadoMateria())
+                    && !materiaRepository.existeAsignacion(idPensum, idMateria)) {
+                throw new IllegalArgumentException(
+                        "No se puede agregar una materia inactiva: " + materia.getCodigoMateria());
+            }
 
             materiasValidas.put(idMateria, materia);
         }

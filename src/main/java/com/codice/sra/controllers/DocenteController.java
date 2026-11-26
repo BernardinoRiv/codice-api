@@ -75,4 +75,45 @@ public class DocenteController {
         docenteService.cambiarEstadoDocente(idDocente, request);
         return ResponseEntity.noContent().build(); // HTTP 204 No Content
     }
+
+    @GetMapping("/{idDocente}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR')")
+    public DocenteDetalleDTO detalle(@PathVariable Long idDocente) {
+        return docenteService.detalle(idDocente);
+    }
+
+    @PutMapping("/{idDocente}/datos-personales")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<Void> datos_personales(@PathVariable Long idDocente, @Valid @RequestBody EmpleadoDatosPersonalesDTO dto) {
+        docenteService.datosPersonales(idDocente, dto);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{idDocente}/documento")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<Void> documento(@PathVariable Long idDocente, @Valid @RequestBody EmpleadoCambioDocumentoDTO dto) {
+        docenteService.documento(idDocente, dto);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{idDocente}/datos-laborales")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<Void> datos_laborales(@PathVariable Long idDocente, @Valid @RequestBody DocenteDatosLaboralesDTO dto) {
+        docenteService.datosLaborales(idDocente, dto);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{idDocente}/usuario/bloquear")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<Void> bloquear(@PathVariable Long idDocente, @Valid @RequestBody EmpleadoBloqueoUsuarioDTO dto) {
+        docenteService.estadoCuenta(idDocente, true, dto.getMotivo());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{idDocente}/usuario/desbloquear")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    public ResponseEntity<Void> desbloquear(@PathVariable Long idDocente, @Valid @RequestBody EmpleadoBloqueoUsuarioDTO dto) {
+        docenteService.estadoCuenta(idDocente, false, dto.getMotivo());
+        return ResponseEntity.noContent().build();
+    }
 }

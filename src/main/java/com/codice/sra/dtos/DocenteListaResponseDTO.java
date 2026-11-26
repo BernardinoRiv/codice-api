@@ -29,4 +29,5 @@ public class DocenteListaResponseDTO {
     private String numeroDocumento;
     private LocalDate fechaInicio;
     private LocalDate fechaFin;
+    private String estadoUsuario;
 }
