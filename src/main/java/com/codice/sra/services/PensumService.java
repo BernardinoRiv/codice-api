@@ -232,26 +232,26 @@ public class PensumService {
             materiasValidas.put(idMateria, materia);
         }
 
-        for (PensumBorradorDTO.MateriaAsignadaDTO asignacion : dto.materias()) {
-            Materia materia = materiasValidas.get(asignacion.idMateria());
-
-            for (Materia prerrequisito : materia.getPrerrequisitos()) {
-                PensumBorradorDTO.MateriaAsignadaDTO requisito = asignaciones.get(prerrequisito.getIdMateria());
-
-
-                if (requisito == null && estado.equals("PENDIENTE_APROBACION"))
-                    throw new IllegalArgumentException(
-                            "La materia " + materia.getNombreMateria() +
-                                    " requiere incluir " + prerrequisito.getNombreMateria() + " en el pensum");
-
-                if (requisito != null && requisito.cicloRecomendado() >= asignacion.cicloRecomendado())
-                    throw new IllegalArgumentException(
-                            "La materia " + materia.getNombreMateria() +
-                                    " requiere que " + prerrequisito.getNombreMateria() +
-                                    " esté ubicada en un ciclo anterior");
-
-            }
-        }
+//        for (PensumBorradorDTO.MateriaAsignadaDTO asignacion : dto.materias()) {
+//            Materia materia = materiasValidas.get(asignacion.idMateria());
+//
+//            for (Materia prerrequisito : materia.getPrerrequisitos()) {
+//                PensumBorradorDTO.MateriaAsignadaDTO requisito = asignaciones.get(prerrequisito.getIdMateria());
+//
+//
+//                if (requisito == null && estado.equals("PENDIENTE_APROBACION"))
+//                    throw new IllegalArgumentException(
+//                            "La materia " + materia.getNombreMateria() +
+//                                    " requiere incluir " + prerrequisito.getNombreMateria() + " en el pensum");
+//
+//                if (requisito != null && requisito.cicloRecomendado() >= asignacion.cicloRecomendado())
+//                    throw new IllegalArgumentException(
+//                            "La materia " + materia.getNombreMateria() +
+//                                    " requiere que " + prerrequisito.getNombreMateria() +
+//                                    " esté ubicada en un ciclo anterior");
+//
+//            }
+//        }
 
         if (estado.equals("PENDIENTE_APROBACION")) {
             for (int ciclo = 1; ciclo <= totalCiclos; ciclo++) {
@@ -334,24 +334,24 @@ public class PensumService {
                         "El ciclo " + ciclo + " debe contener entre 4 y 5 materias. Actualmente tiene " + cantidad);
         }
 
-        for (PensumMateria pm : materias) {
-            Materia materia = materiaRepository.findByIdConPrerrequisitos(pm.getMateria().getIdMateria())
-                    .orElseThrow(() -> new IllegalArgumentException("No existe la materia asignada"));
-
-            for (Materia prerrequisito : materia.getPrerrequisitos()) {
-                Integer cicloPrerrequisito = ciclosPorMateria.get(prerrequisito.getIdMateria());
-
-                if (cicloPrerrequisito == null)
-                    throw new IllegalArgumentException(
-                            "La materia " + materia.getNombreMateria() +
-                                    " requiere incluir " + prerrequisito.getNombreMateria() + " en el pensum");
-
-                if (cicloPrerrequisito >= pm.getCicloRecomendado())
-                    throw new IllegalArgumentException(
-                            "El prerrequisito " + prerrequisito.getNombreMateria() +
-                                    " debe estar en un ciclo anterior a " + materia.getNombreMateria());
-            }
-        }
+//        for (PensumMateria pm : materias) {
+//            Materia materia = materiaRepository.findByIdConPrerrequisitos(pm.getMateria().getIdMateria())
+//                    .orElseThrow(() -> new IllegalArgumentException("No existe la materia asignada"));
+//
+//            for (Materia prerrequisito : materia.getPrerrequisitos()) {
+//                Integer cicloPrerrequisito = ciclosPorMateria.get(prerrequisito.getIdMateria());
+//
+//                if (cicloPrerrequisito == null)
+//                    throw new IllegalArgumentException(
+//                            "La materia " + materia.getNombreMateria() +
+//                                    " requiere incluir " + prerrequisito.getNombreMateria() + " en el pensum");
+//
+//                if (cicloPrerrequisito >= pm.getCicloRecomendado())
+//                    throw new IllegalArgumentException(
+//                            "El prerrequisito " + prerrequisito.getNombreMateria() +
+//                                    " debe estar en un ciclo anterior a " + materia.getNombreMateria());
+//            }
+//        }
 
         EstadoPensum estado = estadoPensumRepository.findByEstadoPensum("PENDIENTE_APROBACION")
                 .orElseThrow(() -> new IllegalArgumentException("No existe el estado PENDIENTE_APROBACION"));
@@ -470,8 +470,12 @@ public class PensumService {
         Pensum pensum = pensumRepository.findDetalleCabecera(idPensum)
                 .orElseThrow(() -> new IllegalArgumentException("No existe el pensum solicitado"));
 
-        if (!"PLANIFICANDO".equals(pensum.getEstadoPensum().getEstadoPensum()))
-            throw new IllegalArgumentException("Solo se pueden eliminar pensum en estado PLANIFICANDO");
+//        if (!"PLANIFICANDO".equals(pensum.getEstadoPensum().getEstadoPensum()))
+//            throw new IllegalArgumentException("Solo se pueden eliminar pensum en estado PLANIFICANDO");
+        String estado = pensum.getEstadoPensum().getEstadoPensum();
+
+        if (!"PLANIFICANDO".equals(estado) && !"PENDIENTE_APROBACION".equals(estado))
+            throw new IllegalArgumentException("Solo se pueden eliminar pensum en estado PLANIFICANDO o PENDIENTE_APROBACION");
 
         pensumRepository.delete(pensum);
         pensumRepository.flush();
