@@ -1,5 +1,6 @@
 package com.codice.sra.dtos;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 import java.time.LocalDate;
@@ -10,8 +11,12 @@ public class PersonaBaseRequestDTO implements PersonaInputDTO {
     @NotNull(message = "El tipo de documento es obligatorio")
     private Long idTipoDocumento;
 
-    @NotBlank(message = "El número de documento es obligatorio")
-    @Size(min = 7, max = 12, message = "El número de documento debe tener entre 7 y 12 caracteres.")
+    @NotBlank(message = "El número de documento es obligatorio.")
+    @Pattern(
+            regexp = "^[0-9A-Za-z-]{7,17}$",
+            message = "Formato de documento de identidad inválido."
+    )
+    @Schema(description = "Número oficial de documento de identidad", example = "06123456-7")
     private String numeroDocumento;
 
     @NotBlank(message = "Los nombres son obligatorios")
