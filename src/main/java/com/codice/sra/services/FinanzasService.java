@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -982,27 +981,12 @@ public class FinanzasService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> obtenerPagosPorFecha(LocalDate fecha) {
-        LocalDateTime inicio = fecha.atStartOfDay();
-        LocalDateTime fin = fecha.atTime(LocalTime.MAX);
+        return obtenerPagosPorRango(fecha, fecha);
+    }
 
-        List<Pago> pagos = pagoRepository.findByFechaPagoBetweenOrderByFechaPagoDesc(inicio, fin);
-        List<Map<String, Object>> listaDto = new ArrayList<>();
-
-        for (Pago p : pagos) {
-            Map<String, Object> map = new HashMap<>();
-            map.put("idPago", p.getIdPago());
-            map.put("referencia", p.getReferencia());
-            Optional<Factura> facturaOpt = facturaRepository.findByPago_IdPago(p.getIdPago());
-            map.put("numeroFactura", facturaOpt.map(Factura::getNumeroFactura).orElse(p.getReferencia()));
-            map.put("idFactura", facturaOpt.map(Factura::getIdFactura).orElse(null));
-            map.put("fechaPago", p.getFechaPago());
-            map.put("montoTotal", p.getMontoPagado());
-            map.put("metodoPago", p.getMetodoPago().getMetodoPago());
-            map.put("carnet", p.getEstudiante().getCarnet());
-            map.put("nombreEstudiante", p.getEstudiante().getPersona().getNombres() + " " + p.getEstudiante().getPersona().getApellidos());
-            listaDto.add(map);
-        }
-        return listaDto;
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> obtenerPagosPorRango(LocalDate desde, LocalDate hasta) {
+        return pagoRepository.listarHistorialPorRango(desde.atStartOfDay(), hasta.plusDays(1).atStartOfDay());
     }
 
     @Transactional(readOnly = true)

@@ -4,12 +4,14 @@ import com.codice.sra.dtos.*;
 import com.codice.sra.models.*;
 import com.codice.sra.repositories.*;
 import com.codice.sra.security.JwtService;
+import com.codice.sra.security.PermisosEmpleado;
 import com.codice.sra.utils.UserUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -33,6 +35,7 @@ public class AuthService {
     private final CicloRepository cicloRepository;
     private final AuditoriaRepository auditoriaRepository;
     private final SesionUsuarioRepository sesionUsuarioRepository;
+    private final PermisosEmpleado permisosEmpleado;
 
     @Autowired
     public AuthService(UsuarioRepository usuarioRepository,
@@ -44,7 +47,8 @@ public class AuthService {
                        EmpleadoRepository empleadoRepository,
                        CicloRepository cicloRepository,
                        AuditoriaRepository auditoriaRepository,
-                       SesionUsuarioRepository sesionUsuarioRepository) {
+                       SesionUsuarioRepository sesionUsuarioRepository,
+                       PermisosEmpleado permisosEmpleado) {
         this.usuarioRepository = usuarioRepository;
         this.recuperacionClaveRepository = recuperacionClaveRepository;
         this.passwordEncoder = passwordEncoder;
@@ -55,6 +59,7 @@ public class AuthService {
         this.cicloRepository = cicloRepository;
         this.auditoriaRepository = auditoriaRepository;
         this.sesionUsuarioRepository = sesionUsuarioRepository;
+        this.permisosEmpleado = permisosEmpleado;
     }
 
     @Transactional(readOnly = true)
@@ -325,28 +330,22 @@ public class AuthService {
     }
 
     @Transactional
-    public void resetPassAdmin(Long idAdministrador, Long idUsuario, HttpServletRequest request) {
+    public void resetPassAdmin(Authentication autenticacion, Long idUsuario, HttpServletRequest request) {
 
         String direccionIp = obtenerIpCliente(request);
 
-        // 1. Verificar quién realiza la operación
-        Usuario administrador = usuarioRepository.findById(idAdministrador)
-                .orElseThrow(() -> new AccessDeniedException(
-                        "Administrador no autorizado"));
+        Long idOperador = (Long) autenticacion.getPrincipal();
+        Usuario operador = usuarioRepository.findById(idOperador)
+                .orElseThrow(() -> new AccessDeniedException("Operador no autorizado"));
+        boolean administrador = "ADMINISTRADOR".equalsIgnoreCase(operador.getRol().getRol());
+        Usuario usuario = usuarioRepository.findById(idUsuario).orElseThrow(() -> administrador
+                ? new IllegalArgumentException("Usuario no encontrado")
+                : new AccessDeniedException("No tiene permisos para restablecer esta cuenta"));
 
-        if (!"ADMINISTRADOR".equalsIgnoreCase(administrador.getRol().getRol())) {
-            throw new AccessDeniedException("No tiene permisos para restablecer contraseñas");
-        }
-
-        // 2. Buscar el usuario afectado
-        Usuario usuario = usuarioRepository.findById(idUsuario).orElseThrow(() -> new IllegalArgumentException(
-                        "Usuario no encontrado"));
-
-        // 3. Proteger las cuentas administrativas
         String rol = usuario.getRol().getRol();
-
-        if ("ADMINISTRADOR".equalsIgnoreCase(rol)) {
-            throw new AccessDeniedException("No se permite restablecer contraseñas de administradores");
+        if ("ADMINISTRADOR".equalsIgnoreCase(rol) || "ADMIN".equalsIgnoreCase(rol)
+                || (!administrador && !permisosEmpleado.puedeRestablecer(autenticacion, usuario))) {
+            throw new AccessDeniedException("No tiene permisos para restablecer esta cuenta");
         }
 
         if (usuario.getEstadoUsuario() == null
@@ -371,7 +370,7 @@ public class AuthService {
         // 7. Registrar auditoría
         Auditoria auditoria = new Auditoria();
 
-        auditoria.setUsuario(administrador);
+        auditoria.setUsuario(operador);
         auditoria.setAccion("RESET_PASSWORD_ADMIN");
         auditoria.setTabla("usuarios");
         auditoria.setIdRegistro(idUsuario);

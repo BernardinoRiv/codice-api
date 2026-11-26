@@ -603,9 +603,9 @@ public class EstudianteService {
     }
 
     @Transactional(readOnly = true)
-    public List<EstudianteListaResponseDTO> obtenerTodosLosEstudiantes() {
+    public List<EstudianteListaResponseDTO> obtenerTodosLosEstudiantes(Long idSede) {
 
-        Map<Long, List<EstudianteCarreraListaDTO>> carrerasPorEstudiante = estudianteCarreraRepository.findAllConCarreraSedeYEstado().stream()
+        Map<Long, List<EstudianteCarreraListaDTO>> carrerasPorEstudiante = estudianteCarreraRepository.findAllConCarreraSedeYEstado(idSede).stream()
                 .collect(Collectors.groupingBy(
                         ec -> ec.getEstudiante().getIdEstudiante(),
                         Collectors.mapping(ec -> new EstudianteCarreraListaDTO(
@@ -618,7 +618,13 @@ public class EstudianteService {
                         ), Collectors.toList())
                 ));
 
-        return estudianteRepository.findAllBy().stream()
+        if (idSede != null && carrerasPorEstudiante.isEmpty()) {
+            return List.of();
+        }
+        var estudiantes = idSede == null ? estudianteRepository.findAllBy()
+                : estudianteRepository.findAllByIdEstudianteIn(carrerasPorEstudiante.keySet());
+
+        return estudiantes.stream()
                 .map(estudiante -> new EstudianteListaResponseDTO(
                         estudiante.getIdEstudiante(),
                         estudiante.getUsuario() != null ? estudiante.getUsuario().getIdUsuario() : null,
@@ -687,12 +693,12 @@ public class EstudianteService {
     }
 
     @Transactional(readOnly = true)
-    public EstudianteListaResponseDTO obtenerEstudiantePorId(Long idEstudiante) {
+    public EstudianteListaResponseDTO obtenerEstudiantePorId(Long idEstudiante, Long idSede) {
         if (idEstudiante == null || idEstudiante <= 0) {
             throw new IllegalArgumentException("El ID del estudiante debe ser positivo");
         }
 
-        EstudianteListaResponseDTO respuesta = obtenerTodosLosEstudiantes().stream()
+        EstudianteListaResponseDTO respuesta = obtenerTodosLosEstudiantes(idSede).stream()
                 .filter(estudiante -> estudiante.getIdEstudiante().equals(idEstudiante))
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Estudiante no encontrado con ID: " + idEstudiante));

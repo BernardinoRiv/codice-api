@@ -1,4 +1,3 @@
-
 package com.codice.sra.services;
 
 import com.codice.sra.dtos.*;
@@ -98,18 +97,21 @@ public class EmpleadoService {
     }
 
     @Transactional(readOnly = true)
-    public List<EmpleadoListaResponseDTO> obtenerTodosLosEmpleados() {
-        return empleadoRepository.findAllBy().stream().map(this::convertirAListaDTO).toList();
+    public List<EmpleadoListaResponseDTO> obtenerTodosLosEmpleados(Long idSede) {
+        var empleados = idSede == null ? empleadoRepository.findAllBy()
+                : empleadoRepository.findAllBySede_IdSede(idSede);
+        return empleados.stream().map(this::convertirAListaDTO).toList();
     }
 
     @Transactional(readOnly = true)
-    public EmpleadoListaResponseDTO obtenerEmpleadoPorId(Long idEmpleado) {
+    public EmpleadoListaResponseDTO obtenerEmpleadoPorId(Long idEmpleado, Long idSede) {
         if (idEmpleado == null || idEmpleado <= 0) {
             throw new IllegalArgumentException("El ID del empleado debe ser positivo");
         }
 
-        Empleado empleado = empleadoRepository.findById(idEmpleado)
-                .orElseThrow(() -> new ResourceNotFoundException("Empleado no encontrado con ID: " + idEmpleado));
+        var resultado = idSede == null ? empleadoRepository.findById(idEmpleado)
+                : empleadoRepository.findByIdEmpleadoAndSede_IdSede(idEmpleado, idSede);
+        Empleado empleado = resultado.orElseThrow(() -> new ResourceNotFoundException("Empleado no encontrado con ID: " + idEmpleado));
 
         return convertirAListaDTO(empleado);
     }

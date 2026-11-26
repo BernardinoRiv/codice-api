@@ -19,6 +19,12 @@ public interface EstudianteCarreraRepository extends JpaRepository<EstudianteCar
             "WHERE ec.estudiante.idEstudiante = :idEstudiante")
     Optional<String> findNombreCarreraByEstudianteId(@Param("idEstudiante") Long idEstudiante);
 
+    @Query("""
+        SELECT DISTINCT ec.carreraSede.sede.idSede FROM EstudianteCarrera ec
+        WHERE ec.estudiante.idEstudiante = :idEstudiante
+        """)
+    List<Long> findIdsSedesPorEstudiante(@Param("idEstudiante") Long idEstudiante);
+
     Optional<EstudianteCarrera> findFirstByEstudiante_IdEstudianteOrderByFechaInicioDesc(Long idEstudiante);
 
     // Firma requerida para desvincular la trayectoria durante la purga o cancelación
@@ -41,9 +47,10 @@ public interface EstudianteCarreraRepository extends JpaRepository<EstudianteCar
     JOIN FETCH cs.sede
     JOIN FETCH ec.estadoTrayectoria
     JOIN FETCH ec.pensum
+    WHERE (:idSede IS NULL OR cs.sede.idSede = :idSede)
     ORDER BY ec.estudiante.idEstudiante, ec.fechaInicio DESC
     """)
-    List<EstudianteCarrera> findAllConCarreraSedeYEstado();
+    List<EstudianteCarrera> findAllConCarreraSedeYEstado(@Param("idSede") Long idSede);
 
     @Query("""
         SELECT ec FROM EstudianteCarrera ec

@@ -257,6 +257,17 @@ public class FinanzasController {
         return ResponseEntity.ok(finanzasService.obtenerPagosPorFecha(fecha));
     }
 
+    @GetMapping("/pagos/historial/rango")
+    @PreAuthorize(PUEDE_GESTIONAR_COMPROBANTES)
+    public ResponseEntity<?> obtenerHistorialPagosPorRango(
+            @RequestParam("desde") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam("hasta") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
+        if (desde.isAfter(hasta)) {
+            return ResponseEntity.badRequest().body(Map.of("mensaje", "La fecha inicial debe ser anterior o igual a la fecha final."));
+        }
+        return ResponseEntity.ok(finanzasService.obtenerPagosPorRango(desde, hasta));
+    }
+
     @PostMapping("/pagos/{idPago}/reenviar-comprobante")
     @PreAuthorize(PUEDE_GESTIONAR_COMPROBANTES)
     public ResponseEntity<?> reenviarComprobante(@PathVariable Long idPago) {

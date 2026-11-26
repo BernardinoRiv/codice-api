@@ -2,6 +2,7 @@ package com.codice.sra.controllers;
 
 import com.codice.sra.dtos.NuevoIngresoRequestDTO;
 import com.codice.sra.services.NuevoIngresoService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,7 +21,7 @@ public class NuevoIngresoController {
 
     @PostMapping("/pre-matricula")
     @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'REGISTRO_ACADEMICO') or @permisosEmpleado.puedeRegistrarEnSede(authentication, #request.idSede, 'nuevo-ingreso')")
-    public ResponseEntity<?> registrarPreMatricula(@RequestBody NuevoIngresoRequestDTO request) {
+    public ResponseEntity<?> registrarPreMatricula(@Valid @RequestBody NuevoIngresoRequestDTO request) {
         Map<String, Object> respuesta = nuevoIngresoService.procesarPreMatricula(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(respuesta);
     }

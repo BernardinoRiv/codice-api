@@ -74,14 +74,12 @@ public class AuthController {
     }
 
     @PostMapping("/admin/usuarios/{idUsuario}/reset-password")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR', 'EMPLEADO')")
     @Operation(summary = "Restablecer contraseña de un usuario desde Administración")
     public ResponseEntity<Map<String, String>> resetPassAdmin(@PathVariable Long idUsuario, HttpServletRequest request) {
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        Long idAdministrador = (Long) authentication.getPrincipal();
-
-        authService.resetPassAdmin(idAdministrador, idUsuario, request);
+        authService.resetPassAdmin(authentication, idUsuario, request);
 
         return ResponseEntity.ok(Map.of("mensaje", "Contraseña restablecida correctamente. Se ha enviado una contraseña temporal al correo personal registrado."));
     }

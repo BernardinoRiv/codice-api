@@ -1,5 +1,6 @@
 package com.codice.sra.controllers;
 
+import com.codice.sra.security.PermisosEmpleado;
 import com.codice.sra.dtos.*;
 import com.codice.sra.models.Grupo;
 import com.codice.sra.services.DocenteService;
@@ -24,6 +25,9 @@ public class DocenteController {
     @Autowired
     private DocenteService docenteService;
 
+    @Autowired
+    private PermisosEmpleado permisosEmpleado;
+
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR') or @permisosEmpleado.puedeRegistrarEnSede(authentication, #request.idSede, 'registro-docente')")
     @Operation(summary = "Registrar nuevo docente")
@@ -40,10 +44,10 @@ public class DocenteController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR') or @permisosEmpleado.puede(authentication, 'directorio-docentes')")
     @Operation(summary = "Obtener lista de todos los docentes registrados")
-    public ResponseEntity<List<DocenteListaResponseDTO>> obtenerTodosLosDocentes() {
-        List<DocenteListaResponseDTO> docentes = docenteService.obtenerTodosLosDocentes();
+    public ResponseEntity<List<DocenteListaResponseDTO>> obtenerTodosLosDocentes(Authentication authentication) {
+        List<DocenteListaResponseDTO> docentes = docenteService.obtenerTodosLosDocentes(permisosEmpleado.sedeConsulta(authentication, "directorio-docentes"));
         return ResponseEntity.ok(docentes);
     }
 
@@ -53,7 +57,7 @@ public class DocenteController {
     }
 
     @PutMapping("/{idDocente}")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarDocente(authentication, #idDocente, #request.idSede)")
     @Operation(summary = "Editar docente", description = "Actualiza los datos personales permitidos y la ficha contractual del docente.")
     public ResponseEntity<Void> actualizarDocente(
             @PathVariable Long idDocente,
@@ -63,7 +67,7 @@ public class DocenteController {
     }
 
     @PatchMapping("/{idDocente}/estado")
-    @PreAuthorize("hasAnyRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarDocente(authentication, #idDocente)")
     @Operation(
             summary = "Cambiar estado del docente",
             description = "Permite a un Administrador bloquear o reactivar a un docente justificando el motivo en auditoría."
@@ -77,41 +81,41 @@ public class DocenteController {
     }
 
     @GetMapping("/{idDocente}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR')")
-    public DocenteDetalleDTO detalle(@PathVariable Long idDocente) {
-        return docenteService.detalle(idDocente);
+    @PreAuthorize("hasAnyRole('ADMIN', 'ADMINISTRADOR') or @permisosEmpleado.puede(authentication, 'directorio-docentes')")
+    public DocenteDetalleDTO detalle(@PathVariable Long idDocente, Authentication authentication) {
+        return docenteService.detalle(idDocente, permisosEmpleado.sedeConsulta(authentication, "directorio-docentes"));
     }
 
     @PutMapping("/{idDocente}/datos-personales")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarDocente(authentication, #idDocente)")
     public ResponseEntity<Void> datos_personales(@PathVariable Long idDocente, @Valid @RequestBody EmpleadoDatosPersonalesDTO dto) {
         docenteService.datosPersonales(idDocente, dto);
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{idDocente}/documento")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarDocente(authentication, #idDocente)")
     public ResponseEntity<Void> documento(@PathVariable Long idDocente, @Valid @RequestBody EmpleadoCambioDocumentoDTO dto) {
         docenteService.documento(idDocente, dto);
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{idDocente}/datos-laborales")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarDocente(authentication, #idDocente, #dto.idSede())")
     public ResponseEntity<Void> datos_laborales(@PathVariable Long idDocente, @Valid @RequestBody DocenteDatosLaboralesDTO dto) {
         docenteService.datosLaborales(idDocente, dto);
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{idDocente}/usuario/bloquear")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarDocente(authentication, #idDocente)")
     public ResponseEntity<Void> bloquear(@PathVariable Long idDocente, @Valid @RequestBody EmpleadoBloqueoUsuarioDTO dto) {
         docenteService.estadoCuenta(idDocente, true, dto.getMotivo());
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{idDocente}/usuario/desbloquear")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarDocente(authentication, #idDocente)")
     public ResponseEntity<Void> desbloquear(@PathVariable Long idDocente, @Valid @RequestBody EmpleadoBloqueoUsuarioDTO dto) {
         docenteService.estadoCuenta(idDocente, false, dto.getMotivo());
         return ResponseEntity.noContent().build();

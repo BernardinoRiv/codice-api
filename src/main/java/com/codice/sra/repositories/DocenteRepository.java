@@ -12,6 +12,10 @@ import java.util.Optional;
 
 @Repository
 public interface DocenteRepository extends JpaRepository<Docente, Long> {
+
+    List<Docente> findAllBySede_IdSede(Long idSede);
+
+    Optional<Docente> findByIdDocenteAndSede_IdSede(Long idDocente, Long idSede);
     boolean existsByCodigoDocente(String codigoDocente);
     Optional<Docente> findByUsuarioIdUsuario(Long idUsuario);
 

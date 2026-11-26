@@ -18,6 +18,11 @@ public interface EmpleadoRepository extends JpaRepository<Empleado, Long> {
     @EntityGraph(attributePaths = {"persona", "persona.tipoDocumento", "persona.distrito", "persona.distrito.departamento", "usuario", "usuario.estadoUsuario", "area", "cargo", "estadoEmpleado", "sede"})
     List<Empleado> findAllBy();
 
+    @EntityGraph(attributePaths = {"persona", "persona.tipoDocumento", "persona.distrito", "persona.distrito.departamento", "usuario", "usuario.estadoUsuario", "area", "cargo", "estadoEmpleado", "sede"})
+    List<Empleado> findAllBySede_IdSede(Long idSede);
+
+    Optional<Empleado> findByIdEmpleadoAndSede_IdSede(Long idEmpleado, Long idSede);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Empleado> findForUpdateByIdEmpleado(Long idEmpleado);
 
