@@ -60,6 +60,19 @@ public class CatalogoService {
             );
         }
 
+        if (catalogo == TipoCatalogo.CARRERAS_ACTIVAS) {
+            return jdbcTemplate.query("""
+                    SELECT c.id_carrera AS id, c.nombre_carrera AS nombre
+                    FROM carreras c
+                    JOIN estados_carrera ec
+                        ON ec.id_estado_carrera = c.id_estado_carrera
+                    WHERE UPPER(TRIM(ec.estado_carrera)) = 'ACTIVA'
+                    ORDER BY c.nombre_carrera
+                    """,
+                    (rs, rowNum) -> new CatalogoDTO(rs.getLong("id"), rs.getString("nombre"))
+            );
+        }
+
         // Consulta estándar para catálogos planos
         String sqlPlano = String.format(
                 "SELECT %s AS id, %s AS nombre FROM public.%s ORDER BY %s ASC",

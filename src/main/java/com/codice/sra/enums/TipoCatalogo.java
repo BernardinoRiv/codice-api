@@ -52,6 +52,7 @@ public enum TipoCatalogo {
     FACULTADES("facultades", "id_facultad", "nombre_facultad"),
 
     CARRERAS("carreras", "id_carrera", "nombre_carrera"),
+    CARRERAS_ACTIVAS("carreras", "id_carrera", "nombre_carrera"),
     PENSUMS("pensum", "id_pensum", "version"),
 
     // División geográfica de El Salvador
