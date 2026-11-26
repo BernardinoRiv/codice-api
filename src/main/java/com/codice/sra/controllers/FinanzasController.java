@@ -67,7 +67,7 @@ public class FinanzasController {
         return ResponseEntity.ok(response);
     }
     @GetMapping("/estudiantes/{identificador}/estado-cuenta")
-    @PreAuthorize("hasRole('FINANZAS')")
+    @PreAuthorize("hasRole('FINANZAS') or @permisosEmpleado.puede(authentication, 'pagos')")
     public ResponseEntity<?> obtenerEstadoCuentaVentanilla(@PathVariable String identificador) {
         try {
             // Llamamos al nuevo método que busca por Carnet o por DUI/NIT
@@ -81,7 +81,7 @@ public class FinanzasController {
     }
 
     @PostMapping("/pagos/procesar")
-    @PreAuthorize("hasRole('FINANZAS')")
+    @PreAuthorize("hasRole('FINANZAS') or @permisosEmpleado.puede(authentication, 'pagos')")
     public ResponseEntity<?> procesarPagoVentanilla(
             @Valid @RequestBody ProcesarPagoRequestDTO request,
             @RequestHeader("Authorization") String authHeader) {
@@ -107,7 +107,7 @@ public class FinanzasController {
     }
 
     @GetMapping("/aranceles-extras")
-    @PreAuthorize("hasRole('FINANZAS')")
+    @PreAuthorize("hasRole('FINANZAS') or @permisosEmpleado.puede(authentication, 'pagos')")
     public ResponseEntity<List<Map<String, Object>>> obtenerArancelesExtras() {
         try {
             List<Map<String, Object>> aranceles = finanzasService.obtenerCatalogoArancelesExtras();
@@ -239,7 +239,7 @@ public class FinanzasController {
     }
 
     @GetMapping("/pagos/{idPago}/comprobante")
-    @PreAuthorize("hasRole('ESTUDIANTE') or hasRole('FINANZAS')")
+    @PreAuthorize("hasRole('ESTUDIANTE') or hasRole('FINANZAS') or @permisosEmpleado.puede(authentication, 'facturas', 'pagos')")
     public ResponseEntity<byte[]> descargarComprobante(@PathVariable Long idPago) {
         byte[] pdfBytes = finanzasService.descargarComprobanteHistorico(idPago);
         org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
@@ -249,12 +249,14 @@ public class FinanzasController {
     }
 
     @GetMapping("/pagos/historial")
+    @PreAuthorize("isAuthenticated() and (!hasRole('EMPLEADO') or @permisosEmpleado.puede(authentication, 'facturas', 'pagos'))")
     public ResponseEntity<?> obtenerHistorialPagos(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha) {
         if(fecha == null) fecha = LocalDate.now();
         return ResponseEntity.ok(finanzasService.obtenerPagosPorFecha(fecha));
     }
 
     @PostMapping("/pagos/{idPago}/reenviar-comprobante")
+    @PreAuthorize("isAuthenticated() and (!hasRole('EMPLEADO') or @permisosEmpleado.puede(authentication, 'facturas', 'pagos'))")
     public ResponseEntity<?> reenviarComprobante(@PathVariable Long idPago) {
         return ResponseEntity.ok(finanzasService.reenviarComprobantePorCorreo(idPago));
     }

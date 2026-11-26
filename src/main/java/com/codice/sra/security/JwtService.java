@@ -3,7 +3,7 @@ package com.codice.sra.security;
 import com.codice.sra.models.Usuario;
 import com.codice.sra.repositories.DocenteRepository;
 import com.codice.sra.repositories.EmpleadoRepository;
-import com.codice.sra.repositories.EstudianteRepository; // <-- IMPORTANTE
+import com.codice.sra.repositories.EstudianteRepository;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
@@ -69,6 +69,13 @@ public class JwtService {
                         if (empleado.getSede() != null) {
                             extraClaims.put("idSede", empleado.getSede().getIdSede());
                             extraClaims.put("nombreSede", empleado.getSede().getNombreSede());
+                        }
+                        if (empleado.getArea() != null) {
+                            extraClaims.put("idArea", empleado.getArea().getIdArea());
+                            extraClaims.put("nombreArea", empleado.getArea().getArea());
+                        }
+                        if ("EMPLEADO".equalsIgnoreCase(rol)) {
+                            extraClaims.put("vistasEmpleado", PermisosEmpleado.vistas(empleado));
                         }
                         if (empleado.getCargo() != null) {
                             extraClaims.put("idCargo", empleado.getCargo().getIdCargo());

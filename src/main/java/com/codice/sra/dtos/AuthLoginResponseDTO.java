@@ -28,4 +28,6 @@ public class AuthLoginResponseDTO {
     private String nombreCargo;
     private Long idCiclo;
     private String codigoCiclo;
+    private Long idArea;
+    private String nombreArea;
 }

@@ -4,6 +4,7 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.FutureOrPresent;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -22,6 +23,18 @@ public class EmpleadoRegistroRequestDTO extends PersonaBaseRequestDTO {
 
     @NotNull(message = "El cargo es obligatorio")
     private Long idCargo;
+
+    @Override
+    @Pattern(regexp = EmpleadoDatosPersonalesDTO.FORMATO_NOMBRE, message = "Escribe los nombres con letras. Puedes usar espacios, guiones o apóstrofos.")
+    public String getNombres() {
+        return super.getNombres();
+    }
+
+    @Override
+    @Pattern(regexp = EmpleadoDatosPersonalesDTO.FORMATO_NOMBRE, message = "Escribe los apellidos con letras. Puedes usar espacios, guiones o apóstrofos.")
+    public String getApellidos() {
+        return super.getApellidos();
+    }
 
     @FutureOrPresent(message = "La fecha de fin de contrato no puede estar en el pasado")
     private LocalDate fechaFin; // Opcional (null = contrato indefinido)
