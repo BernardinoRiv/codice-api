@@ -137,8 +137,9 @@ public class DocenteService {
     }
 
     @Transactional(readOnly = true)
-    public List<DocenteListaResponseDTO> obtenerTodosLosDocentes() {
-        List<Docente> docentes = docenteRepository.findAll();
+    public List<DocenteListaResponseDTO> obtenerTodosLosDocentes(Long idSede) {
+        List<Docente> docentes = idSede == null ? docenteRepository.findAll()
+                : docenteRepository.findAllBySede_IdSede(idSede);
 
         return docentes.stream().map(this::aLista).toList();
     }
@@ -251,8 +252,10 @@ public class DocenteService {
     }
 
     @Transactional(readOnly = true)
-    public DocenteDetalleDTO detalle(Long id) {
-        Docente d = buscarDocente(id);
+    public DocenteDetalleDTO detalle(Long id, Long idSede) {
+        Docente d = idSede == null ? buscarDocente(id)
+                : docenteRepository.findByIdDocenteAndSede_IdSede(id, idSede)
+                        .orElseThrow(() -> new ResourceNotFoundException("Docente no encontrado: " + id));
         Persona p = d.getPersona();
         DocenteDetalleDTO dto = new DocenteDetalleDTO();
         org.springframework.beans.BeanUtils.copyProperties(aLista(d), dto);

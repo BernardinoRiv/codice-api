@@ -1,5 +1,6 @@
 package com.codice.sra.controllers;
 
+import com.codice.sra.security.PermisosEmpleado;
 import com.codice.sra.dtos.*;
 import com.codice.sra.models.Estudiante;
 import com.codice.sra.repositories.EstudianteRepository;
@@ -34,6 +35,9 @@ public class EstudianteController {
 
     @Autowired
     private EstudianteService estudianteService;
+
+    @Autowired
+    private PermisosEmpleado permisosEmpleado;
 
     @Autowired
     private EstudianteRepository estudianteRepository;
@@ -123,14 +127,14 @@ public class EstudianteController {
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puede(authentication, 'directorio-estudiantes')")
     @Operation(summary = "Listar todos los estudiantes registrados")
-    public ResponseEntity<List<EstudianteListaResponseDTO>> obtenerTodosLosEstudiantes() {
-        return ResponseEntity.ok(estudianteService.obtenerTodosLosEstudiantes());
+    public ResponseEntity<List<EstudianteListaResponseDTO>> obtenerTodosLosEstudiantes(Authentication authentication) {
+        return ResponseEntity.ok(estudianteService.obtenerTodosLosEstudiantes(permisosEmpleado.sedeConsulta(authentication, "directorio-estudiantes")));
     }
 
     @PutMapping("/{idEstudiante}")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarEstudiante(authentication, #idEstudiante)")
     @Operation(summary = "Actualizar los datos de contacto del estudiante")
     public ResponseEntity<Void> actualizarEstudiante(
             @PathVariable Long idEstudiante,
@@ -140,7 +144,7 @@ public class EstudianteController {
     }
 
     @PatchMapping("/{idEstudiante}/estado")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarEstudiante(authentication, #idEstudiante)")
     @Operation(summary = "Cambiar el estado académico del estudiante con justificación")
     public ResponseEntity<Void> cambiarEstadoEstudiante(
             @PathVariable Long idEstudiante,
@@ -150,15 +154,15 @@ public class EstudianteController {
     }
 
     @GetMapping("/{idEstudiante}")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puede(authentication, 'directorio-estudiantes')")
     @Operation(summary = "Consultar información administrativa del estudiante")
-    public ResponseEntity<EstudianteListaResponseDTO> obtenerEstudiantePorId(@PathVariable Long idEstudiante) {
-        return ResponseEntity.ok(estudianteService.obtenerEstudiantePorId(idEstudiante));
+    public ResponseEntity<EstudianteListaResponseDTO> obtenerEstudiantePorId(@PathVariable Long idEstudiante, Authentication authentication) {
+        return ResponseEntity.ok(estudianteService.obtenerEstudiantePorId(idEstudiante, permisosEmpleado.sedeConsulta(authentication, "directorio-estudiantes")));
     }
 
 
     @PatchMapping("/{idEstudiante}/usuario/bloquear")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarEstudiante(authentication, #idEstudiante)")
     @Operation(summary = "Bloquear administrativamente la cuenta de un estudiante")
     public ResponseEntity<Void> bloquearUsuario(
             @PathVariable Long idEstudiante,
@@ -169,7 +173,7 @@ public class EstudianteController {
     }
 
     @PatchMapping("/{idEstudiante}/usuario/desbloquear")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarEstudiante(authentication, #idEstudiante)")
     @Operation(summary = "Desbloquear la cuenta institucional de un estudiante")
     public ResponseEntity<Void> desbloquearUsuario(
             @PathVariable Long idEstudiante,
@@ -180,7 +184,7 @@ public class EstudianteController {
     }
 
     @PutMapping("/{idEstudiante}/datos-personales")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarEstudiante(authentication, #idEstudiante)")
     @Operation(summary = "Actualizar la información personal de un estudiante")
     public ResponseEntity<Void> actualizarDatosPersonales(
             @PathVariable Long idEstudiante,
@@ -191,7 +195,7 @@ public class EstudianteController {
     }
 
     @PatchMapping("/{idEstudiante}/documento")
-    @PreAuthorize("hasRole('ADMINISTRADOR')")
+    @PreAuthorize("hasRole('ADMINISTRADOR') or @permisosEmpleado.puedeEditarEstudiante(authentication, #idEstudiante)")
     @Operation(summary = "Cambiar el documento de identidad de un estudiante con auditoría")
     public ResponseEntity<Void> cambiarDocumento(
             @PathVariable Long idEstudiante,

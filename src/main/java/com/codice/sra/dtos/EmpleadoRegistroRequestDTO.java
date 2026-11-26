@@ -5,6 +5,7 @@ import jakarta.validation.constraints.FutureOrPresent;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -23,6 +24,22 @@ public class EmpleadoRegistroRequestDTO extends PersonaBaseRequestDTO {
 
     @NotNull(message = "El cargo es obligatorio")
     private Long idCargo;
+
+    static final String FORMATO_TELEFONO = "[267][0-9]{3}-?[0-9]{4}";
+    static final String FORMATO_DIRECCION = "(?s)(?=.*[\\p{L}\\p{N}])[\\p{L}\\p{M}\\p{N}\\s#.,;:'’\"()&°ºª/+-]+";
+
+    @Override
+    @Pattern(regexp = EmpleadoRegistroRequestDTO.FORMATO_TELEFONO, message = "El teléfono debe tener ocho dígitos y comenzar con 2, 6 o 7.")
+    public String getTelefono() {
+        return super.getTelefono();
+    }
+
+    @Override
+    @Size(max = 255, message = "La dirección no puede superar 255 caracteres.")
+    @Pattern(regexp = EmpleadoRegistroRequestDTO.FORMATO_DIRECCION, message = "Escribe una dirección válida.")
+    public String getDireccion() {
+        return super.getDireccion();
+    }
 
     @Override
     @Pattern(regexp = EmpleadoDatosPersonalesDTO.FORMATO_NOMBRE, message = "Escribe los nombres con letras. Puedes usar espacios, guiones o apóstrofos.")

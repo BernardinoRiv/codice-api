@@ -19,6 +19,9 @@ public interface EstudianteRepository extends JpaRepository<Estudiante, Long> {
     @EntityGraph(attributePaths = {"persona", "persona.distrito", "usuario", "estadoEstudiante"})
     List<Estudiante> findAllBy();
 
+    @EntityGraph(attributePaths = {"persona", "persona.distrito", "usuario", "estadoEstudiante"})
+    List<Estudiante> findAllByIdEstudianteIn(java.util.Collection<Long> ids);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Estudiante> findForUpdateByIdEstudiante(Long idEstudiante);
 

@@ -4,6 +4,7 @@ import com.codice.sra.dtos.NuevoIngresoRequestDTO;
 import com.codice.sra.models.*;
 import com.codice.sra.exceptions.GrupoException;
 import com.codice.sra.repositories.*;
+import com.codice.sra.utils.ValidadorDocumentoUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -83,6 +84,9 @@ public class NuevoIngresoService {
         Ciclo cicloActivo = cicloMatriculaValidatorService.resolverCicloHabilParaMatricula().ciclo();
         List<Grupo> gruposValidados = validarGruposNuevoIngreso(dto, cicloActivo);
 
+        String documento = ValidadorDocumentoUtil.normalizar(dto.getNumeroDocumento());
+        ValidadorDocumentoUtil.validar(dto.getIdTipoDocumento(), documento);
+
         Persona persona;
         if (dto.getIdPersona() != null) {
             persona = personaRepository.findById(dto.getIdPersona())
@@ -93,7 +97,7 @@ public class NuevoIngresoService {
         }
 
         persona.setTipoDocumento(tipoDocumentoRepository.findById(dto.getIdTipoDocumento()).orElseThrow());
-        persona.setNumeroDocumento(dto.getNumeroDocumento());
+        persona.setNumeroDocumento(documento);
         persona.setNombres(dto.getNombres());
         persona.setApellidos(dto.getApellidos());
         persona.setFechaNacimiento(dto.getFechaNacimiento());
