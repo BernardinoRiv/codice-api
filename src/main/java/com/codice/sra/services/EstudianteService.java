@@ -3,11 +3,16 @@ package com.codice.sra.services;
 import com.codice.sra.dtos.*;
 import com.codice.sra.exceptions.ResourceNotFoundException;
 import com.codice.sra.models.Calificacion;
+import com.codice.sra.models.Asistencia;
+import com.codice.sra.models.Clase;
 import com.codice.sra.models.Ciclo;
+import com.codice.sra.models.CargoEstudiante;
+import com.codice.sra.models.Evaluacion;
 import com.codice.sra.models.EstadoEstudiante;
 import com.codice.sra.models.Estudiante;
 import com.codice.sra.models.Inscripcion;
 import com.codice.sra.models.Matricula;
+import com.codice.sra.models.Horario;
 import com.codice.sra.models.EstudianteCarrera;
 import com.codice.sra.models.PensumMateria;
 import com.codice.sra.models.PeriodoEvaluacion;
@@ -19,6 +24,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.TextStyle;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -27,6 +37,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Objects;
+import java.util.Locale;
+import java.text.Normalizer;
 import java.util.stream.Collectors;
 
 @Service
@@ -46,6 +58,10 @@ public class EstudianteService {
     private final MatriculaRepository matriculaRepository;
     private final PensumMateriaRepository pensumMateriaRepository;
     private final UsuarioService usuarioService;
+    private final AsistenciaRepository asistenciaRepository;
+    private final ClaseRepository claseRepository;
+    private final EvaluacionRepository evaluacionRepository;
+    private final CargoEstudianteRepository cargoEstudianteRepository;
 
     public EstudianteService(CicloRepository cicloRepository,
                              InscripcionRepository inscripcionRepository,
@@ -60,7 +76,11 @@ public class EstudianteService {
                              EstudianteCarreraRepository estudianteCarreraRepository,
                              MatriculaRepository matriculaRepository,
                              PensumMateriaRepository pensumMateriaRepository,
-                             UsuarioService usuarioService) {
+                             UsuarioService usuarioService,
+                             AsistenciaRepository asistenciaRepository,
+                             ClaseRepository claseRepository,
+                             EvaluacionRepository evaluacionRepository,
+                             CargoEstudianteRepository cargoEstudianteRepository) {
         this.cicloRepository = cicloRepository;
         this.inscripcionRepository = inscripcionRepository;
         this.calificacionRepository = calificacionRepository;
@@ -75,6 +95,10 @@ public class EstudianteService {
         this.matriculaRepository = matriculaRepository;
         this.pensumMateriaRepository = pensumMateriaRepository;
         this.usuarioService = usuarioService;
+        this.asistenciaRepository = asistenciaRepository;
+        this.claseRepository = claseRepository;
+        this.evaluacionRepository = evaluacionRepository;
+        this.cargoEstudianteRepository = cargoEstudianteRepository;
     }
 
     @Transactional(readOnly = true)
@@ -326,6 +350,256 @@ public class EstudianteService {
                 : BigDecimal.ZERO;
 
         return new HistorialAcademicoDTO(cum, totalUV, totalAprobadas, totalReprobadas, materiasPorCiclo, carreraEstudiante);
+    }
+
+    @Transactional(readOnly = true)
+    public EstudianteDashboardDTO obtenerDashboard(Long idEstudiante) {
+        ZoneId zona = ZoneId.of("America/El_Salvador");
+        LocalDateTime ahora = LocalDateTime.now(zona);
+        LocalDate hoy = ahora.toLocalDate();
+        LocalTime horaActual = ahora.toLocalTime();
+        Ciclo cicloActivo = cicloRepository.findCicloPorEstadoActivo().orElse(null);
+        List<Inscripcion> inscripciones = inscripcionRepository.findAllByEstudianteId(idEstudiante);
+        List<Matricula> matriculas = matriculaRepository.findByEstudiante_IdEstudiante(idEstudiante);
+
+        Map<Long, Ciclo> ciclos = new HashMap<>();
+        Map<Long, List<Inscripcion>> inscripcionesPorCiclo = new HashMap<>();
+        for (Matricula matricula : matriculas) ciclos.put(matricula.getCiclo().getIdCiclo(), matricula.getCiclo());
+        for (Inscripcion inscripcion : inscripciones) {
+            Ciclo ciclo = inscripcion.getGrupo().getCiclo();
+            ciclos.put(ciclo.getIdCiclo(), ciclo);
+            inscripcionesPorCiclo.computeIfAbsent(ciclo.getIdCiclo(), ignored -> new ArrayList<>()).add(inscripcion);
+        }
+
+        List<Inscripcion> inscripcionesActivas = cicloActivo == null ? List.of() : inscripciones.stream()
+                .filter(i -> Objects.equals(i.getGrupo().getCiclo().getIdCiclo(), cicloActivo.getIdCiclo()))
+                .filter(i -> !esRetirada(i))
+                .toList();
+        List<EstudianteDashboardDTO.ClaseHoy> clasesHoy = new ArrayList<>();
+        List<EstudianteDashboardDTO.EvaluacionProxima> evaluacionesProximas = new ArrayList<>();
+        String diaActual = normalizar(ahora.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.forLanguageTag("es-SV")));
+        Map<Long, Evaluacion> evaluacionesUnicas = new HashMap<>();
+        for (Inscripcion inscripcion : inscripcionesActivas) {
+            Long idGrupo = inscripcion.getGrupo().getIdGrupo();
+            for (Horario horario : horarioRepository.findByGrupo_IdGrupo(idGrupo)) {
+                if (!normalizar(horario.getDia().getDia()).equals(diaActual)) continue;
+                clasesHoy.add(new EstudianteDashboardDTO.ClaseHoy(idGrupo,
+                        inscripcion.getGrupo().getMateria().getCodigoMateria(),
+                        inscripcion.getGrupo().getMateria().getNombreMateria(), inscripcion.getGrupo().getCodigoGrupo(),
+                        horario.getHoraInicio(), horario.getHoraFin(),
+                        horario.getAula() == null ? "Virtual" : horario.getAula().getCodigoAula(),
+                        !horaActual.isBefore(horario.getHoraInicio().minusMinutes(15)) && !horaActual.isAfter(horario.getHoraFin())));
+            }
+            for (Evaluacion evaluacion : evaluacionRepository.findByGrupoIdGrupo(idGrupo)) {
+                if (evaluacion.getFechaFin() == null || evaluacion.getFechaInicio() == null
+                        || evaluacion.getFechaFin().isBefore(ahora) || evaluacion.getFechaInicio().isAfter(ahora.plusDays(7))) continue;
+                evaluacionesUnicas.put(evaluacion.getIdEvaluacion(), evaluacion);
+            }
+        }
+        clasesHoy.sort(Comparator.comparing(EstudianteDashboardDTO.ClaseHoy::horaInicio));
+        for (Evaluacion evaluacion : evaluacionesUnicas.values()) {
+            evaluacionesProximas.add(new EstudianteDashboardDTO.EvaluacionProxima(evaluacion.getIdEvaluacion(),
+                    evaluacion.getGrupo().getMateria().getCodigoMateria(), evaluacion.getGrupo().getMateria().getNombreMateria(),
+                    evaluacion.getTipoEvaluacion().getTipoEvaluacion(), evaluacion.getNumeroEvaluacion(),
+                    evaluacion.getFechaInicio(), evaluacion.getFechaFin(),
+                    !ahora.isBefore(evaluacion.getFechaInicio()) && !ahora.isAfter(evaluacion.getFechaFin()),
+                    ChronoUnit.DAYS.between(hoy, evaluacion.getFechaFin().toLocalDate())));
+        }
+        evaluacionesProximas.sort(Comparator.comparing(EstudianteDashboardDTO.EvaluacionProxima::fechaFin));
+
+        List<Ciclo> ciclosFinalizados = ciclos.values().stream()
+                .filter(c -> c.getEstadoCiclo() != null && Objects.equals(c.getEstadoCiclo().getIdEstadoCiclo(), 3L))
+                .filter(c -> !inscripcionesPorCiclo.getOrDefault(c.getIdCiclo(), List.of()).isEmpty())
+                .sorted(Comparator.comparing(Ciclo::getAnio).thenComparing(Ciclo::getNumeroCiclo)).toList();
+        List<EstudianteDashboardDTO.EvolucionCum> evolucionCum = new ArrayList<>();
+        for (Ciclo ciclo : ciclosFinalizados) {
+            List<Inscripcion> delCiclo = inscripcionesPorCiclo.getOrDefault(ciclo.getIdCiclo(), List.of());
+            BigDecimal sumaCiclo = BigDecimal.ZERO;
+            int uvCiclo = 0;
+            int aprobadasCiclo = 0;
+            for (Inscripcion i : delCiclo) {
+                if (esExcluidaCum(i)) continue;
+                BigDecimal nota = notaFinalHistorial(i, ciclo);
+                int uv = i.getGrupo().getMateria().getUnidadesValorativas().intValue();
+                sumaCiclo = sumaCiclo.add(nota.multiply(BigDecimal.valueOf(uv)));
+                uvCiclo += uv;
+                if (nota.compareTo(new BigDecimal("6.0")) >= 0) aprobadasCiclo++;
+            }
+            BigDecimal promedioCiclo = uvCiclo == 0 ? BigDecimal.ZERO.setScale(2)
+                    : sumaCiclo.divide(BigDecimal.valueOf(uvCiclo), 2, RoundingMode.HALF_UP);
+            BigDecimal cumAlCierre = calcularCumAlCierre(ciclosFinalizados, inscripcionesPorCiclo, ciclo);
+            evolucionCum.add(new EstudianteDashboardDTO.EvolucionCum(ciclo.getCodigoCiclo(), ciclo.getAnio(),
+                    ciclo.getNumeroCiclo(), promedioCiclo, cumAlCierre, aprobadasCiclo));
+        }
+
+        List<Ciclo> ciclosConActividad = new ArrayList<>(ciclos.values());
+        ciclosConActividad.sort(Comparator.comparing(Ciclo::getAnio).thenComparing(Ciclo::getNumeroCiclo).reversed());
+        List<EstudianteDashboardDTO.AsistenciaCiclo> asistenciasPorCiclo = new ArrayList<>();
+        int sesionesActivas = 0;
+        int inasistenciasActivas = 0;
+        for (Ciclo ciclo : ciclosConActividad) {
+            List<EstudianteDashboardDTO.AsistenciaMateria> materias = new ArrayList<>();
+            for (Inscripcion inscripcion : inscripcionesPorCiclo.getOrDefault(ciclo.getIdCiclo(), List.of())) {
+                Long grupoId = inscripcion.getGrupo().getIdGrupo();
+                int sesiones = claseRepository.findByGrupo_IdGrupo(grupoId).size();
+                List<Asistencia> registros = asistenciaRepository.findByGrupoIdGrupo(grupoId).stream()
+                        .filter(a -> Objects.equals(a.getInscripcion().getIdInscripcion(), inscripcion.getIdInscripcion())).toList();
+                int presentes = 0, tardanzas = 0, justificadas = 0, ausencias = 0;
+                for (Asistencia asistencia : registros) {
+                    String estado = normalizar(asistencia.getEstadoAsistencia().getEstadoAsistencia());
+                    if (estado.contains("PRESENTE") || estado.contains("ASISTIO")) presentes++;
+                    else if (estado.contains("TARDANZA") || estado.contains("TARDE")) tardanzas++;
+                    else if (estado.contains("JUSTIFICADA")) justificadas++;
+                    else if (estado.contains("AUSENTE") || estado.contains("INASISTENCIA") || estado.contains("FALTA")) ausencias++;
+                }
+                BigDecimal porcentaje = sesiones == 0 ? new BigDecimal("100.0")
+                        : BigDecimal.valueOf(sesiones - ausencias).multiply(BigDecimal.valueOf(100))
+                        .divide(BigDecimal.valueOf(sesiones), 1, RoundingMode.HALF_UP);
+                String alerta = sesiones > 0 && porcentaje.compareTo(new BigDecimal("80.0")) < 0 ? "EN_RIESGO"
+                        : sesiones > 0 && porcentaje.compareTo(new BigDecimal("85.0")) < 0 ? "PREVENTIVO" : "OPTIMO";
+                materias.add(new EstudianteDashboardDTO.AsistenciaMateria(
+                        inscripcion.getGrupo().getMateria().getCodigoMateria(), inscripcion.getGrupo().getMateria().getNombreMateria(),
+                        inscripcion.getGrupo().getCodigoGrupo(), sesiones, presentes, tardanzas, justificadas, ausencias, porcentaje, alerta));
+                if (cicloActivo != null && Objects.equals(ciclo.getIdCiclo(), cicloActivo.getIdCiclo())
+                        && !esRetirada(inscripcion)) {
+                    sesionesActivas += sesiones;
+                    inasistenciasActivas += ausencias;
+                }
+            }
+            materias.sort(Comparator.comparingInt(EstudianteDashboardDTO.AsistenciaMateria::inasistencias).reversed()
+                    .thenComparing(EstudianteDashboardDTO.AsistenciaMateria::porcentajeAsistencia));
+            asistenciasPorCiclo.add(new EstudianteDashboardDTO.AsistenciaCiclo(ciclo.getIdCiclo(), ciclo.getCodigoCiclo(),
+                    ciclo.getEstadoCiclo().getEstadoCiclo(), materias));
+        }
+
+        BigDecimal asistenciaGlobal = sesionesActivas == 0 ? new BigDecimal("100.0")
+                : BigDecimal.valueOf(sesionesActivas - inasistenciasActivas).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(sesionesActivas), 1, RoundingMode.HALF_UP);
+        String estadoAsistencia = asistenciaGlobal.compareTo(new BigDecimal("85.0")) >= 0 ? "OPTIMO"
+                : asistenciaGlobal.compareTo(new BigDecimal("80.0")) >= 0 ? "PREVENTIVO" : "EN_RIESGO";
+
+        HistorialAcademicoDTO historial = obtenerHistorialAcademico(idEstudiante);
+        BigDecimal cumActual = historial.getCumAcumulado() == null ? BigDecimal.ZERO.setScale(2) : historial.getCumAcumulado().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal variacionCum = evolucionCum.size() < 2 ? BigDecimal.ZERO.setScale(2)
+                : cumActual.subtract(evolucionCum.get(evolucionCum.size() - 2).cumAcumulado()).setScale(2, RoundingMode.HALF_UP);
+        int totalMateriasPensum = estudianteCarreraRepository.findFirstByEstudiante_IdEstudianteOrderByFechaInicioDesc(idEstudiante)
+                .map(ec -> pensumMateriaRepository.findByPensumIdOrderByCicloRecomendado(ec.getPensum().getIdPensum()).size()).orElse(0);
+        int materiasAprobadas = historial.getTotalMateriasAprobadas();
+        BigDecimal avance = totalMateriasPensum == 0 ? BigDecimal.ZERO.setScale(1)
+                : BigDecimal.valueOf(materiasAprobadas).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(totalMateriasPensum), 1, RoundingMode.HALF_UP);
+        int uvAprobadas = calcularUvAprobadas(ciclosFinalizados, inscripcionesPorCiclo);
+
+        BigDecimal saldoPendiente = BigDecimal.ZERO;
+        BigDecimal montoMoraTotal = BigDecimal.ZERO;
+        int cuotasPendientes = 0;
+        int cuotasEnMora = 0;
+        List<CargoEstudiante> cargosPendientes = new ArrayList<>();
+        if (cicloActivo != null) {
+            Matricula matriculaActiva = matriculas.stream().filter(m -> Objects.equals(m.getCiclo().getIdCiclo(), cicloActivo.getIdCiclo()))
+                    .max(Comparator.comparing(Matricula::getFechaMatricula)).orElse(null);
+            if (matriculaActiva != null) cargosPendientes = cargoEstudianteRepository.findByMatricula_IdMatricula(matriculaActiva.getIdMatricula()).stream()
+                    .filter(c -> {
+                        String estado = normalizar(c.getEstadoCargo().getEstadoCargo());
+                        return !estado.equals("PAGADO") && !estado.equals("ANULADO");
+                    })
+                    .sorted(Comparator.comparing(CargoEstudiante::getFechaVencimiento,
+                                    Comparator.nullsLast(Comparator.naturalOrder()))
+                            .thenComparing(CargoEstudiante::getNumeroCuota,
+                                    Comparator.nullsLast(Comparator.naturalOrder())))
+                    .toList();
+            for (CargoEstudiante cargo : cargosPendientes) {
+                String estado = normalizar(cargo.getEstadoCargo().getEstadoCargo());
+                String tipo = normalizar(cargo.getConceptoCobro().getTipoCobro().getTipoCobro());
+                boolean vencido = cargo.getFechaVencimiento() != null && cargo.getFechaVencimiento().isBefore(hoy);
+                if (vencido) cuotasEnMora++;
+                cuotasPendientes++;
+                BigDecimal neto = cargo.getMontoBase().subtract(cargo.getMontoDescuento());
+                BigDecimal totalGuardado = cargo.getMontoTotal() == null ? neto : cargo.getMontoTotal();
+                BigDecimal mora = vencido && tipo.contains("CUOTA") ? new BigDecimal("5.00") : BigDecimal.ZERO;
+                BigDecimal totalReal = mora.signum() > 0 ? totalGuardado.max(neto.add(mora)) : totalGuardado;
+                saldoPendiente = saldoPendiente.add(totalReal);
+                montoMoraTotal = montoMoraTotal.add(mora);
+            }
+        }
+        CargoEstudiante proximoPago = cargosPendientes.isEmpty() ? null : cargosPendientes.get(0);
+        String proximoPagoConcepto = proximoPago == null ? null : proximoPago.getConceptoCobro().getTipoCobro().getTipoCobro();
+        BigDecimal proximoPagoMonto = proximoPago == null ? null : montoPendienteConMora(proximoPago, hoy);
+        LocalDate fechaProximoPago = proximoPago == null ? null : proximoPago.getFechaVencimiento();
+        boolean proximoPagoVencido = fechaProximoPago != null && fechaProximoPago.isBefore(hoy);
+        boolean solvente = cuotasPendientes == 0 && saldoPendiente.compareTo(BigDecimal.ZERO) == 0;
+        EstudianteDashboardDTO.Kpis kpis = new EstudianteDashboardDTO.Kpis(cumActual, variacionCum, materiasAprobadas,
+                totalMateriasPensum, avance, uvAprobadas, asistenciaGlobal, estadoAsistencia, cuotasPendientes,
+                cuotasEnMora, cuotasEnMora > 0, montoMoraTotal.setScale(2, RoundingMode.HALF_UP),
+                saldoPendiente.setScale(2, RoundingMode.HALF_UP), solvente, proximoPagoConcepto,
+                proximoPagoMonto == null ? null : proximoPagoMonto.setScale(2, RoundingMode.HALF_UP),
+                fechaProximoPago, proximoPagoVencido);
+        return new EstudianteDashboardDTO(kpis, clasesHoy, evaluacionesProximas, evolucionCum,
+                asistenciasPorCiclo, cicloActivo == null ? null : cicloActivo.getIdCiclo());
+    }
+
+    private BigDecimal notaFinalHistorial(Inscripcion inscripcion, Ciclo ciclo) {
+        return calcularNotaFinalDinamica(obtenerNotasPorInscripcion(inscripcion.getIdInscripcion()),
+                cargarConfiguracionEvaluacion(ciclo.getIdCiclo())).setScale(1, RoundingMode.HALF_DOWN);
+    }
+
+    private BigDecimal calcularCumAlCierre(List<Ciclo> ciclosFinalizados, Map<Long, List<Inscripcion>> porCiclo, Ciclo hasta) {
+        BigDecimal suma = BigDecimal.ZERO;
+        int uvTotal = 0;
+        for (Ciclo ciclo : ciclosFinalizados) {
+            if (compararCiclos(ciclo, hasta) > 0) continue;
+            for (Inscripcion inscripcion : porCiclo.getOrDefault(ciclo.getIdCiclo(), List.of())) {
+                if (esExcluidaCum(inscripcion)) continue;
+                BigDecimal nota = notaFinalHistorial(inscripcion, ciclo);
+                if (nota.compareTo(new BigDecimal("6.0")) < 0) continue;
+                int uv = inscripcion.getGrupo().getMateria().getUnidadesValorativas().intValue();
+                suma = suma.add(nota.multiply(BigDecimal.valueOf(uv)));
+                uvTotal += uv;
+            }
+        }
+        return uvTotal == 0 ? BigDecimal.ZERO.setScale(2) : suma.divide(BigDecimal.valueOf(uvTotal), 2, RoundingMode.HALF_UP);
+    }
+
+    private int calcularUvAprobadas(List<Ciclo> ciclosFinalizados, Map<Long, List<Inscripcion>> porCiclo) {
+        int total = 0;
+        for (Ciclo ciclo : ciclosFinalizados) for (Inscripcion i : porCiclo.getOrDefault(ciclo.getIdCiclo(), List.of())) {
+            if (!esExcluidaCum(i) && notaFinalHistorial(i, ciclo).compareTo(new BigDecimal("6.0")) >= 0)
+                total += i.getGrupo().getMateria().getUnidadesValorativas().intValue();
+        }
+        return total;
+    }
+
+    private int compararCiclos(Ciclo a, Ciclo b) {
+        int porAnio = a.getAnio().compareTo(b.getAnio());
+        return porAnio == 0 ? a.getNumeroCiclo().compareTo(b.getNumeroCiclo()) : porAnio;
+    }
+
+    private boolean esRetirada(Inscripcion inscripcion) {
+        if (inscripcion.getEstadoMateria() == null) return false;
+        return Objects.equals(inscripcion.getEstadoMateria().getIdEstadoMateria(), 5L)
+                || "RETIRADA".equals(normalizar(inscripcion.getEstadoMateria().getEstadoMateria()));
+    }
+
+    private boolean esExcluidaCum(Inscripcion inscripcion) {
+        if (inscripcion.getEstadoMateria() == null) return false;
+        Long estadoId = inscripcion.getEstadoMateria().getIdEstadoMateria();
+        String estado = normalizar(inscripcion.getEstadoMateria().getEstadoMateria());
+        return Objects.equals(estadoId, 5L) || Objects.equals(estadoId, 6L) || estado.contains("RETIR");
+    }
+
+    private String normalizar(String valor) {
+        if (valor == null) return "";
+        return Normalizer.normalize(valor, Normalizer.Form.NFD).replaceAll("\\p{M}", "")
+                .trim().toUpperCase(Locale.ROOT);
+    }
+
+    private BigDecimal montoPendienteConMora(CargoEstudiante cargo, LocalDate hoy) {
+        BigDecimal neto = cargo.getMontoBase().subtract(cargo.getMontoDescuento());
+        BigDecimal total = cargo.getMontoTotal() == null ? neto : cargo.getMontoTotal();
+        String tipo = normalizar(cargo.getConceptoCobro().getTipoCobro().getTipoCobro());
+        boolean vencido = cargo.getFechaVencimiento() != null && cargo.getFechaVencimiento().isBefore(hoy);
+        if (vencido && tipo.contains("CUOTA")) return total.max(neto.add(new BigDecimal("5.00")));
+        return total;
     }
 
     @Transactional(readOnly = true)

@@ -27,4 +27,6 @@ public class CalificacionResponseDTO {
     private LocalDateTime fechaRegistro;
     private LocalDateTime fechaPublicacion;
     private LocalDateTime fechaModificacion;
+    private LocalDateTime habilitadaPorSolicitudHasta;
+    private String estadoSolicitudActual;
 }

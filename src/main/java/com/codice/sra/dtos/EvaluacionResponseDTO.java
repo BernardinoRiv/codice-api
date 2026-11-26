@@ -15,4 +15,7 @@ public class EvaluacionResponseDTO {
     private LocalDateTime fechaInicio;
     private LocalDateTime fechaFin;
     private Integer periodo; // Del PeriodoEvaluacion
+    private boolean vencida;
+    private boolean activa;
+    private boolean puedeSolicitarModificacion;
 }

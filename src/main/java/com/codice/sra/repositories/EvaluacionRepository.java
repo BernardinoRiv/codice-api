@@ -22,6 +22,9 @@ public interface EvaluacionRepository extends JpaRepository<Evaluacion, Long> {
     @Query("SELECT e FROM Evaluacion e WHERE e.grupo.idGrupo = :idGrupo ORDER BY e.periodoEvaluacion.periodo, e.tipoEvaluacion.tipoEvaluacion, e.numeroEvaluacion")
     List<Evaluacion> findByIdGrupoOrderByPeriodo(@Param("idGrupo") Long idGrupo);
 
+    java.util.Optional<Evaluacion> findByGrupo_IdGrupoAndTipoEvaluacion_IdTipoEvaluacionAndNumeroEvaluacion(
+            Long idGrupo, Long idTipoEvaluacion, Integer numeroEvaluacion);
+
     @Query("SELECT e FROM Evaluacion e WHERE DATE(e.fechaFin) = :fechaTarget")
     List<Evaluacion> findEvaluacionesPorVencerExactamente(@Param("fechaTarget") LocalDate fechaTarget);
 

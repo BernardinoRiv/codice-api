@@ -473,6 +473,7 @@ public class AdmisionOnlineService {
         ConceptoCobro arancelMatricula = arancelesNivel.stream()
                 .filter(c -> nombreTipo(c).contains("matricul"))
                 .filter(c -> correspondeNivel(c, posgrado))
+                .filter(c -> !nombreTipo(c).contains("tesis"))
                 .findFirst().orElseThrow(() -> new IllegalStateException("No hay arancel de matrícula configurado para el nivel " + carreraSede.getCarrera().getNivel().getNivel()));
 
         ConceptoCobro arancelCuota = arancelesNivel.stream()
@@ -578,22 +579,35 @@ public class AdmisionOnlineService {
             estudianteRepository.save(estudiante);
             List<ComprobantePagoDTO.DetalleComprobanteDTO> detalleBeca = new ArrayList<>();
             List<CargoEstudiante> cargosBeca = cargoEstudianteRepository.findByMatricula_IdMatricula(matricula.getIdMatricula());
-            for (CargoEstudiante cargo : cargosBeca) detalleBeca.add(ComprobantePagoDTO.DetalleComprobanteDTO.builder()
-                    .concepto(cargo.getConceptoCobro().getTipoCobro().getTipoCobro())
-                    .montoBase(cargo.getMontoBase()).montoDescuento(cargo.getMontoDescuento()).montoTotal(cargo.getMontoTotal()).build());
-            byte[] pdfBeca = comprobantePdfService.generarComprobanteBecaCompleta(
-                    persona.getNombres() + " " + persona.getApellidos(), estudiante.getCarnet(),
-                    carreraSede.getCarrera().getNombreCarrera(), cicloMatricula.getCodigoCiclo(), detalleBeca);
+            BigDecimal subtotalBeca = BigDecimal.ZERO;
+            BigDecimal descuentoBeca = BigDecimal.ZERO;
+            for (CargoEstudiante cargo : cargosBeca) {
+                BigDecimal base = cargo.getMontoBase();
+                detalleBeca.add(ComprobantePagoDTO.DetalleComprobanteDTO.builder()
+                        .concepto(cargo.getConceptoCobro().getTipoCobro().getTipoCobro())
+                        .montoBase(base).montoDescuento(base).montoTotal(BigDecimal.ZERO).build());
+                subtotalBeca = subtotalBeca.add(base);
+                descuentoBeca = descuentoBeca.add(base);
+            }
             String destino = persona.getCorreoPersonal();
             String nombre = persona.getNombres() + " " + persona.getApellidos();
             String carnet = estudiante.getCarnet();
             String correoInstitucional = usuario.getCorreoInstitucional();
+            String claveTemporal = carnet + "Uma*";
+            String numeroFactura = "BECA-100-" + matricula.getIdMatricula();
+            ComprobantePagoDTO comprobanteBeca = ComprobantePagoDTO.builder()
+                    .numeroFactura(numeroFactura).fechaEmision(LocalDateTime.now())
+                    .nombreCompleto(nombre).carnetEstudiante(carnet).correoEstudiante(destino)
+                    .subtotal(subtotalBeca).descuento(descuentoBeca).totalCobrado(BigDecimal.ZERO)
+                    .cajeroResponsable("ADJUDICACIÓN DE BECA INSTITUCIONAL 100%")
+                    .detalles(detalleBeca).build();
+            byte[] pdfBeca = comprobantePdfService.generarPdf(comprobanteBeca);
             if (destino != null && !destino.isBlank()) {
                 org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                         new org.springframework.transaction.support.TransactionSynchronization() {
                             @Override public void afterCommit() {
                                 emailService.enviarCredencialesYComprobanteBeca(destino, nombre, carnet,
-                                        correoInstitucional, carnet + "Uma*", pdfBeca);
+                                        correoInstitucional, claveTemporal, numeroFactura, pdfBeca);
                             }
                         });
             }
@@ -716,6 +730,7 @@ public class AdmisionOnlineService {
         String tipo = nombreTipo(concepto);
         boolean conceptoPosgrado = tipo.contains("maestr") || tipo.contains("posgrado") || tipo.contains("postgrado");
         boolean conceptoPregrado = tipo.contains("pregrado");
+        if (tipo.contains("tesis")) return false;
         return posgrado ? conceptoPosgrado : conceptoPregrado && !conceptoPosgrado;
     }
 
